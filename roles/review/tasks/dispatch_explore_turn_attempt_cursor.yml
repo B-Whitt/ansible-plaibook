@@ -12,6 +12,8 @@
 # filesystem tool name; task is required to spawn the named explore
 # subagent. Do not invent grep/glob ids the module has not measured.
 # [mcp] / [read, mcp] without task hides Subagent; do not revert.
+# Parent prompt must not take the explore job. Telling the parent to
+# "Decide whether..." let luna fabricate report_findings without Task.
 #
 # prompt_nonce canary: same residual gap as dispatch_lens_cursor.yml.
 # Matching the nonce rules out "the explore subagent never ran." It
@@ -31,12 +33,11 @@
   aknochow.cursor.agent:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
-      Spawn the explore subagent with the Task / Subagent tool. Decide
-      whether this change needs checking against the rest of the repo
-      (the explore subagent may use read), then call report_findings
-      with any additional findings (or an empty list if none). You must
-      call the Task / Subagent tool -- explore is not itself a tool.
-      You must call report_findings.
+      Spawn the explore subagent with the Task / Subagent tool, then
+      call report_findings with that subagent's findings (or an empty
+      list if none). You must call the Task / Subagent tool -- explore
+      is not itself a tool. Do not explore or decide yourself. You must
+      call report_findings.
     model: "{{ review_explore_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"

@@ -20,6 +20,7 @@
 #
 # tools: [read, mcp, task] -- task is required to spawn the named
 # verify subagent. [read, mcp] without task hides Subagent; do not revert.
+# Parent prompt must not take the verify job ("Try to refute...").
 
 - name: "Cursor: show this verify turn's request configuration"
   ansible.builtin.debug:
@@ -35,11 +36,11 @@
   aknochow.cursor.agent:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
-      Spawn the verify subagent with the Task / Subagent tool. Try to
-      refute the finding described in its instructions (the verify
-      subagent may use read), then call report_verdict exactly once.
+      Spawn the verify subagent with the Task / Subagent tool, then
+      call report_verdict exactly once with that subagent's verdict.
       You must call the Task / Subagent tool -- verify is not itself a
-      tool. You must call report_verdict.
+      tool. Do not refute the finding yourself. You must call
+      report_verdict.
     model: "{{ review_verify_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"
