@@ -7,13 +7,13 @@
 # explore text is the explore subagent's prompt; report_findings is a
 # structured_tool with explore_findings_schema.
 #
-# tools: [read, mcp, task] -- mcp is required for structured_tool
-# (tools=[] hides custom tools); read is the collection's documented
-# filesystem tool name; task is required to spawn the named explore
-# subagent. Do not invent grep/glob ids the module has not measured.
-# [mcp] / [read, mcp] without task hides Subagent; do not revert.
-# Parent prompt must not take the explore job. Telling the parent to
-# "Decide whether..." let luna fabricate report_findings without Task.
+# tools: [mcp, task] -- same parent allowlist as the working
+# security/review lenses. mcp is required for structured_tool;
+# task is required to spawn the named explore subagent.
+# Do not offer read on the parent: luna then explores itself and
+# fabricates report_findings without Task (arms E/F). AgentDefinition
+# has no tools field; the spawned subagent uses the default
+# filesystem tools. Do not revert to [read, mcp] or [read, mcp, task].
 #
 # prompt_nonce canary: same residual gap as dispatch_lens_cursor.yml.
 # Matching the nonce rules out "the explore subagent never ran." It
@@ -26,7 +26,7 @@
       - "effort: {{ review_cursor_effort }}"
       - "cwd: {{ review_repo_path }}"
       - "setting_sources: []"
-      - "tools: [read, mcp, task]"
+      - "tools: [mcp, task]"
       - "structured_tool: report_findings (explore_findings_schema)"
 
 - name: "Cursor: dispatch the explore agent"
@@ -42,7 +42,7 @@
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"
     setting_sources: []
-    tools: [read, mcp, task]
+    tools: [mcp, task]
     agents:
       explore:
         description: Explore beyond the diff with trusted instructions.

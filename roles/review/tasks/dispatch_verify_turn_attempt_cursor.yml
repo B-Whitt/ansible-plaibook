@@ -18,9 +18,11 @@
 # Matching the nonce rules out "the verify subagent never ran." It
 # does not rule out "the subagent ran and the parent dropped findings."
 #
-# tools: [read, mcp, task] -- task is required to spawn the named
-# verify subagent. [read, mcp] without task hides Subagent; do not revert.
-# Parent prompt must not take the verify job ("Try to refute...").
+# tools: [mcp, task] -- same parent allowlist as the working
+# security/review lenses. Do not offer read on the parent: luna then
+# verifies itself and fabricates report_verdict without Task.
+# AgentDefinition has no tools field; the spawned subagent uses the
+# default filesystem tools. Do not revert to [read, mcp, task].
 
 - name: "Cursor: show this verify turn's request configuration"
   ansible.builtin.debug:
@@ -29,7 +31,7 @@
       - "effort: {{ review_cursor_effort }}"
       - "cwd: {{ review_repo_path }}"
       - "setting_sources: []"
-      - "tools: [read, mcp, task]"
+      - "tools: [mcp, task]"
       - "structured_tool: report_verdict (verify_verdict_schema)"
 
 - name: "Cursor: dispatch the verify agent"
@@ -45,7 +47,7 @@
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"
     setting_sources: []
-    tools: [read, mcp, task]
+    tools: [mcp, task]
     agents:
       verify:
         description: Adversarial single-finding verifier with trusted instructions.
