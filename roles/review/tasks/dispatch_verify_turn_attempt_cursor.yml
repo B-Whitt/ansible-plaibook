@@ -17,6 +17,9 @@
 # prompt_nonce canary: same residual gap as dispatch_lens_cursor.yml.
 # Matching the nonce rules out "the verify subagent never ran." It
 # does not rule out "the subagent ran and the parent dropped findings."
+#
+# tools: [read, mcp, task] -- task is required to spawn the named
+# verify subagent. [read, mcp] without task hides Subagent; do not revert.
 
 - name: "Cursor: show this verify turn's request configuration"
   ansible.builtin.debug:
@@ -25,21 +28,23 @@
       - "effort: {{ review_cursor_effort }}"
       - "cwd: {{ review_repo_path }}"
       - "setting_sources: []"
-      - "tools: [read, mcp]"
+      - "tools: [read, mcp, task]"
       - "structured_tool: report_verdict (verify_verdict_schema)"
 
 - name: "Cursor: dispatch the verify agent"
   aknochow.cursor.agent:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
-      Use the verify agent. Try to refute the finding described in its
-      instructions using read, then call report_verdict exactly once.
-      You must call report_verdict.
+      Spawn the verify subagent with the Task / Subagent tool. Try to
+      refute the finding described in its instructions (the verify
+      subagent may use read), then call report_verdict exactly once.
+      You must call the Task / Subagent tool -- verify is not itself a
+      tool. You must call report_verdict.
     model: "{{ review_verify_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"
     setting_sources: []
-    tools: [read, mcp]
+    tools: [read, mcp, task]
     agents:
       verify:
         description: Adversarial single-finding verifier with trusted instructions.

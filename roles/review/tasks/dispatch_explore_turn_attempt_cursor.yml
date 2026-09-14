@@ -7,9 +7,11 @@
 # explore text is the explore subagent's prompt; report_findings is a
 # structured_tool with explore_findings_schema.
 #
-# tools: [read, mcp] -- mcp is required for structured_tool (tools=[]
-# hides custom tools); read is the collection's documented filesystem
-# tool name. Do not invent grep/glob ids the module has not measured.
+# tools: [read, mcp, task] -- mcp is required for structured_tool
+# (tools=[] hides custom tools); read is the collection's documented
+# filesystem tool name; task is required to spawn the named explore
+# subagent. Do not invent grep/glob ids the module has not measured.
+# [mcp] / [read, mcp] without task hides Subagent; do not revert.
 #
 # prompt_nonce canary: same residual gap as dispatch_lens_cursor.yml.
 # Matching the nonce rules out "the explore subagent never ran." It
@@ -22,22 +24,24 @@
       - "effort: {{ review_cursor_effort }}"
       - "cwd: {{ review_repo_path }}"
       - "setting_sources: []"
-      - "tools: [read, mcp]"
+      - "tools: [read, mcp, task]"
       - "structured_tool: report_findings (explore_findings_schema)"
 
 - name: "Cursor: dispatch the explore agent"
   aknochow.cursor.agent:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
-      Use the explore agent. Decide whether this change needs checking
-      against the rest of the repo, using read if so, then call
-      report_findings with any additional findings (or an empty list
-      if none). You must call report_findings.
+      Spawn the explore subagent with the Task / Subagent tool. Decide
+      whether this change needs checking against the rest of the repo
+      (the explore subagent may use read), then call report_findings
+      with any additional findings (or an empty list if none). You must
+      call the Task / Subagent tool -- explore is not itself a tool.
+      You must call report_findings.
     model: "{{ review_explore_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"
     setting_sources: []
-    tools: [read, mcp]
+    tools: [read, mcp, task]
     agents:
       explore:
         description: Explore beyond the diff with trusted instructions.

@@ -157,14 +157,16 @@
   aknochow.cursor.agent:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
-      Use the continuity_audit agent. Assess the continuity claim
-      described in its instructions, then call report_continuity_audit
-      exactly once. You must call report_continuity_audit.
+      Spawn the continuity_audit subagent with the Task / Subagent
+      tool, then call report_continuity_audit exactly once with that
+      subagent's assessment. You must call the Task / Subagent tool --
+      continuity_audit is not itself a tool. You must call
+      report_continuity_audit.
     model: "{{ review_verify_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"
     setting_sources: []
-    tools: [mcp]
+    tools: [mcp, task]
     agents:
       continuity_audit:
         description: Independent continuity-claim auditor with trusted instructions.

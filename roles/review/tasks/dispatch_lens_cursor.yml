@@ -23,10 +23,17 @@
 # - Do not print .text in fail_msg (lens drafts can quote secrets).
 # - cwd is review_repo_path; setting_sources is [] so the repo under
 #   review does not leak CLAUDE.md / Cursor rules into the session.
-# - tools: [mcp] -- tools=[] hides custom tools (collection + spike).
-#   This allowlist does not include task; SDK docs say disallowing
-#   task prevents subagents. Do not "fix" that here — the nonce
-#   must fail closed first. Invoking the lens is a separate change.
+# - tools: [mcp, task] -- mcp is required for structured_tool
+#   (tools=[] hides custom tools). task is required to spawn named
+#   agents (SDK docs: disallowing task prevents subagents). [mcp]
+#   alone hides task / Subagent; luna then fabricates findings: []
+#   via GetDynamicTools and the nonce assert is what makes that fail
+#   closed. Do not "fix" this back to [mcp].
+# - Parent prompt must name the Task / Subagent tool and tell the
+#   parent to spawn the named agent, then call report_findings. Do
+#   not say "Use the X agent" as if X were a tool -- that is what
+#   sent luna into GetDynamicTools. Do not put the untrusted diff
+#   on the parent user prompt.
 #
 # Sets security_result/review_result in the SAME normalized shape
 # dispatch_lens_claude_cli.yml produces: .structured.{findings,scores},
@@ -40,7 +47,7 @@
       'effort: ' + review_cursor_effort,
       'cwd: ' + review_repo_path,
       'setting_sources: []',
-      'tools: [mcp]',
+      'tools: [mcp, task]',
       'structured_tool: report_findings (security_findings_schema)',
       '',
       '--- subagent prompt ---',
@@ -50,13 +57,15 @@
   aknochow.cursor.agent:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
-      Use the security_lens agent, then call report_findings with its
-      findings and scores. You must call report_findings.
+      Spawn the security_lens subagent with the Task / Subagent tool,
+      then call report_findings with that subagent's findings and
+      scores. You must call the Task / Subagent tool -- security_lens
+      is not itself a tool. You must call report_findings.
     model: "{{ review_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"
     setting_sources: []
-    tools: [mcp]
+    tools: [mcp, task]
     agents:
       security_lens:
         description: Security review lens with trusted instructions.
@@ -74,7 +83,7 @@
       'effort: ' + review_cursor_effort,
       'cwd: ' + review_repo_path,
       'setting_sources: []',
-      'tools: [mcp]',
+      'tools: [mcp, task]',
       'structured_tool: report_findings (review_findings_schema)',
       '',
       '--- subagent prompt ---',
@@ -84,13 +93,15 @@
   aknochow.cursor.agent:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
-      Use the review_lens agent, then call report_findings with its
-      findings and scores. You must call report_findings.
+      Spawn the review_lens subagent with the Task / Subagent tool,
+      then call report_findings with that subagent's findings and
+      scores. You must call the Task / Subagent tool -- review_lens
+      is not itself a tool. You must call report_findings.
     model: "{{ review_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"
     setting_sources: []
-    tools: [mcp]
+    tools: [mcp, task]
     agents:
       review_lens:
         description: Functionality and quality review lens with trusted instructions.
