@@ -23,6 +23,9 @@
 # verifies itself and fabricates report_verdict without Task.
 # AgentDefinition has no tools field; the spawned subagent uses the
 # default filesystem tools. Do not revert to [read, mcp, task].
+#
+# Agent name is verify_lens, not verify -- same collision as the
+# explore parent named explore. Do not rename this back to verify.
 
 - name: "Cursor: show this verify turn's request configuration"
   ansible.builtin.debug:
@@ -38,10 +41,13 @@
   aknochow.cursor.agent:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
-      Spawn the verify subagent with the Task / Subagent tool, then
-      call report_verdict exactly once with that subagent's verdict.
-      You must call the Task / Subagent tool -- verify is not itself a
-      tool. Do not refute the finding yourself. You must call
+      Spawn the verify_lens subagent with the Task / Subagent tool,
+      then call report_verdict exactly once with that subagent's
+      verdict and prompt_nonce. You must call the Task / Subagent
+      tool -- verify_lens is not itself a tool. Do not refute the
+      finding yourself. Do not call report_verdict until the Task /
+      Subagent tool has returned. Copy prompt_nonce from that
+      subagent's result; do not invent it. You must call
       report_verdict.
     model: "{{ review_verify_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
@@ -49,7 +55,7 @@
     setting_sources: []
     tools: [mcp, task]
     agents:
-      verify:
+      verify_lens:
         description: Adversarial single-finding verifier with trusted instructions.
         prompt: "{{ verify_system_prompt }}"
     structured_tool:

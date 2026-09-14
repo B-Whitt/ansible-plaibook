@@ -22,6 +22,25 @@
     review_extra_notes: ""
     review_context: ""
     prior_review_md: ""
+    existing_findings: []
+    prior_round_findings: []
+    finding:
+      lens: Security
+      severity: Major
+      file: app.py
+      line: 1
+      description: test finding
+      evidence: x = 1
+      fix: don't
+    new_finding:
+      file: app.py
+      line: 1
+      description: test finding
+    claimed_prior:
+      file: app.py
+      line: 1
+      description: prior finding
+    claiming_rationale: same location
     full_diff: |
       diff --git a/app.py b/app.py
       --- a/app.py
@@ -42,10 +61,12 @@
           - "'prompt_nonce' in review_findings_schema.required"
           - "'prompt_nonce' in explore_findings_schema.required"
           - "'prompt_nonce' in verify_verdict_schema.required"
+          - "'prompt_nonce' in continuity_audit_schema.required"
           - security_findings_schema.additionalProperties == false
           - review_findings_schema.additionalProperties == false
+          - continuity_audit_schema.additionalProperties == false
         fail_msg: "prompt_nonce must be a required schema field (additionalProperties is false)."
-        success_msg: "prompt_nonce is required on security/review/explore/verify schemas."
+        success_msg: "prompt_nonce is required on security/review/explore/verify/continuity schemas."
 
     - name: Render the Security lens prompt with the canary
       ansible.builtin.set_fact:
@@ -55,14 +76,32 @@
       ansible.builtin.set_fact:
         _rendered_review_prompt: "{{ lookup('template', playbook_dir + '/../roles/review/templates/review_agent_prompt.j2') }}"
 
-    - name: Assert the nonce is in the trusted lens prompts
+    - name: Render the Explore prompt with the canary
+      ansible.builtin.set_fact:
+        _rendered_explore_prompt: "{{ lookup('template', playbook_dir + '/../roles/review/templates/explore_agent_prompt.j2') }}"
+
+    - name: Render the Verify prompt with the canary
+      ansible.builtin.set_fact:
+        _rendered_verify_prompt: "{{ lookup('template', playbook_dir + '/../roles/review/templates/verify_agent_prompt.j2') }}"
+
+    - name: Render the continuity-audit prompt with the canary
+      ansible.builtin.set_fact:
+        _rendered_continuity_prompt: "{{ lookup('template', playbook_dir + '/../roles/review/templates/verify_continuity_audit_prompt.j2') }}"
+
+    - name: Assert the nonce is in the trusted Cursor subagent prompts
       ansible.builtin.assert:
         that:
           - review_prompt_nonce in _rendered_security_prompt
           - review_prompt_nonce in _rendered_review_prompt
+          - review_prompt_nonce in _rendered_explore_prompt
+          - review_prompt_nonce in _rendered_verify_prompt
+          - review_prompt_nonce in _rendered_continuity_prompt
           - "'Dispatch canary' in _rendered_security_prompt"
-        fail_msg: "Expected the per-run nonce in the trusted lens prompts."
-        success_msg: "Nonce is embedded in the Security and Review lens prompts."
+          - "'Dispatch canary' in _rendered_explore_prompt"
+          - "'Dispatch canary' in _rendered_verify_prompt"
+          - "'Dispatch canary' in _rendered_continuity_prompt"
+        fail_msg: "Expected the per-run nonce in the trusted Security/Review/Explore/Verify/continuity prompts."
+        success_msg: "Nonce is embedded in the Security, Review, Explore, Verify, and continuity-audit prompts."
 
     - name: Matching nonce must pass
       ansible.builtin.include_role:

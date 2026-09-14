@@ -157,18 +157,21 @@
   aknochow.cursor.agent:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
-      Spawn the continuity_audit subagent with the Task / Subagent
-      tool, then call report_continuity_audit exactly once with that
-      subagent's assessment. You must call the Task / Subagent tool --
-      continuity_audit is not itself a tool. You must call
-      report_continuity_audit.
+      Spawn the continuity_audit_lens subagent with the Task /
+      Subagent tool, then call report_continuity_audit exactly once
+      with that subagent's assessment and prompt_nonce. You must call
+      the Task / Subagent tool -- continuity_audit_lens is not itself
+      a tool. Do not judge the claim yourself. Do not call
+      report_continuity_audit until the Task / Subagent tool has
+      returned. Copy prompt_nonce from that subagent's result; do not
+      invent it. You must call report_continuity_audit.
     model: "{{ review_verify_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"
     setting_sources: []
     tools: [mcp, task]
     agents:
-      continuity_audit:
+      continuity_audit_lens:
         description: Independent continuity-claim auditor with trusted instructions.
         prompt: "{{ _continuity_audit_prompt }}"
     structured_tool:
@@ -176,6 +179,16 @@
       description: Report whether a continuity claim between two findings is plausible.
       input_schema: "{{ continuity_audit_schema }}"
   register: _continuity_audit_cursor_result
+
+- name: "Cursor: fail closed if the continuity audit fabricated structured output"
+  when:
+    - agent_family == 'cursor'
+    - _continuity_audit_cursor_result is defined
+    - _continuity_audit_cursor_result.structured is defined
+  ansible.builtin.include_tasks: assert_cursor_prompt_nonce.yml
+  vars:
+    cursor_nonce_structured: "{{ _continuity_audit_cursor_result.structured }}"
+    cursor_nonce_lens_label: "Continuity audit"
 
 - name: "Cursor: normalize the continuity audit result"
   when: agent_family == 'cursor'

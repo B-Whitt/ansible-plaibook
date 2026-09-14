@@ -281,4 +281,5 @@ continuity_audit_schema:
       enum: [plausible, implausible]
     rationale:
       type: string
-  required: [verdict, rationale]
+    prompt_nonce: { type: string }
+  required: [verdict, rationale, prompt_nonce]

@@ -9,15 +9,22 @@
 #
 # tools: [mcp, task] -- same parent allowlist as the working
 # security/review lenses. mcp is required for structured_tool;
-# task is required to spawn the named explore subagent.
+# task is required to spawn the named explore_lens subagent.
 # Do not offer read on the parent: luna then explores itself and
 # fabricates report_findings without Task (arms E/F). AgentDefinition
 # has no tools field; the spawned subagent uses the default
 # filesystem tools. Do not revert to [read, mcp] or [read, mcp, task].
 #
+# Agent name is explore_lens, not explore. security_lens / review_lens
+# spawn and relay the nonce; a parent named explore files
+# report_findings without Task. Do not rename this back to explore.
+# Do not tell the parent that an empty findings list is an allowed
+# skip -- that is the subagent's job after Task returns.
+#
 # prompt_nonce canary: same residual gap as dispatch_lens_cursor.yml.
-# Matching the nonce rules out "the explore subagent never ran." It
-# does not rule out "the subagent ran and the parent dropped findings."
+# Matching the nonce rules out "the explore_lens subagent never ran."
+# It does not rule out "the subagent ran and the parent dropped
+# findings."
 
 - name: "Cursor: show this explore turn's request configuration"
   ansible.builtin.debug:
@@ -33,18 +40,21 @@
   aknochow.cursor.agent:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
-      Spawn the explore subagent with the Task / Subagent tool, then
-      call report_findings with that subagent's findings (or an empty
-      list if none). You must call the Task / Subagent tool -- explore
-      is not itself a tool. Do not explore or decide yourself. You must
-      call report_findings.
+      Spawn the explore_lens subagent with the Task / Subagent tool,
+      then call report_findings with that subagent's findings and
+      prompt_nonce. You must call the Task / Subagent tool --
+      explore_lens is not itself a tool. Do not explore, search, or
+      decide yourself. Do not call report_findings until the Task /
+      Subagent tool has returned. Copy prompt_nonce from that
+      subagent's result; do not invent it. You must call
+      report_findings.
     model: "{{ review_explore_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"
     setting_sources: []
     tools: [mcp, task]
     agents:
-      explore:
+      explore_lens:
         description: Explore beyond the diff with trusted instructions.
         prompt: "{{ explore_system_prompt }}"
     structured_tool:
