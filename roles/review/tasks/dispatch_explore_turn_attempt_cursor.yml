@@ -11,7 +11,7 @@
 # security/review lenses. mcp is required for structured_tool;
 # task is required to spawn the named explore_lens subagent.
 # Do not offer read on the parent: luna then explores itself and
-# fabricates report_findings without Task (arms E/F). AgentDefinition
+# fabricates report_findings without Task. AgentDefinition
 # has no tools field; the spawned subagent uses the default
 # filesystem tools. Do not revert to [read, mcp] or [read, mcp, task].
 #
