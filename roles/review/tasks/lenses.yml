@@ -82,6 +82,9 @@
       {{ domain_steering_parsed | default([]) | selectattr('target', 'search', 'both agents|Review Agent')
          | map(attribute='prose') | list }}
 
+- name: Generate a per-run prompt nonce for the dispatch canary
+  ansible.builtin.include_tasks: generate_prompt_nonce.yml
+
 - name: Render the Security agent system prompt
   ansible.builtin.set_fact:
     security_system_prompt: "{{ lookup('template', role_path + '/templates/security_agent_prompt.j2') }}"

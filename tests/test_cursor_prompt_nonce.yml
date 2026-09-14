@@ -1,0 +1,103 @@
+---
+# Deterministic tests for the Cursor dispatch prompt_nonce canary.
+# No live model: the nonce is a string compare. Covers (1) the canary
+# lands in the trusted lens prompt, (2) matching nonce passes, (3)
+# mismatch fails closed naming fabrication and not printing .text.
+#
+# Usage:
+#   ansible-playbook tests/test_cursor_prompt_nonce.yml
+
+- name: "Test prompt_nonce canary: schema, template, pass, fail-closed"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    severity_points:
+      Critical: 20
+      Major: 10
+      Minor: 5
+      Nit: 0
+    domain_steering_blocks: []
+    review_extra_notes: ""
+    review_context: ""
+    prior_review_md: ""
+    full_diff: |
+      diff --git a/app.py b/app.py
+      --- a/app.py
+      +++ b/app.py
+      @@ -1 +1,2 @@
+      +x = 1
+    review_prompt_nonce: "AbCdEfGh12345678"
+
+  tasks:
+    - name: Load the review role vars (schemas)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../roles/review/vars/main.yml"
+
+    - name: Assert prompt_nonce is required on the shared schemas
+      ansible.builtin.assert:
+        that:
+          - "'prompt_nonce' in security_findings_schema.required"
+          - "'prompt_nonce' in review_findings_schema.required"
+          - "'prompt_nonce' in explore_findings_schema.required"
+          - "'prompt_nonce' in verify_verdict_schema.required"
+          - security_findings_schema.additionalProperties == false
+          - review_findings_schema.additionalProperties == false
+        fail_msg: "prompt_nonce must be a required schema field (additionalProperties is false)."
+        success_msg: "prompt_nonce is required on security/review/explore/verify schemas."
+
+    - name: Render the Security lens prompt with the canary
+      ansible.builtin.set_fact:
+        _rendered_security_prompt: "{{ lookup('template', playbook_dir + '/../roles/review/templates/security_agent_prompt.j2') }}"
+
+    - name: Render the Review lens prompt with the canary
+      ansible.builtin.set_fact:
+        _rendered_review_prompt: "{{ lookup('template', playbook_dir + '/../roles/review/templates/review_agent_prompt.j2') }}"
+
+    - name: Assert the nonce is in the trusted lens prompts
+      ansible.builtin.assert:
+        that:
+          - review_prompt_nonce in _rendered_security_prompt
+          - review_prompt_nonce in _rendered_review_prompt
+          - "'Dispatch canary' in _rendered_security_prompt"
+        fail_msg: "Expected the per-run nonce in the trusted lens prompts."
+        success_msg: "Nonce is embedded in the Security and Review lens prompts."
+
+    - name: Matching nonce must pass
+      ansible.builtin.include_role:
+        name: review
+        tasks_from: assert_cursor_prompt_nonce
+      vars:
+        cursor_nonce_structured:
+          findings: []
+          scores: { security: 10 }
+          prompt_nonce: "{{ review_prompt_nonce }}"
+        cursor_nonce_lens_label: "Security lens"
+
+    - name: Mismatch must fail closed, name fabrication, and not print .text
+      block:
+        - name: Assert a fabricated findings:[] with the wrong nonce
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: assert_cursor_prompt_nonce
+          vars:
+            cursor_nonce_structured:
+              findings: []
+              scores: { security: 10 }
+              prompt_nonce: "definitelyNotTheNonce"
+            cursor_nonce_lens_label: "Security lens"
+
+        - name: Fail if the fabricated nonce was accepted
+          ansible.builtin.fail:
+            msg: "Expected the prompt_nonce mismatch to fail closed."
+      rescue:
+        - name: Confirm the fail_msg names fabrication and omits .text
+          ansible.builtin.assert:
+            that:
+              - "'fabricat' in (ansible_failed_result.msg | default('') | lower)"
+              - "'.text' not in (ansible_failed_result.msg | default(''))"
+            fail_msg: >-
+              Expected a fabrication-named fail_msg without .text.
+              Got: {{ ansible_failed_result.msg | default('') }}
+            success_msg: "Mismatch fails closed naming fabrication, without printing .text."

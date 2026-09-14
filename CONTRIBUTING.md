@@ -50,9 +50,13 @@ automatically. Verify these yourself before pushing:
 
 - **Credentials, tokens, API keys**: covered by `ai-guardian`'s
   `secret_scanning` (gitleaks + built-in patterns), which runs as part
-  of every review (`roles/review/tasks/guardian_scan.yml`). If you have
-  `ai-guardian` installed locally, `ai-guardian scan --diff` before
-  pushing catches most of this category automatically.
+  of every review (`roles/review/tasks/guardian_scan.yml`) **when the
+  binary is installed**. Unsandboxed reviews (`use_sandbox=false`) do
+  not self-install; a missing binary is reported as
+  `ai-guardian not installed` and the scan is skipped — treat that as
+  "not scanned," not "nothing found." If you have `ai-guardian`
+  installed locally, `ai-guardian scan --diff` before pushing catches
+  most of this category automatically.
 - **Internal hostnames, project IDs, tool/service names**: **NOT**
   covered by `ai-guardian`. A hostname or GCP project ID isn't a
   "secret" in gitleaks' pattern sense, so it won't fire that scan even

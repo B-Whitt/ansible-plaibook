@@ -13,6 +13,10 @@
 # "dispatch any other tool calls" step sees an empty other-tools list
 # and flips review_verify_done on the first outer turn when a verdict
 # lands.
+#
+# prompt_nonce canary: same residual gap as dispatch_lens_cursor.yml.
+# Matching the nonce rules out "the verify subagent never ran." It
+# does not rule out "the subagent ran and the parent dropped findings."
 
 - name: "Cursor: show this verify turn's request configuration"
   ansible.builtin.debug:
@@ -73,6 +77,13 @@
       tool_calls: "{{ _cursor_verify_report_call }}"
       stop_reason: "{{ 'tool_use' if _cursor_verify_raw.structured is defined else (_cursor_verify_raw.status | default('unknown')) }}"
       usage: "{{ _cursor_verify_raw.usage_normalized }}"
+
+- name: "Cursor: fail closed if this attempt fabricated report_verdict"
+  when: _cursor_verify_raw.structured is defined
+  ansible.builtin.include_tasks: assert_cursor_prompt_nonce.yml
+  vars:
+    cursor_nonce_structured: "{{ _cursor_verify_raw.structured }}"
+    cursor_nonce_lens_label: "Verify"
 
 - name: "Cursor: check whether this attempt produced a structured verdict"
   ansible.builtin.set_fact:

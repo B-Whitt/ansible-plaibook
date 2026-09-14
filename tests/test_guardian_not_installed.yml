@@ -1,0 +1,60 @@
+---
+# Inverse of tests/test_guardian_scan.yml: that file end_play's when
+# ai-guardian is missing. This file is the missing-binary path — it
+# runs in environments where the scan is silently lost today
+# (unsandboxed, use_sandbox=false, no self-install).
+#
+# If ai-guardian IS on PATH, skip rather than fail: this playbook is
+# asserting the not-installed skip_reason, not re-testing a live scan.
+#
+# Usage:
+#   ansible-playbook tests/test_guardian_not_installed.yml
+
+- name: "Test guardian_scan.yml reports ai-guardian not installed"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    review_delegate_host: ""
+    review_full_diff: |
+      diff --git a/app.py b/app.py
+      index abc123..def456 100644
+      --- a/app.py
+      +++ b/app.py
+      @@ -1,2 +1,3 @@
+       def add(a, b):
+      +    return a + b
+    review_context: ""
+    review_guardian_scan_enabled: true
+
+  tasks:
+    - name: Check whether ai-guardian is actually on PATH
+      ansible.builtin.command:
+        argv: [sh, -c, "command -v ai-guardian"]
+      register: _guardian_binary_check
+      failed_when: false
+      changed_when: false
+
+    - name: Skip when the binary is present (this file tests the missing case)
+      ansible.builtin.meta: end_play
+      when: _guardian_binary_check.rc == 0
+
+    - name: Run guardian_scan.yml with ai-guardian absent (unsandboxed)
+      ansible.builtin.include_role:
+        name: review
+        tasks_from: guardian_scan.yml
+
+    - name: Assert the skip reason names the missing install, not a scan error
+      ansible.builtin.assert:
+        that:
+          - not (guardian_scan_available | bool)
+          - guardian_scan_skip_reason == "ai-guardian not installed"
+          - guardian_findings == []
+          - "'exited 2' not in guardian_scan_skip_reason"
+        fail_msg: >-
+          Expected skip_reason 'ai-guardian not installed' when the
+          binary is missing on an unsandboxed host. Got available=
+          {{ guardian_scan_available | default('undefined') }},
+          skip_reason={{ guardian_scan_skip_reason | default('undefined') }}
+        success_msg: "Missing ai-guardian is reported as not installed, not as scan exited 2."

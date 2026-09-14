@@ -1,0 +1,30 @@
+---
+# Fail closed when the Cursor parent fabricates structured output
+# without the named subagent running.
+#
+# The nonce lives in the subagent prompt (agents.*.prompt), not the
+# parent user message. A parent that never invoked the subagent cannot
+# produce it unless it copies from the billed agents.*.prompt — this
+# guard does not cover that residual gap, and it does not detect
+# "the subagent ran and the parent dropped its findings."
+#
+# Detects: the subagent never ran.
+# Does not detect: the subagent ran and the parent dropped its findings.
+#
+# Do not print .text (lens drafts can quote secrets).
+
+- name: "Cursor: fail closed if {{ cursor_nonce_lens_label }} structured output lacks the prompt nonce"
+  ansible.builtin.assert:
+    that:
+      - cursor_nonce_structured is defined
+      - cursor_nonce_structured.prompt_nonce | default('') == review_prompt_nonce
+    fail_msg: >-
+      {{ cursor_nonce_lens_label }} (agent_family=cursor) returned
+      structured output whose prompt_nonce does not match the per-run
+      canary. The named subagent almost certainly never ran; the parent
+      fabricated a completed review. This is dispatch fabrication, not
+      a clean review. The model's draft is NOT printed here.
+    success_msg: >-
+      {{ cursor_nonce_lens_label }} prompt_nonce matched the per-run
+      canary. Subagent-never-ran fabrication is ruled out.
+      Parent-dropped-findings is still unguarded.

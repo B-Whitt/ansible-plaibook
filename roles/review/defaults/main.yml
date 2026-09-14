@@ -493,6 +493,10 @@ review_structured_output_max_attempts: 3
 # review_explore_enabled/review_verify_enabled: set false on a host
 # without ai-guardian installed rather than let every review fail-open
 # silently on a missing binary with no visible signal either way.
+# Unsandboxed runs (use_sandbox=false / review_delegate_host empty)
+# never self-install; missing binary is reported as
+# "ai-guardian not installed" and the scan is skipped. Sandboxed runs
+# still self-install when the binary is absent from the scan host.
 review_guardian_scan_enabled: true
 # Fixed per-invocation overhead dominates cost regardless of content
 # size up to a real-world diff. This cap exists only to keep a
