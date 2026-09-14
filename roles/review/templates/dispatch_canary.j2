@@ -8,4 +8,19 @@ value, copied verbatim with no extra characters, whitespace, or quotes:
 {{ review_prompt_nonce }}
 
 Do not invent a different nonce. This field is required by the schema.
+{% if agent_family | default('') == 'cursor' and review_prompt_hmac_key | default('') | length > 0 %}
+
+Also set `prompt_attestation` to the lowercase hex HMAC-SHA256 of the
+UTF-8 bytes of the canonical JSON of every structured field EXCEPT
+`prompt_attestation`. Canonical JSON means object keys sorted
+alphabetically and separators `,` and `:` with no spaces (example:
+`{"a":1,"b":2}`). Decode the HMAC key from hex; do not HMAC the hex
+text as ASCII. HMAC key (hex):
+
+{{ review_prompt_hmac_key }}
+
+The dispatcher verifies this HMAC against the exact payload you submit.
+A copied nonce with different findings will not match. Do not invent a
+different attestation.
+{% endif %}
 {% endif %}

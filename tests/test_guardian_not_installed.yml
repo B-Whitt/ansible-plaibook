@@ -4,8 +4,9 @@
 # runs in environments where the scan is silently lost today
 # (unsandboxed, use_sandbox=false, no self-install).
 #
-# If ai-guardian IS on PATH, skip rather than fail: this playbook is
-# asserting the not-installed skip_reason, not re-testing a live scan.
+# Always runs: review_guardian_binary is set to a name that is never
+# installed, so a host with a real ai-guardian on PATH still exercises
+# this skip_reason. Do not end_play when the real binary is present.
 #
 # Usage:
 #   ansible-playbook tests/test_guardian_not_installed.yml
@@ -17,6 +18,7 @@
 
   vars:
     review_delegate_host: ""
+    review_guardian_binary: ai-guardian-missing-for-test
     review_full_diff: |
       diff --git a/app.py b/app.py
       index abc123..def456 100644
@@ -29,18 +31,7 @@
     review_guardian_scan_enabled: true
 
   tasks:
-    - name: Check whether ai-guardian is actually on PATH
-      ansible.builtin.command:
-        argv: [sh, -c, "command -v ai-guardian"]
-      register: _guardian_binary_check
-      failed_when: false
-      changed_when: false
-
-    - name: Skip when the binary is present (this file tests the missing case)
-      ansible.builtin.meta: end_play
-      when: _guardian_binary_check.rc == 0
-
-    - name: Run guardian_scan.yml with ai-guardian absent (unsandboxed)
+    - name: Run guardian_scan.yml with the scan binary absent (unsandboxed)
       ansible.builtin.include_role:
         name: review
         tasks_from: guardian_scan.yml

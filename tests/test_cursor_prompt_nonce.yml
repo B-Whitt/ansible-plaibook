@@ -1,8 +1,9 @@
 ---
-# Deterministic tests for the Cursor dispatch prompt_nonce canary.
-# No live model: the nonce is a string compare. Covers (1) the canary
-# lands in the trusted lens prompt, (2) matching nonce passes, (3)
-# mismatch fails closed naming fabrication and not printing .text.
+# Deterministic tests for the Cursor dispatch prompt_nonce canary and
+# payload-bound HMAC attestation. No live model. Covers (1) the canary
+# lands in the trusted lens prompt, (2) matching nonce+HMAC passes,
+# (3) mismatch / missing HMAC / stolen HMAC fail closed naming
+# fabrication and not printing .text or the HMAC key.
 #
 # Usage:
 #   ansible-playbook tests/test_cursor_prompt_nonce.yml
@@ -48,6 +49,8 @@
       @@ -1 +1,2 @@
       +x = 1
     review_prompt_nonce: "AbCdEfGh12345678"
+    review_prompt_hmac_key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    agent_family: cursor
 
   tasks:
     - name: Load the review role vars (schemas)
@@ -62,11 +65,14 @@
           - "'prompt_nonce' in explore_findings_schema.required"
           - "'prompt_nonce' in verify_verdict_schema.required"
           - "'prompt_nonce' in continuity_audit_schema.required"
+          - "'prompt_attestation' in security_findings_schema.properties"
+          - "'prompt_attestation' in explore_findings_schema.properties"
+          - "'prompt_attestation' in verify_verdict_schema.properties"
+          - "'prompt_attestation' in continuity_audit_schema.properties"
           - security_findings_schema.additionalProperties == false
-          - review_findings_schema.additionalProperties == false
-          - continuity_audit_schema.additionalProperties == false
-        fail_msg: "prompt_nonce must be a required schema field (additionalProperties is false)."
-        success_msg: "prompt_nonce is required on security/review/explore/verify/continuity schemas."
+          - "'prompt_attestation' not in security_findings_schema.required"
+        fail_msg: "prompt_nonce must be required; prompt_attestation is Cursor-only (optional on the schema)."
+        success_msg: "prompt_nonce is required; prompt_attestation is present and optional on shared schemas."
 
     - name: Render the Security lens prompt with the canary
       ansible.builtin.set_fact:
@@ -100,10 +106,13 @@
           - "'Dispatch canary' in _rendered_explore_prompt"
           - "'Dispatch canary' in _rendered_verify_prompt"
           - "'Dispatch canary' in _rendered_continuity_prompt"
-        fail_msg: "Expected the per-run nonce in the trusted Security/Review/Explore/Verify/continuity prompts."
-        success_msg: "Nonce is embedded in the Security, Review, Explore, Verify, and continuity-audit prompts."
+          - "'prompt_attestation' in _rendered_security_prompt"
+          - review_prompt_hmac_key in _rendered_security_prompt
+          - review_prompt_hmac_key in _rendered_explore_prompt
+        fail_msg: "Expected the per-run nonce and Cursor HMAC canary in the trusted prompts."
+        success_msg: "Nonce and HMAC canary are embedded in the Cursor subagent prompts."
 
-    - name: Matching nonce must pass
+    - name: Matching nonce and payload HMAC must pass
       ansible.builtin.include_role:
         name: review
         tasks_from: assert_cursor_prompt_nonce
@@ -112,7 +121,36 @@
           findings: []
           scores: { security: 10 }
           prompt_nonce: "{{ review_prompt_nonce }}"
+          prompt_attestation: "983793103fcc7fd1bfa9955d09fd72c1470449f6fa8ed74d4701a71fb858ecc6"
         cursor_nonce_lens_label: "Security lens"
+
+    - name: Copied nonce without HMAC must fail closed
+      block:
+        - name: Assert findings:[] with a matching nonce and no attestation
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: assert_cursor_prompt_nonce
+          vars:
+            cursor_nonce_structured:
+              findings: []
+              scores: { security: 10 }
+              prompt_nonce: "{{ review_prompt_nonce }}"
+            cursor_nonce_lens_label: "Security lens"
+
+        - name: Fail if a copied nonce without HMAC was accepted
+          ansible.builtin.fail:
+            msg: "Expected a missing prompt_attestation to fail closed."
+      rescue:
+        - name: Confirm missing HMAC fails closed without .text or the key
+          ansible.builtin.assert:
+            that:
+              - "'fabricat' in (ansible_failed_result.msg | default('') | lower)"
+              - "'.text' not in (ansible_failed_result.msg | default(''))"
+              - review_prompt_hmac_key not in (ansible_failed_result.msg | default(''))
+            fail_msg: >-
+              Expected a fabrication-named fail_msg without .text or the HMAC key.
+              Got: {{ ansible_failed_result.msg | default('') }}
+            success_msg: "Copied nonce without HMAC fails closed, without printing .text or the key."
 
     - name: Mismatch must fail closed, name fabrication, and not print .text
       block:
@@ -125,6 +163,7 @@
               findings: []
               scores: { security: 10 }
               prompt_nonce: "definitelyNotTheNonce"
+              prompt_attestation: "983793103fcc7fd1bfa9955d09fd72c1470449f6fa8ed74d4701a71fb858ecc6"
             cursor_nonce_lens_label: "Security lens"
 
         - name: Fail if the fabricated nonce was accepted
@@ -140,3 +179,41 @@
               Expected a fabrication-named fail_msg without .text.
               Got: {{ ansible_failed_result.msg | default('') }}
             success_msg: "Mismatch fails closed naming fabrication, without printing .text."
+
+    - name: HMAC of a different payload must fail closed (dropped findings)
+      block:
+        - name: Assert a copied nonce whose HMAC belongs to other findings
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: assert_cursor_prompt_nonce
+          vars:
+            cursor_nonce_structured:
+              findings:
+                - lens: Security
+                  file: app.py
+                  line: 1
+                  severity: Critical
+                  description: rce
+                  evidence: eval(x)
+                  confidence: HIGH
+                  fix: don't
+              scores: { security: 10 }
+              prompt_nonce: "{{ review_prompt_nonce }}"
+              prompt_attestation: "983793103fcc7fd1bfa9955d09fd72c1470449f6fa8ed74d4701a71fb858ecc6"
+            cursor_nonce_lens_label: "Security lens"
+
+        - name: Fail if a stolen HMAC for a different payload was accepted
+          ansible.builtin.fail:
+            msg: "Expected a payload-bound HMAC mismatch to fail closed."
+      rescue:
+        - name: Confirm dropped-findings HMAC fails closed without .text or the key
+          ansible.builtin.assert:
+            that:
+              - "'prompt_attestation' in (ansible_failed_result.msg | default('') | lower)"
+              - "'.text' not in (ansible_failed_result.msg | default(''))"
+              - review_prompt_hmac_key not in (ansible_failed_result.msg | default(''))
+              - "'eval(x)' not in (ansible_failed_result.msg | default(''))"
+            fail_msg: >-
+              Expected a payload HMAC fail_msg without .text, key, or evidence.
+              Got: {{ ansible_failed_result.msg | default('') }}
+            success_msg: "Dropped findings fail closed on HMAC mismatch, without printing .text or the key."

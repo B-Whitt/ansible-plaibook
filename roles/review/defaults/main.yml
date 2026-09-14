@@ -498,6 +498,9 @@ review_structured_output_max_attempts: 3
 # "ai-guardian not installed" and the scan is skipped. Sandboxed runs
 # still self-install when the binary is absent from the scan host.
 review_guardian_scan_enabled: true
+# Binary name on PATH. Tests override this to a name that is never
+# installed so the missing-binary path always runs.
+review_guardian_binary: ai-guardian
 # Fixed per-invocation overhead dominates cost regardless of content
 # size up to a real-world diff. This cap exists only to keep a
 # pathological diff from approaching OS argv-length limits

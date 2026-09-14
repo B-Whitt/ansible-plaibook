@@ -61,13 +61,17 @@ security_findings_schema:
       properties:
         security: { type: number }
       required: [security]
-    # Per-run canary. Detects "the Cursor subagent never ran" when the
+    # The nonce detects "the Cursor subagent never ran" when the
     # returned value mismatches the nonce embedded in the trusted lens
-    # prompt. Does not detect "the subagent ran and the parent dropped
-    # its findings." additionalProperties is false, so this is a schema
-    # edit, not an extra key. Placed before findings so the array stays
-    # last (avoids the array-then-sibling-object generation failure).
+    # prompt. prompt_attestation (optional here, required by Cursor
+    # dispatch) binds that nonce to this exact payload via HMAC.
+    # additionalProperties is false, so these are schema edits, not
+    # extra keys. Placed before findings so the array stays last
+    # (avoids the array-then-sibling-object generation failure).
     prompt_nonce: { type: string }
+    # Cursor dispatcher HMAC of the payload; optional on the schema so
+    # non-Cursor families may omit it. Cursor dispatch requires it.
+    prompt_attestation: { type: string }
     findings:
       type: array
       items: "{{ _finding_item }}"
@@ -85,6 +89,9 @@ review_findings_schema:
         quality: { type: number }
       required: [functionality, quality]
     prompt_nonce: { type: string }
+    # Cursor dispatcher HMAC of the payload; optional on the schema so
+    # non-Cursor families may omit it. Cursor dispatch requires it.
+    prompt_attestation: { type: string }
     findings:
       type: array
       items: "{{ _finding_item }}"
@@ -98,6 +105,7 @@ explore_findings_schema:
   additionalProperties: false
   properties:
     prompt_nonce: { type: string }
+    prompt_attestation: { type: string }
     findings:
       type: array
       items: "{{ _finding_item }}"
@@ -253,6 +261,7 @@ verify_verdict_schema:
         finding's full text. Write "N/A -- no prior round findings were
         shown" if continues_finding_id is null because none were shown.
     prompt_nonce: { type: string }
+    prompt_attestation: { type: string }
   required:
     - evidence_status
     - evidence
@@ -282,4 +291,5 @@ continuity_audit_schema:
     rationale:
       type: string
     prompt_nonce: { type: string }
+    prompt_attestation: { type: string }
   required: [verdict, rationale, prompt_nonce]

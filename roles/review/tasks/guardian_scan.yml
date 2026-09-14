@@ -43,6 +43,13 @@
       ansible.builtin.set_fact:
         _guardian_real_nl: "\n"
 
+    # Never pass omit through Jinja into delegate_to: Ansible can treat
+    # the omit placeholder as a hostname. Unsandboxed runs delegate to
+    # inventory_hostname (this play's localhost).
+    - name: Resolve the scan host without passing omit into delegate_to
+      ansible.builtin.set_fact:
+        _guardian_scan_host: "{{ review_delegate_host if (review_delegate_host | default('') | trim | length > 0) else inventory_hostname }}"
+
     # PR/MR description is untrusted input reaching the same lenses
     # (review_agent_prompt.j2/security_agent_prompt.j2 both render it),
     # same trust boundary as the diff itself -- scanned together in one
@@ -66,7 +73,7 @@
       ansible.builtin.tempfile:
         state: file
         suffix: "-ai-guardian-input.txt"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_input_file
 
@@ -85,7 +92,7 @@
         content: "{{ _guardian_scan_input }}"
         dest: "{{ _guardian_input_file.path }}"
         mode: "0600"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_input_write_result
 
@@ -98,7 +105,7 @@
       ansible.builtin.tempfile:
         state: file
         suffix: "-ai-guardian-findings.json"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_json_output_file
 
@@ -116,7 +123,7 @@
       ansible.builtin.file:
         path: "{{ _guardian_json_output_file.path }}"
         mode: "0600"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_json_output_chmod_result
 
@@ -134,8 +141,8 @@
     # that ran and errored.
     - name: Check whether ai-guardian is already present on the scan host
       ansible.builtin.command:
-        argv: [sh, -c, "command -v ai-guardian"]
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+        argv: [sh, -c, "command -v {{ review_guardian_binary }}"]
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_binary_precheck
       failed_when: false
@@ -275,7 +282,7 @@
           ansible.builtin.tempfile:
             state: directory
             suffix: "-ai-guardian-wheelhouse"
-          delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+          delegate_to: "{{ _guardian_scan_host }}"
           ignore_unreachable: true
           register: _guardian_sandbox_wheelhouse_dir
 
@@ -288,7 +295,7 @@
             src: "{{ _guardian_wheelhouse_dir.path }}/"
             dest: "{{ _guardian_sandbox_wheelhouse_dir.path }}/"
             mode: preserve
-          delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+          delegate_to: "{{ _guardian_scan_host }}"
           ignore_unreachable: true
           register: _guardian_copy_wheelhouse_result
 
@@ -318,7 +325,7 @@
               - "{{ _guardian_sandbox_wheelhouse_dir.path }}"
               - -r
               - "{{ _guardian_sandbox_wheelhouse_dir.path }}/guardian-ai-guardian-requirements.txt"
-          delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+          delegate_to: "{{ _guardian_scan_host }}"
           ignore_unreachable: true
           register: _guardian_install_result
           changed_when: true
@@ -354,7 +361,7 @@
               - "{{ _guardian_sandbox_wheelhouse_dir.path }}"
               - -r
               - "{{ _guardian_sandbox_wheelhouse_dir.path }}/guardian-requests-requirements.txt"
-          delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+          delegate_to: "{{ _guardian_scan_host }}"
           ignore_unreachable: true
           register: _guardian_install_requests_result
           changed_when: true
@@ -383,7 +390,7 @@
           ansible.builtin.file:
             path: "{{ _guardian_sandbox_wheelhouse_dir.path }}"
             state: absent
-          delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+          delegate_to: "{{ _guardian_scan_host }}"
           ignore_unreachable: true
           ignore_errors: true
           register: _guardian_sandbox_wheelhouse_cleanup_result
@@ -405,8 +412,8 @@
 
     - name: Re-check whether ai-guardian is present on the scan host
       ansible.builtin.command:
-        argv: [sh, -c, "command -v ai-guardian"]
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+        argv: [sh, -c, "command -v {{ review_guardian_binary }}"]
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_binary_postcheck
       failed_when: false
@@ -464,13 +471,13 @@
       when: _guardian_binary_present | bool
       ansible.builtin.command:
         argv:
-          - ai-guardian
+          - "{{ review_guardian_binary }}"
           - scan
           - "{{ _guardian_input_file.path }}"
           - --json-output
           - "{{ _guardian_json_output_file.path }}"
           - --exit-code
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       environment:
         CI: "true"
@@ -506,7 +513,7 @@
     - name: Read the JSON findings if the scan actually ran
       ansible.builtin.slurp:
         path: "{{ _guardian_json_output_file.path }}"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_findings_raw
       ignore_errors: true
@@ -555,7 +562,7 @@
       loop:
         - "{{ _guardian_input_file.path }}"
         - "{{ _guardian_json_output_file.path }}"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       ignore_errors: true
       register: _guardian_cleanup_result

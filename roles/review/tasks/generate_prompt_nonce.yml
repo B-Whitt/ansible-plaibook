@@ -1,12 +1,19 @@
 ---
-# One 16-character nonce per review run, same alphabet as last_run_id.
+# One 16-character nonce per review run, same alphabet as last_run_id,
+# plus a 32-hex-char HMAC key for Cursor payload attestation.
 # Embedded only in the trusted lens/explore/verify *prompts* (the
 # Cursor subagent channel). Asserted on Cursor structured output so a
 # parent that never invoked the named subagent cannot pass as a clean
 # review. Idempotent: later includes (lenses / explore / verify) reuse
-# the value generated at the start of full_review.yml.
+# the values generated at the start of full_review.yml.
+# Do not log review_prompt_hmac_key.
 
 - name: Generate a per-run prompt nonce for the dispatch canary
   when: review_prompt_nonce is not defined or (review_prompt_nonce | default('') | length == 0)
   ansible.builtin.set_fact:
     review_prompt_nonce: "{{ lookup('password', '/dev/null length=16 chars=ascii_letters,digits') }}"
+
+- name: Generate a per-run HMAC key for Cursor payload attestation
+  when: review_prompt_hmac_key is not defined or (review_prompt_hmac_key | default('') | length == 0)
+  ansible.builtin.set_fact:
+    review_prompt_hmac_key: "{{ lookup('password', '/dev/null length=32 chars=0123456789abcdef') }}"
