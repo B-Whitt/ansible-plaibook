@@ -11,9 +11,11 @@
 # - No parent system_prompt. Trusted lens text lives in agents.*.prompt
 #   on one subagent.
 # - No generation-time output_format: json_schema. structured_tool
-#   (report_findings) takes the same schema claude_cli passes to
-#   output_format.schema. The model may skip the tool; the asserts
-#   below fail loudly if .structured is absent.
+#   (report_findings) takes cursor_* schema copies of what claude_cli
+#   passes to output_format.schema, with prompt_attestation required.
+#   Shared schemas keep that field optional so other families may omit
+#   it. The model may skip the tool; the asserts below fail loudly if
+#   .structured is absent.
 # - prompt_nonce canary: the nonce is in agents.*.prompt (the
 #   subagent), not the parent user message. Matching it rules out
 #   "the subagent never ran." It does NOT rule out "the subagent ran
@@ -48,7 +50,7 @@
       'cwd: ' + review_repo_path,
       'setting_sources: []',
       'tools: [mcp, task]',
-      'structured_tool: report_findings (security_findings_schema)',
+      'structured_tool: report_findings (cursor_security_findings_schema)',
       '',
       '--- subagent prompt ---',
       ] + security_system_prompt.split('\n') }}"
@@ -73,7 +75,7 @@
     structured_tool:
       name: report_findings
       description: Submit the security findings and scores for this diff.
-      input_schema: "{{ security_findings_schema }}"
+      input_schema: "{{ cursor_security_findings_schema }}"
   register: _cursor_security_raw
 
 - name: "Cursor: show the Review agent's request configuration"
@@ -84,7 +86,7 @@
       'cwd: ' + review_repo_path,
       'setting_sources: []',
       'tools: [mcp, task]',
-      'structured_tool: report_findings (review_findings_schema)',
+      'structured_tool: report_findings (cursor_review_findings_schema)',
       '',
       '--- subagent prompt ---',
       ] + review_system_prompt.split('\n') }}"
@@ -109,7 +111,7 @@
     structured_tool:
       name: report_findings
       description: Submit the review findings and scores for this diff.
-      input_schema: "{{ review_findings_schema }}"
+      input_schema: "{{ cursor_review_findings_schema }}"
   register: _cursor_review_raw
 
 - name: "Cursor: fail loudly if the Security agent produced no structured output"

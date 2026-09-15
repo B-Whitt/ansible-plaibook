@@ -5,7 +5,8 @@
 # aknochow.cursor.agent call that explores then reports. Cursor has no
 # parent system_prompt and no output_format json_schema -- trusted
 # explore text is the explore subagent's prompt; report_findings is a
-# structured_tool with explore_findings_schema.
+# structured_tool with cursor_explore_findings_schema (prompt_attestation
+# required; the shared explore_findings_schema stays optional).
 #
 # tools: [mcp, task] -- same parent allowlist as the working
 # security/review lenses. mcp is required for structured_tool;
@@ -34,7 +35,7 @@
       - "cwd: {{ review_repo_path }}"
       - "setting_sources: []"
       - "tools: [mcp, task]"
-      - "structured_tool: report_findings (explore_findings_schema)"
+      - "structured_tool: report_findings (cursor_explore_findings_schema)"
 
 - name: "Cursor: dispatch the explore agent"
   aknochow.cursor.agent:
@@ -60,7 +61,7 @@
     structured_tool:
       name: report_findings
       description: Submit additional findings found outside the diff, or an empty list.
-      input_schema: "{{ explore_findings_schema }}"
+      input_schema: "{{ cursor_explore_findings_schema }}"
   register: _cursor_explore_raw
 
 - name: "Cursor: record this attempt's usage for the pipeline-wide stats summary"

@@ -177,7 +177,7 @@
     structured_tool:
       name: report_continuity_audit
       description: Report whether a continuity claim between two findings is plausible.
-      input_schema: "{{ continuity_audit_schema }}"
+      input_schema: "{{ cursor_continuity_audit_schema }}"
   register: _continuity_audit_cursor_result
 
 - name: "Cursor: fail closed if the continuity audit fabricated structured output"

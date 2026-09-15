@@ -71,8 +71,27 @@
           - "'prompt_attestation' in continuity_audit_schema.properties"
           - security_findings_schema.additionalProperties == false
           - "'prompt_attestation' not in security_findings_schema.required"
-        fail_msg: "prompt_nonce must be required; prompt_attestation is Cursor-only (optional on the schema)."
+          - "'prompt_attestation' not in review_findings_schema.required"
+          - "'prompt_attestation' not in explore_findings_schema.required"
+          - "'prompt_attestation' not in verify_verdict_schema.required"
+          - "'prompt_attestation' not in continuity_audit_schema.required"
+        fail_msg: "prompt_nonce must be required; prompt_attestation must stay optional on shared schemas."
         success_msg: "prompt_nonce is required; prompt_attestation is present and optional on shared schemas."
+
+    - name: Assert Cursor structured_tool copies require prompt_attestation
+      ansible.builtin.assert:
+        that:
+          - "'prompt_attestation' in cursor_security_findings_schema.required"
+          - "'prompt_attestation' in cursor_review_findings_schema.required"
+          - "'prompt_attestation' in cursor_explore_findings_schema.required"
+          - "'prompt_attestation' in cursor_verify_verdict_schema.required"
+          - "'prompt_attestation' in cursor_continuity_audit_schema.required"
+          - "'prompt_nonce' in cursor_security_findings_schema.required"
+          - "'prompt_nonce' in cursor_explore_findings_schema.required"
+          - cursor_security_findings_schema.additionalProperties == false
+          - cursor_security_findings_schema.properties.prompt_attestation.type == "string"
+        fail_msg: "Cursor structured_tool schemas must require prompt_attestation without changing shared required."
+        success_msg: "Cursor schema copies require prompt_attestation; shared schemas stay optional."
 
     - name: Render the Security lens prompt with the canary
       ansible.builtin.set_fact:

@@ -6,7 +6,9 @@
 # plaibook's custom read_file/search/trace_reachability schemas (no
 # parent system_prompt, no generation-time json_schema, custom tools
 # only via structured_tool / mcp). Built-in read + report_verdict
-# structured_tool stand in. Reachability is the model's own read of
+# structured_tool stand in. Cursor uses cursor_verify_verdict_schema
+# (prompt_attestation required; shared verify_verdict_schema stays
+# optional). Reachability is the model's own read of
 # control flow, not trace_reachability.py -- same gap as claude_cli.
 #
 # Synthesize at most one report_verdict tool_use so verify_turn.yml's
@@ -35,7 +37,7 @@
       - "cwd: {{ review_repo_path }}"
       - "setting_sources: []"
       - "tools: [mcp, task]"
-      - "structured_tool: report_verdict (verify_verdict_schema)"
+      - "structured_tool: report_verdict (cursor_verify_verdict_schema)"
 
 - name: "Cursor: dispatch the verify agent"
   aknochow.cursor.agent:
@@ -61,7 +63,7 @@
     structured_tool:
       name: report_verdict
       description: Submit the verification verdict for this one finding.
-      input_schema: "{{ verify_verdict_schema }}"
+      input_schema: "{{ cursor_verify_verdict_schema }}"
   register: _cursor_verify_raw
 
 - name: "Cursor: record this attempt's usage for the pipeline-wide stats summary"

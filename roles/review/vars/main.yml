@@ -293,3 +293,16 @@ continuity_audit_schema:
     prompt_nonce: { type: string }
     prompt_attestation: { type: string }
   required: [verdict, rationale, prompt_nonce]
+
+# Cursor structured_tool schema copies. Same shapes as the shared
+# schemas above, but prompt_attestation is required so the model
+# cannot omit the HMAC. Do not pass these to Claude/Gemini/OpenAI --
+# those families keep the shared schemas where the field is optional.
+# Used only by dispatch_lens_cursor.yml, dispatch_explore_turn_attempt_cursor.yml,
+# dispatch_verify_turn_attempt_cursor.yml, and the Cursor branch of
+# verify_continuity_audit.yml.
+cursor_security_findings_schema: "{{ security_findings_schema | combine({'required': (security_findings_schema.required + ['prompt_attestation']) | unique | list}) }}"
+cursor_review_findings_schema: "{{ review_findings_schema | combine({'required': (review_findings_schema.required + ['prompt_attestation']) | unique | list}) }}"
+cursor_explore_findings_schema: "{{ explore_findings_schema | combine({'required': (explore_findings_schema.required + ['prompt_attestation']) | unique | list}) }}"
+cursor_verify_verdict_schema: "{{ verify_verdict_schema | combine({'required': (verify_verdict_schema.required + ['prompt_attestation']) | unique | list}) }}"
+cursor_continuity_audit_schema: "{{ continuity_audit_schema | combine({'required': (continuity_audit_schema.required + ['prompt_attestation']) | unique | list}) }}"
