@@ -4,12 +4,20 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, TextIO
 
 import yaml
 
 SEVERITY_ORDER = ("critical", "major", "minor", "nit")
+_ANSI_RE = re.compile(
+    r"(?:\x1b[@-Z\\-_]"
+    r"|\x1b\[[0-?]*[ -/]*[@-~]"
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
+    r"|\x1b[PX^_].*?(?:\x1b\\|\x07))"
+)
+_C0_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -145,7 +153,7 @@ def format_pretty(document: dict[str, Any], *, full: bool = False) -> str:
             lines.extend(_format_point_finding(finding))
 
         if full:
-            report = (target.get("report") or "").strip()
+            report = sanitize_display_text((target.get("report") or "").strip())
             if report:
                 lines.append("")
                 lines.append(report)
@@ -166,12 +174,21 @@ def _cache_hit_line(document: dict[str, Any], target: dict[str, Any]) -> str | N
     return "  same-commit cache hit (no new agents; $0.00 is expected). Re-run with -f to force."
 
 
+def sanitize_display_text(text: str) -> str:
+    """Strip ANSI/OSC and C0 controls from untrusted review text before a TTY."""
+    cleaned = _ANSI_RE.sub("", text or "")
+    return _C0_RE.sub("", cleaned)
+
+
 def _format_point_finding(finding: dict[str, Any]) -> list[str]:
-    sev = str(finding.get("severity") or "Finding").capitalize()
+    sev = sanitize_display_text(str(finding.get("severity") or "Finding").capitalize())
     path = finding.get("file") or finding.get("path") or "?"
     line = finding.get("line")
     loc = f"{path}:{line}" if line not in (None, "") else str(path)
+    loc = sanitize_display_text(loc)
     title, why = _finding_title_why(finding)
+    title = sanitize_display_text(title)
+    why = sanitize_display_text(why)
     out = [f"  {sev}  {loc}  {title}"]
     if why:
         out.append(f"    {why}")

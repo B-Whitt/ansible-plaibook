@@ -117,8 +117,9 @@ ansible-playbook review.yml -e review_targets_raw="org/repo#123"
   `library/run_checklist.py` executes commands parsed out of a
   source-branch-controlled `CHECKLIST.md`, i.e. untrusted input).
   `plai review --no-sandbox` skips it. Already inside OpenShell
-  (`OPENSHELL_SANDBOX` / `OPENSHELL_SANDBOX_ID`), the CLI skips nested
-  sandboxing without a warning. On a normal host a missing OpenShell
+  (`OPENSHELL_SANDBOX` / `OPENSHELL_SANDBOX_ID`, or the in-guest JWT),
+  the CLI skips nested sandboxing without a warning. `OPENSHELL_ENDPOINT`
+  alone is not containment. On a normal host a missing OpenShell
   SDK fails closed (a copy in another venv does not count); pass
   `--no-sandbox` to review on the host. Playbook path:
   `-e use_sandbox=false`.

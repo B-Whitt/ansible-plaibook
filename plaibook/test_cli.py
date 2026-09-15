@@ -808,3 +808,81 @@ def test_run_ansible_playbook_times_out(tmp_path, monkeypatch):
         assert "timeout" in str(exc)
     else:
         raise AssertionError("expected PlaybookTimeoutError")
+
+
+def test_extra_vars_rejects_last_run_id_override():
+    try:
+        extra_vars_from_args(
+            _args(target="org/repo#1", cli_extra_vars=["last_run_id=attacker"]),
+            "runId0123456789",
+        )
+    except ValueError as exc:
+        assert "last_run_id" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_running_inside_openshell_ignores_endpoint_only(tmp_path):
+    from plaibook.config import running_inside_openshell
+
+    missing = tmp_path / "no-jwt"
+    assert (
+        running_inside_openshell(
+            env={"OPENSHELL_ENDPOINT": "https://gateway.example"},
+            jwt_path=missing,
+        )
+        is False
+    )
+    assert (
+        running_inside_openshell(
+            env={"OPENSHELL_SANDBOX": "box-1"},
+            jwt_path=missing,
+        )
+        is True
+    )
+    jwt = tmp_path / "sandbox.jwt"
+    jwt.write_text("x")
+    assert running_inside_openshell(env={}, jwt_path=jwt) is True
+
+
+def test_save_vars_oserror_is_config_error(tmp_path):
+    from plaibook.config import ConfigError, save_vars
+
+    blocker = tmp_path / "notdir"
+    blocker.write_text("x", encoding="utf-8")
+    try:
+        save_vars({"agent_family": "cursor"}, path=blocker / "vars.yml")
+    except ConfigError as exc:
+        assert "cannot write" in str(exc)
+    else:
+        raise AssertionError("expected ConfigError")
+
+
+def test_pretty_strips_ansi_from_findings_and_report():
+    bell = "\x1b[31mRED\x1b[0m\rINJECT"
+    pretty = format_pretty(
+        {
+            "targets": [
+                {
+                    "target": "org/repo#1",
+                    "verdict": "NEEDS_CHANGES",
+                    "score": 50,
+                    "findings": [
+                        {
+                            "severity": "Major",
+                            "file": "app.py",
+                            "line": 1,
+                            "title": bell,
+                            "description": "why " + bell,
+                        }
+                    ],
+                    "report": "report " + bell,
+                }
+            ]
+        },
+        full=True,
+    )
+    assert "\x1b" not in pretty
+    assert "\r" not in pretty
+    assert "INJECT" in pretty
+    assert "RED" in pretty

@@ -64,11 +64,16 @@ def save_vars(
     target = path if path is not None else vars_path(env=env)
     current = load_vars(path=target)
     current.update(dict(updates))
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        yaml.safe_dump(current, sort_keys=False, default_flow_style=False),
-        encoding="utf-8",
-    )
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            yaml.safe_dump(current, sort_keys=False, default_flow_style=False),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise ConfigError(
+            f"cannot write {target}: {exc}. Check permissions on the config directory."
+        ) from exc
     return target
 
 
@@ -162,21 +167,28 @@ def openshell_available(python: str | None = None) -> bool:
     return importlib.util.find_spec("openshell") is not None
 
 
-def running_inside_openshell(env: Mapping[str, str] | None = None) -> bool:
+def running_inside_openshell(
+    env: Mapping[str, str] | None = None,
+    *,
+    jwt_path: Path | None = None,
+) -> bool:
     """True when this process is already an OpenShell sandbox.
 
     Nested `use_sandbox=true` would create a second sandbox via the gateway.
     Isolation is already in place; skip that unless the operator passes
     --sandbox.
+
+    OPENSHELL_ENDPOINT is not proof of containment — operator machines set
+    it to talk to the gateway. Require a sandbox id/name or the in-guest
+    JWT marker.
     """
     environ = os.environ if env is None else env
     if (environ.get("OPENSHELL_SANDBOX") or "").strip():
         return True
     if (environ.get("OPENSHELL_SANDBOX_ID") or "").strip():
         return True
-    if (environ.get("OPENSHELL_ENDPOINT") or "").strip():
-        return True
-    return Path("/etc/openshell/auth/sandbox.jwt").is_file()
+    marker = jwt_path if jwt_path is not None else Path("/etc/openshell/auth/sandbox.jwt")
+    return marker.is_file()
 
 
 def resolve_family(

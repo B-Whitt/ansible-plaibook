@@ -46,3 +46,15 @@ def test_format_stage_line_reuses_playbook_clone_url():
         clone_url_from_task_args({"repo": "https://github.com/aknochow/ansible-plaibook.git"})
         == "https://github.com/aknochow/ansible-plaibook.git"
     )
+    token = "https://x-access-token:ghs_secret@github.com/org/repo.git?token=ghs_secret"
+    assert "ghs_secret" not in (clone_url_from_facts({"review_clone_url": token}) or "")
+    assert clone_url_from_facts({"review_clone_url": token}) == "https://github.com/org/repo.git"
+    assert (
+        format_stage_line("checkout", clone_url=token)
+        == "checkout (https://github.com/org/repo.git)"
+    )
+    assert "ghs_secret" not in format_stage_line("checkout", clone_url=token)
+    assert (
+        clone_url_from_task_args({"repo": "git@github.com:org/repo.git"})
+        == "git@github.com:org/repo.git"
+    )

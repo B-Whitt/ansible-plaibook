@@ -267,6 +267,11 @@ def extra_vars_from_args(args: argparse.Namespace, run_id: str) -> dict:
         extras["review_same_commit_fast_path_enabled"] = False
     for item in getattr(args, "cli_extra_vars", None) or []:
         key, value = _parse_extra_var(item)
+        if key == "last_run_id":
+            raise ValueError(
+                "last_run_id is owned by the CLI; omit -e last_run_id= "
+                "(the wrapper already generates one)."
+            )
         extras[key] = value
     return extras
 

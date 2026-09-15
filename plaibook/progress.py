@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit, urlunsplit
+
 # First match wins. Unmapped tasks leave the current stage unchanged.
 _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("cache", ("same-commit fast path", "same commit (fast")),
@@ -103,9 +105,29 @@ def stage_for_task(name: str) -> str | None:
     return None
 
 
+def sanitize_clone_url(url: str) -> str:
+    """Drop userinfo, query, and fragment so tokens never reach the spinner."""
+    text = (url or "").strip()
+    if not text:
+        return ""
+    if "://" not in text:
+        return text
+    try:
+        parts = urlsplit(text)
+    except ValueError:
+        return "checkout"
+    host = parts.hostname or ""
+    if not host:
+        return parts.scheme + "://" + (parts.path or "")
+    netloc = host
+    if parts.port:
+        netloc = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+
+
 def format_stage_line(stage: str, *, clone_url: str | None = None) -> str:
     """Human spinner line. Checkout includes the git URL when the playbook has it."""
-    url = (clone_url or "").strip()
+    url = sanitize_clone_url(clone_url or "")
     if stage == "checkout" and url:
         return f"{stage} ({url})"
     return stage
@@ -116,7 +138,8 @@ def clone_url_from_facts(facts: object) -> str | None:
         return None
     url = facts.get("review_clone_url")
     if isinstance(url, str) and url.strip() and "{{" not in url:
-        return url.strip()
+        cleaned = sanitize_clone_url(url.strip())
+        return cleaned or None
     return None
 
 
@@ -125,5 +148,6 @@ def clone_url_from_task_args(args: object) -> str | None:
         return None
     repo = args.get("repo")
     if isinstance(repo, str) and ("://" in repo or repo.startswith("git@")) and "{{" not in repo:
-        return repo.strip()
+        cleaned = sanitize_clone_url(repo.strip())
+        return cleaned or None
     return None
