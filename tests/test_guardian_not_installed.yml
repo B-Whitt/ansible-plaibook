@@ -49,3 +49,62 @@
           {{ guardian_scan_available | default('undefined') }},
           skip_reason={{ guardian_scan_skip_reason | default('undefined') }}
         success_msg: "Missing ai-guardian is reported as not installed, not as scan exited 2."
+
+- name: "Test guardian_scan.yml does not interpolate the binary name into sh -c"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    review_delegate_host: ""
+    review_full_diff: |
+      diff --git a/app.py b/app.py
+      index abc123..def456 100644
+      --- a/app.py
+      +++ b/app.py
+      @@ -1,2 +1,3 @@
+       def add(a, b):
+      +    return a + b
+    review_context: ""
+    review_guardian_scan_enabled: true
+
+  tasks:
+    - name: Create a unique marker path
+      ansible.builtin.tempfile:
+        state: file
+        suffix: "-guardian-inject-marker"
+      register: _inject_marker
+
+    - name: Remove the empty marker so only a shell injection can recreate it
+      ansible.builtin.file:
+        path: "{{ _inject_marker.path }}"
+        state: absent
+
+    - name: Run guardian_scan.yml with a binary name that is extra shell if interpolated
+      vars:
+        review_guardian_binary: "missing-bin; touch {{ _inject_marker.path }}"
+      ansible.builtin.include_role:
+        name: review
+        tasks_from: guardian_scan.yml
+
+    - name: Stat the marker
+      ansible.builtin.stat:
+        path: "{{ _inject_marker.path }}"
+      register: _inject_stat
+
+    - name: Assert the binary name stayed an argv, not shell source
+      ansible.builtin.assert:
+        that:
+          - not (_inject_stat.stat.exists | default(false))
+          - not (guardian_scan_available | bool)
+          - guardian_scan_skip_reason == "ai-guardian not installed"
+        fail_msg: >-
+          review_guardian_binary was interpolated into sh -c. Marker
+          exists={{ _inject_stat.stat.exists | default('undefined') }},
+          skip_reason={{ guardian_scan_skip_reason | default('undefined') }}
+        success_msg: "Guardian binary name is not interpolated into sh -c."
+
+    - name: Clean up the marker if a regression created it
+      ansible.builtin.file:
+        path: "{{ _inject_marker.path }}"
+        state: absent

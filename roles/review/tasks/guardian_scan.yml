@@ -132,6 +132,19 @@
       vars:
         fail_if_unreachable_result_var: _guardian_json_output_chmod_result
 
+    # command -v is a shell builtin, so the lookup still goes through
+    # sh. Do not interpolate review_guardian_binary into that script:
+    # extra-vars / inventory can put shell metacharacters in the name.
+    # $0 is the dummy argv, $1 is the name as an exec argument.
+    - name: Build argv that looks up the guardian binary without interpolating it into shell
+      ansible.builtin.set_fact:
+        _guardian_binary_lookup_argv:
+          - sh
+          - -c
+          - 'command -v "$1"'
+          - sh
+          - "{{ review_guardian_binary }}"
+
     # Only meaningful in the sandboxed case (review_delegate_host set)
     # -- an unsandboxed run has no delegate host to install onto.
     # The precheck itself always runs, including on the controller:
@@ -141,7 +154,7 @@
     # that ran and errored.
     - name: Check whether ai-guardian is already present on the scan host
       ansible.builtin.command:
-        argv: [sh, -c, "command -v {{ review_guardian_binary }}"]
+        argv: "{{ _guardian_binary_lookup_argv }}"
       delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_binary_precheck
@@ -412,7 +425,7 @@
 
     - name: Re-check whether ai-guardian is present on the scan host
       ansible.builtin.command:
-        argv: [sh, -c, "command -v {{ review_guardian_binary }}"]
+        argv: "{{ _guardian_binary_lookup_argv }}"
       delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_binary_postcheck
