@@ -52,7 +52,14 @@ def load_vars(*, path: Path | None = None, env: Mapping[str, str] | None = None)
         raise ConfigError(
             f"cannot parse {target}: {exc}. Fix the YAML or delete the file and re-run."
         ) from exc
-    return dict(loaded) if isinstance(loaded, dict) else {}
+    if loaded is None:
+        return {}
+    if not isinstance(loaded, dict):
+        raise ConfigError(
+            f"{target} must be a YAML mapping or empty, not {type(loaded).__name__}. "
+            "Replace it with a mapping or delete the file and re-run."
+        )
+    return dict(loaded)
 
 
 def save_vars(

@@ -20,8 +20,22 @@ _ANSI_RE = re.compile(
 _C0_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
+class SummaryError(Exception):
+    """last_run or summary JSON could not be read or parsed."""
+
+
 def load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise SummaryError(f"cannot read {path}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise SummaryError(f"cannot decode {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise SummaryError(f"cannot parse {path}: {exc}") from exc
+    if not isinstance(loaded, dict):
+        raise SummaryError(f"{path} must be a JSON object, not {type(loaded).__name__}")
+    return loaded
 
 
 def _summary_file_for_target(target: dict[str, Any]) -> Path | None:
@@ -99,8 +113,8 @@ def format_pretty(document: dict[str, Any], *, full: bool = False) -> str:
     lines: list[str] = []
     targets = document.get("targets") or []
     if not targets:
-        status = document.get("status") or "unknown"
-        error = document.get("error") or ""
+        status = sanitize_display_line(document.get("status") or "unknown")
+        error = sanitize_display_line(document.get("error") or "")
         lines.append(f"status: {status}")
         if error:
             lines.append(error)
@@ -108,10 +122,10 @@ def format_pretty(document: dict[str, Any], *, full: bool = False) -> str:
         return "\n".join(lines) + "\n"
 
     for target in targets:
-        verdict = target.get("verdict") or document.get("status") or "UNKNOWN"
+        verdict = sanitize_display_line(target.get("verdict") or document.get("status") or "UNKNOWN")
         score = target.get("score_overall", target.get("score"))
         score_text = _percent(score)
-        name = target.get("target") or ""
+        name = sanitize_display_line(target.get("target") or "")
         header = f"{verdict}"
         if score_text:
             header = f"{verdict}  {score_text}"
@@ -130,7 +144,7 @@ def format_pretty(document: dict[str, Any], *, full: bool = False) -> str:
                 if lens in scores:
                     lens_bits.append(f"{lens} {_percent(scores[lens])}")
             extra = [
-                f"{k} {_percent(v)}"
+                f"{sanitize_display_line(str(k))} {_percent(v)}"
                 for k, v in scores.items()
                 if k not in ("functionality", "security", "quality")
             ]
@@ -142,7 +156,9 @@ def format_pretty(document: dict[str, Any], *, full: bool = False) -> str:
         if not counts and findings:
             counts = _count_findings(findings)
         if counts:
-            bits = [f"{counts.get(sev, 0)} {sev}" for sev in SEVERITY_ORDER]
+            bits = [
+                f"{sanitize_display_line(counts.get(sev, 0))} {sev}" for sev in SEVERITY_ORDER
+            ]
             lines.append("  findings: " + ", ".join(bits))
 
         for finding in findings:
@@ -165,7 +181,7 @@ def format_pretty(document: dict[str, Any], *, full: bool = False) -> str:
 def _cache_hit_line(document: dict[str, Any], target: dict[str, Any]) -> str | None:
     if not target.get("cache_hit"):
         return None
-    sha = str(target.get("commit") or document.get("commit") or "").strip()
+    sha = sanitize_display_line(str(target.get("commit") or document.get("commit") or "").strip())
     if sha:
         return (
             f"  same-commit cache hit for {sha} "
@@ -180,15 +196,22 @@ def sanitize_display_text(text: str) -> str:
     return _C0_RE.sub("", cleaned)
 
 
+def sanitize_display_line(text: Any) -> str:
+    """Sanitize a single output field: no ANSI/C0, and no forged extra lines."""
+    cleaned = _ANSI_RE.sub("", str(text if text is not None else ""))
+    cleaned = cleaned.replace("\r", " ").replace("\n", " ").replace("\t", " ")
+    return " ".join(_C0_RE.sub("", cleaned).split())
+
+
 def _format_point_finding(finding: dict[str, Any]) -> list[str]:
-    sev = sanitize_display_text(str(finding.get("severity") or "Finding").capitalize())
+    sev = sanitize_display_line(str(finding.get("severity") or "Finding").capitalize())
     path = finding.get("file") or finding.get("path") or "?"
     line = finding.get("line")
     loc = f"{path}:{line}" if line not in (None, "") else str(path)
-    loc = sanitize_display_text(loc)
+    loc = sanitize_display_line(loc)
     title, why = _finding_title_why(finding)
-    title = sanitize_display_text(title)
-    why = sanitize_display_text(why)
+    title = sanitize_display_line(title)
+    why = sanitize_display_line(why)
     out = [f"  {sev}  {loc}  {title}"]
     if why:
         out.append(f"    {why}")
@@ -223,16 +246,16 @@ def _footer(document: dict[str, Any], targets: list[dict[str, Any]] | None = Non
         try:
             lines.append(f"  cost: ${float(cost):.4f}")
         except (TypeError, ValueError):
-            lines.append(f"  cost: {cost}")
+            lines.append(f"  cost: {sanitize_display_line(cost)}")
     path = document.get("last_run_path")
     if path:
-        lines.append(f"  last_run: {path}")
+        lines.append(f"  last_run: {sanitize_display_line(path)}")
     for target in targets or []:
         findings_md = (
             target.get("findings_run_scoped_path") or target.get("findings_path") or ""
         )
         if findings_md:
-            lines.append(f"  findings.md: {findings_md}")
+            lines.append(f"  findings.md: {sanitize_display_line(findings_md)}")
     return lines
 
 
@@ -242,7 +265,7 @@ def _percent(value: Any) -> str:
     try:
         return f"{float(value):.1f}%"
     except (TypeError, ValueError):
-        return str(value)
+        return sanitize_display_line(value)
 
 
 def _count_findings(findings: list[dict[str, Any]]) -> dict[str, int]:

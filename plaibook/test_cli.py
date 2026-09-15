@@ -816,6 +816,43 @@ def test_load_vars_malformed_yaml_is_config_error(tmp_path):
         raise AssertionError("expected ConfigError")
 
 
+def test_load_vars_non_mapping_is_config_error(tmp_path):
+    from plaibook.config import ConfigError, load_vars
+
+    path = tmp_path / "vars.yml"
+    path.write_text("", encoding="utf-8")
+    assert load_vars(path=path) == {}
+    path.write_text("[]\n", encoding="utf-8")
+    try:
+        load_vars(path=path)
+    except ConfigError as exc:
+        assert str(path) in str(exc)
+        assert "mapping" in str(exc)
+    else:
+        raise AssertionError("expected ConfigError")
+    path.write_text("agent_family: cursor\n", encoding="utf-8")
+    assert load_vars(path=path)["agent_family"] == "cursor"
+
+
+def test_cmd_review_non_mapping_vars_yml(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    xdg = tmp_path / "xdg"
+    (xdg / "ansible-plaibook").mkdir(parents=True)
+    (xdg / "ansible-plaibook" / "vars.yml").write_text("- not-a-mapping\n", encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    monkeypatch.delenv("ANSIBLE_REVIEW_AGENT_FAMILY", raising=False)
+    monkeypatch.setattr("plaibook.cli.openshell_available", lambda: True)
+
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout)))
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "mapping" in err
+    assert "vars.yml" in err
+
+
 def test_cmd_review_malformed_vars_yml(tmp_path, monkeypatch, capsys):
     checkout = tmp_path / "checkout"
     checkout.mkdir()
@@ -939,3 +976,106 @@ def test_pretty_strips_ansi_from_findings_and_report():
     assert "\r" not in pretty
     assert "INJECT" in pretty
     assert "RED" in pretty
+
+
+def test_pretty_collapses_newlines_in_single_line_fields():
+    pretty = format_pretty(
+        {
+            "status": "ok\nFAKE_STATUS",
+            "last_run_path": "/tmp/last\nrun.json",
+            "cost_usd": "1.5\nUSD",
+            "targets": [
+                {
+                    "target": "org/repo#1\nFAKE_TARGET",
+                    "verdict": "NEEDS_CHANGES\nFAKE_VERDICT",
+                    "score": 50,
+                    "scores": {"functionality": 90, "evil\nkey": 1},
+                    "findings_path": "/tmp/findings.md\nFAKE_PATH",
+                    "commit": "abc\ndef",
+                    "cache_hit": True,
+                    "findings": [
+                        {
+                            "severity": "Major",
+                            "file": "app.py\n/etc/passwd",
+                            "line": "1\n2",
+                            "title": "title\nmore",
+                            "description": "why\nline",
+                        }
+                    ],
+                    "report": "report line 1\nreport line 2",
+                }
+            ],
+        },
+        full=True,
+    )
+    assert "\r" not in pretty
+    assert "FAKE_TARGET" in pretty
+    assert "FAKE_VERDICT" in pretty
+    assert "FAKE_PATH" in pretty
+    body_lines = [line for line in pretty.splitlines() if line]
+    assert "FAKE_TARGET" not in body_lines
+    assert "FAKE_VERDICT" not in body_lines
+    assert "FAKE_PATH" not in body_lines
+    assert "report line 1" in pretty
+    assert "report line 2" in pretty
+    header = next(line for line in pretty.splitlines() if "NEEDS_CHANGES" in line)
+    assert "FAKE_VERDICT" in header
+    assert "FAKE_TARGET" in header
+
+
+def test_pretty_status_error_are_single_line():
+    pretty = format_pretty({"status": "failed\nX", "error": "boom\nline2"})
+    lines = [line for line in pretty.splitlines() if line]
+    assert lines[0] == "status: failed X"
+    assert lines[1] == "boom line2"
+
+
+def test_load_json_corrupt_is_summary_error(tmp_path):
+    from plaibook.summary import SummaryError, load_json
+
+    path = tmp_path / "last_run.x.json"
+    path.write_text("{truncated", encoding="utf-8")
+    try:
+        load_json(path)
+    except SummaryError as exc:
+        assert str(path) in str(exc)
+        assert "cannot parse" in str(exc)
+    else:
+        raise AssertionError("expected SummaryError")
+    path.write_text("[]", encoding="utf-8")
+    try:
+        load_json(path)
+    except SummaryError as exc:
+        assert "JSON object" in str(exc)
+    else:
+        raise AssertionError("expected SummaryError")
+
+
+def test_cmd_review_corrupt_last_run(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        extras = json.loads(command[command.index("-e") + 1])
+        path = last_run_path(extras["last_run_id"], home=home)
+        path.write_text("{truncated", encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr("plaibook.cli.resolve_family", lambda **kwargs: None)
+
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout)))
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "cannot parse" in err
+    assert "Traceback" not in err

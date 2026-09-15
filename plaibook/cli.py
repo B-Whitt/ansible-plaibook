@@ -26,7 +26,14 @@ from plaibook.playbook import (
     last_run_path,
     run_ansible_playbook,
 )
-from plaibook.summary import dump_json, dump_yaml, enrich_last_run, format_pretty, load_json
+from plaibook.summary import (
+    SummaryError,
+    dump_json,
+    dump_yaml,
+    enrich_last_run,
+    format_pretty,
+    load_json,
+)
 from plaibook.wait import WaitSpinner, spinner_enabled
 
 USAGE_EPILOG = """\
@@ -472,7 +479,11 @@ def cmd_review(args: argparse.Namespace) -> int:
         )
         return result.returncode if result.returncode else 2
 
-    document = enrich_last_run(load_json(summary_file), last_run_file=summary_file)
+    try:
+        document = enrich_last_run(load_json(summary_file), last_run_file=summary_file)
+    except SummaryError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     _emit_summary(document, args)
     return result.returncode
 
