@@ -84,13 +84,6 @@ def save_vars(
     return target
 
 
-def cursor_defaults() -> dict[str, str]:
-    return {
-        "review_cursor_model": CURSOR_DEFAULT_MODEL,
-        "review_cursor_effort": CURSOR_DEFAULT_EFFORT,
-    }
-
-
 def credential_present(family: str, env: Mapping[str, str] | None = None) -> bool:
     environ = os.environ if env is None else env
     key = _CREDENTIAL_ENV.get(family)
