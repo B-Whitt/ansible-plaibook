@@ -1,20 +1,18 @@
 ---
-# Fail closed when the Cursor parent fabricates structured output
-# without the named subagent running, or relays a nonce with a
-# different payload.
-#
-# prompt_nonce lives in the subagent prompt (agents.*.prompt). Matching
-# it rules out a parent that never saw that prompt. prompt_attestation
-# is HMAC-SHA256(dispatcher key, canonical JSON of the payload without
-# that field). A parent that copies the nonce and submits findings: []
-# cannot produce a matching HMAC without hashing this exact payload.
-# The key is also in the billed subagent prompt; a parent that both
-# copies the nonce AND correctly HMACs a fabricated payload is still
-# unguarded. Do not print .text, the HMAC key, or the payload.
+# Fail closed when Cursor structured output from the named *_lens is
+# missing the per-run prompt_nonce. Matching nonce rules out a parent
+# that never saw agents.*.prompt. Payload bind is the nested execute
+# (select_cursor_named_lens.yml), not HMAC. Do not print .text or the
+# payload.
 
-- name: "Cursor: fail closed if {{ cursor_nonce_lens_label }} structured output fails nonce or HMAC attestation"
-  attest_cursor_structured:
-    structured: "{{ cursor_nonce_structured }}"
-    hmac_key: "{{ review_prompt_hmac_key }}"
-    nonce: "{{ review_prompt_nonce }}"
-    lens_label: "{{ cursor_nonce_lens_label }}"
+- name: "Cursor: fail closed if {{ cursor_nonce_lens_label }} prompt_nonce does not match"
+  ansible.builtin.assert:
+    that:
+      - cursor_nonce_structured is defined
+      - (cursor_nonce_structured.prompt_nonce | default('')) == review_prompt_nonce
+    fail_msg: >-
+      {{ cursor_nonce_lens_label }} (agent_family=cursor) returned
+      structured output whose prompt_nonce does not match the per-run
+      canary. The named subagent almost certainly never ran; the parent
+      fabricated a completed review. This is dispatch fabrication, not
+      a clean review. The model's draft is NOT printed here.

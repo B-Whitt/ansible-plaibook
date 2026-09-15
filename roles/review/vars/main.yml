@@ -63,15 +63,10 @@ security_findings_schema:
       required: [security]
     # The nonce detects "the Cursor subagent never ran" when the
     # returned value mismatches the nonce embedded in the trusted lens
-    # prompt. prompt_attestation (optional here, required by Cursor
-    # dispatch) binds that nonce to this exact payload via HMAC.
-    # additionalProperties is false, so these are schema edits, not
-    # extra keys. Placed before findings so the array stays last
-    # (avoids the array-then-sibling-object generation failure).
+    # prompt. Payload bind for Cursor is the named *_lens nested
+    # execute, not a model-computed digest. additionalProperties is
+    # false, so prompt_nonce is a schema edit, not an extra key.
     prompt_nonce: { type: string }
-    # Cursor dispatcher HMAC of the payload; optional on the schema so
-    # non-Cursor families may omit it. Cursor dispatch requires it.
-    prompt_attestation: { type: string }
     findings:
       type: array
       items: "{{ _finding_item }}"
@@ -89,9 +84,6 @@ review_findings_schema:
         quality: { type: number }
       required: [functionality, quality]
     prompt_nonce: { type: string }
-    # Cursor dispatcher HMAC of the payload; optional on the schema so
-    # non-Cursor families may omit it. Cursor dispatch requires it.
-    prompt_attestation: { type: string }
     findings:
       type: array
       items: "{{ _finding_item }}"
@@ -105,7 +97,6 @@ explore_findings_schema:
   additionalProperties: false
   properties:
     prompt_nonce: { type: string }
-    prompt_attestation: { type: string }
     findings:
       type: array
       items: "{{ _finding_item }}"
@@ -261,7 +252,6 @@ verify_verdict_schema:
         finding's full text. Write "N/A -- no prior round findings were
         shown" if continues_finding_id is null because none were shown.
     prompt_nonce: { type: string }
-    prompt_attestation: { type: string }
   required:
     - evidence_status
     - evidence
@@ -291,18 +281,4 @@ continuity_audit_schema:
     rationale:
       type: string
     prompt_nonce: { type: string }
-    prompt_attestation: { type: string }
   required: [verdict, rationale, prompt_nonce]
-
-# Cursor structured_tool schema copies. Same shapes as the shared
-# schemas above, but prompt_attestation is required so the model
-# cannot omit the HMAC. Do not pass these to Claude/Gemini/OpenAI --
-# those families keep the shared schemas where the field is optional.
-# Used only by dispatch_lens_cursor.yml, dispatch_explore_turn_attempt_cursor.yml,
-# dispatch_verify_turn_attempt_cursor.yml, and the Cursor branch of
-# verify_continuity_audit.yml.
-cursor_security_findings_schema: "{{ security_findings_schema | combine({'required': (security_findings_schema.required + ['prompt_attestation']) | unique | list}) }}"
-cursor_review_findings_schema: "{{ review_findings_schema | combine({'required': (review_findings_schema.required + ['prompt_attestation']) | unique | list}) }}"
-cursor_explore_findings_schema: "{{ explore_findings_schema | combine({'required': (explore_findings_schema.required + ['prompt_attestation']) | unique | list}) }}"
-cursor_verify_verdict_schema: "{{ verify_verdict_schema | combine({'required': (verify_verdict_schema.required + ['prompt_attestation']) | unique | list}) }}"
-cursor_continuity_audit_schema: "{{ continuity_audit_schema | combine({'required': (continuity_audit_schema.required + ['prompt_attestation']) | unique | list}) }}"

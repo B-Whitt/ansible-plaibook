@@ -1,14 +1,20 @@
 ---
-# Deterministic tests for the Cursor dispatch prompt_nonce canary and
-# payload-bound HMAC attestation. No live model. Covers (1) the canary
-# lands in the trusted lens prompt, (2) matching nonce+HMAC passes,
-# (3) mismatch / missing HMAC / stolen HMAC fail closed naming
-# fabrication and not printing .text or the HMAC key.
+# Deterministic tests for the Cursor named-lens bind and prompt_nonce
+# spawn canary. No live model. Covers:
+#   (1) named-lens execute present → persist uses those args, not parent
+#       last-call
+#   (2) only parent execute → fail closed
+#   (3) no execute → fail closed
+#   (4) GetDynamicTools / tools: [mcp] fabrication (parent execute, no
+#       nested) still fails closed
+# Plus: prompt_nonce required on shared schemas; no prompt_attestation
+# field and no Cursor schema copies; nonce lands in trusted prompts;
+# fail_msg does not print .text, HMAC keys, or payloads.
 #
 # Usage:
 #   ansible-playbook tests/test_cursor_prompt_nonce.yml
 
-- name: "Test prompt_nonce canary: schema, template, pass, fail-closed"
+- name: "Test Cursor named-lens bind: schema, template, persist, fail-closed"
   hosts: localhost
   connection: local
   gather_facts: false
@@ -49,15 +55,30 @@
       @@ -1 +1,2 @@
       +x = 1
     review_prompt_nonce: "AbCdEfGh12345678"
-    review_prompt_hmac_key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     agent_family: cursor
+    _nested_lens_args:
+      findings:
+        - lens: Security
+          file: lens.py
+          line: 10
+          severity: Major
+          description: from named lens
+          evidence: planted
+          confidence: HIGH
+          fix: don't
+      scores: { security: 10 }
+      prompt_nonce: "AbCdEfGh12345678"
+    _parent_fabricated_args:
+      findings: []
+      scores: { security: 99 }
+      prompt_nonce: "AbCdEfGh12345678"
 
   tasks:
     - name: Load the review role vars (schemas)
       ansible.builtin.include_vars:
         file: "{{ playbook_dir }}/../roles/review/vars/main.yml"
 
-    - name: Assert prompt_nonce is required on the shared schemas
+    - name: Assert prompt_nonce is required and prompt_attestation is gone
       ansible.builtin.assert:
         that:
           - "'prompt_nonce' in security_findings_schema.required"
@@ -65,33 +86,20 @@
           - "'prompt_nonce' in explore_findings_schema.required"
           - "'prompt_nonce' in verify_verdict_schema.required"
           - "'prompt_nonce' in continuity_audit_schema.required"
-          - "'prompt_attestation' in security_findings_schema.properties"
-          - "'prompt_attestation' in explore_findings_schema.properties"
-          - "'prompt_attestation' in verify_verdict_schema.properties"
-          - "'prompt_attestation' in continuity_audit_schema.properties"
-          - security_findings_schema.additionalProperties == false
+          - "'prompt_attestation' not in security_findings_schema.properties"
+          - "'prompt_attestation' not in review_findings_schema.properties"
+          - "'prompt_attestation' not in explore_findings_schema.properties"
+          - "'prompt_attestation' not in verify_verdict_schema.properties"
+          - "'prompt_attestation' not in continuity_audit_schema.properties"
           - "'prompt_attestation' not in security_findings_schema.required"
-          - "'prompt_attestation' not in review_findings_schema.required"
-          - "'prompt_attestation' not in explore_findings_schema.required"
-          - "'prompt_attestation' not in verify_verdict_schema.required"
-          - "'prompt_attestation' not in continuity_audit_schema.required"
-        fail_msg: "prompt_nonce must be required; prompt_attestation must stay optional on shared schemas."
-        success_msg: "prompt_nonce is required; prompt_attestation is present and optional on shared schemas."
-
-    - name: Assert Cursor structured_tool copies require prompt_attestation
-      ansible.builtin.assert:
-        that:
-          - "'prompt_attestation' in cursor_security_findings_schema.required"
-          - "'prompt_attestation' in cursor_review_findings_schema.required"
-          - "'prompt_attestation' in cursor_explore_findings_schema.required"
-          - "'prompt_attestation' in cursor_verify_verdict_schema.required"
-          - "'prompt_attestation' in cursor_continuity_audit_schema.required"
-          - "'prompt_nonce' in cursor_security_findings_schema.required"
-          - "'prompt_nonce' in cursor_explore_findings_schema.required"
-          - cursor_security_findings_schema.additionalProperties == false
-          - cursor_security_findings_schema.properties.prompt_attestation.type == "string"
-        fail_msg: "Cursor structured_tool schemas must require prompt_attestation without changing shared required."
-        success_msg: "Cursor schema copies require prompt_attestation; shared schemas stay optional."
+          - security_findings_schema.additionalProperties == false
+          - cursor_security_findings_schema is not defined
+          - cursor_review_findings_schema is not defined
+          - cursor_explore_findings_schema is not defined
+          - cursor_verify_verdict_schema is not defined
+          - cursor_continuity_audit_schema is not defined
+        fail_msg: "prompt_nonce must be required; prompt_attestation and Cursor schema copies must be gone."
+        success_msg: "prompt_nonce is required; no prompt_attestation; no Cursor schema copies."
 
     - name: Render the Security lens prompt with the canary
       ansible.builtin.set_fact:
@@ -125,51 +133,160 @@
           - "'Dispatch canary' in _rendered_explore_prompt"
           - "'Dispatch canary' in _rendered_verify_prompt"
           - "'Dispatch canary' in _rendered_continuity_prompt"
-          - "'prompt_attestation' in _rendered_security_prompt"
-          - review_prompt_hmac_key in _rendered_security_prompt
-          - review_prompt_hmac_key in _rendered_explore_prompt
-        fail_msg: "Expected the per-run nonce and Cursor HMAC canary in the trusted prompts."
-        success_msg: "Nonce and HMAC canary are embedded in the Cursor subagent prompts."
+          - "'prompt_attestation' not in _rendered_security_prompt"
+          - "'prompt_attestation' not in _rendered_explore_prompt"
+          - "'HMAC' not in _rendered_security_prompt"
+          - "'hmac' not in _rendered_security_prompt"
+        fail_msg: "Expected the per-run nonce in trusted prompts, with no HMAC / prompt_attestation."
+        success_msg: "Nonce is embedded in the Cursor subagent prompts; HMAC canary is gone."
 
-    - name: Matching nonce and payload HMAC must pass
-      ansible.builtin.include_role:
-        name: review
-        tasks_from: assert_cursor_prompt_nonce
-      vars:
-        cursor_nonce_structured:
-          findings: []
-          scores: { security: 10 }
-          prompt_nonce: "{{ review_prompt_nonce }}"
-          prompt_attestation: "983793103fcc7fd1bfa9955d09fd72c1470449f6fa8ed74d4701a71fb858ecc6"
-        cursor_nonce_lens_label: "Security lens"
-
-    - name: Copied nonce without HMAC must fail closed
+    - name: Named-lens execute present must persist those args, not parent last-call
       block:
-        - name: Assert findings:[] with a matching nonce and no attestation
+        - name: Select nested execute when parent called last
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: select_cursor_named_lens
+          vars:
+            cursor_raw:
+              structured: "{{ _parent_fabricated_args }}"
+              structured_tool_calls:
+                - name: report_findings
+                  caller: nested
+                  agent_id:
+                  args: "{{ _nested_lens_args }}"
+                - name: report_findings
+                  caller: parent
+                  agent_id: parent-1
+                  args: "{{ _parent_fabricated_args }}"
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_tool: report_findings
+            cursor_named_lens_required: true
+
+        - name: Persist from named-lens args the way dispatch_lens_cursor.yml does
+          ansible.builtin.set_fact:
+            _persisted_security:
+              structured:
+                findings: "{{ cursor_lens_structured.findings | default([]) }}"
+                scores: "{{ cursor_lens_structured.scores | default({}) }}"
+
+        - name: Confirm persist used nested args, not last-call parent
+          ansible.builtin.assert:
+            that:
+              - cursor_named_lens_present | bool
+              - cursor_lens_structured.findings[0].file == "lens.py"
+              - cursor_lens_structured.findings[0].description == "from named lens"
+              - _persisted_security.structured.findings[0].file == "lens.py"
+              - _persisted_security.structured.scores.security == 10
+              - _persisted_security.structured.findings | length == 1
+            fail_msg: "Named-lens execute must win persist; last-call parent args must be ignored."
+            success_msg: "Named-lens execute present; persist used nested args."
+
+        - name: Matching nested nonce must pass
           ansible.builtin.include_role:
             name: review
             tasks_from: assert_cursor_prompt_nonce
           vars:
-            cursor_nonce_structured:
-              findings: []
-              scores: { security: 10 }
-              prompt_nonce: "{{ review_prompt_nonce }}"
+            cursor_nonce_structured: "{{ cursor_lens_structured }}"
             cursor_nonce_lens_label: "Security lens"
 
-        - name: Fail if a copied nonce without HMAC was accepted
+    - name: Only parent execute must fail closed
+      block:
+        - name: Select when only the parent called the tool
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: select_cursor_named_lens
+          vars:
+            cursor_raw:
+              structured: "{{ _parent_fabricated_args }}"
+              structured_tool_calls:
+                - name: report_findings
+                  caller: parent
+                  agent_id: parent-1
+                  args: "{{ _parent_fabricated_args }}"
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_tool: report_findings
+            cursor_named_lens_required: true
+
+        - name: Fail if a parent-only execute was accepted
           ansible.builtin.fail:
-            msg: "Expected a missing prompt_attestation to fail closed."
+            msg: "Expected a parent-only execute to fail closed."
       rescue:
-        - name: Confirm missing HMAC fails closed without .text or the key
+        - name: Confirm parent-only fails closed without .text or payload
           ansible.builtin.assert:
             that:
-              - "'fabricat' in (ansible_failed_result.msg | default('') | lower)"
+              - "'parent' in (ansible_failed_result.msg | default('') | lower)"
               - "'.text' not in (ansible_failed_result.msg | default(''))"
-              - review_prompt_hmac_key not in (ansible_failed_result.msg | default(''))
+              - "'HMAC' not in (ansible_failed_result.msg | default(''))"
+              - "'hmac' not in (ansible_failed_result.msg | default(''))"
+              - "'from named lens' not in (ansible_failed_result.msg | default(''))"
+              - "'planted' not in (ansible_failed_result.msg | default(''))"
             fail_msg: >-
-              Expected a fabrication-named fail_msg without .text or the HMAC key.
+              Expected a parent-execute fail_msg without .text, HMAC, or payload.
               Got: {{ ansible_failed_result.msg | default('') }}
-            success_msg: "Copied nonce without HMAC fails closed, without printing .text or the key."
+            success_msg: "Parent-only execute fails closed, without printing .text or payload."
+
+    - name: No execute must fail closed
+      block:
+        - name: Select when structured_tool_calls is empty
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: select_cursor_named_lens
+          vars:
+            cursor_raw:
+              structured_tool_calls: []
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_tool: report_findings
+            cursor_named_lens_required: true
+
+        - name: Fail if a missing execute was accepted
+          ansible.builtin.fail:
+            msg: "Expected no nested execute to fail closed."
+      rescue:
+        - name: Confirm no-execute fails closed without .text
+          ansible.builtin.assert:
+            that:
+              - "'never called' in (ansible_failed_result.msg | default('') | lower) or 'no nested' in (ansible_failed_result.msg | default('') | lower)"
+              - "'.text' not in (ansible_failed_result.msg | default(''))"
+              - "'HMAC' not in (ansible_failed_result.msg | default(''))"
+            fail_msg: >-
+              Expected a missing-execute fail_msg without .text or HMAC.
+              Got: {{ ansible_failed_result.msg | default('') }}
+            success_msg: "No execute fails closed, without printing .text."
+
+    - name: GetDynamicTools / tools [mcp] fabrication path must fail closed
+      block:
+        - name: Select a parent mcp execute with no nested call
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: select_cursor_named_lens
+          vars:
+            cursor_raw:
+              structured: "{{ _parent_fabricated_args }}"
+              structured_tool_calls:
+                - name: report_findings
+                  caller: parent
+                  agent_id: parent-1
+                  tool_call_id: parent-mcp-call
+                  args: "{{ _parent_fabricated_args }}"
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_tool: report_findings
+            cursor_named_lens_required: true
+
+        - name: Fail if a tools [mcp] parent fabricate was accepted
+          ansible.builtin.fail:
+            msg: "Expected GetDynamicTools / tools: [mcp] fabrication to fail closed."
+      rescue:
+        - name: Confirm mcp-only fabrication fails closed without .text or payload
+          ansible.builtin.assert:
+            that:
+              - "'GetDynamicTools' in (ansible_failed_result.msg | default('')) or 'parent' in (ansible_failed_result.msg | default('') | lower)"
+              - "'.text' not in (ansible_failed_result.msg | default(''))"
+              - "'HMAC' not in (ansible_failed_result.msg | default(''))"
+              - "'hmac' not in (ansible_failed_result.msg | default(''))"
+            fail_msg: >-
+              Expected a fabrication fail_msg without .text or HMAC.
+              Got: {{ ansible_failed_result.msg | default('') }}
+            success_msg: "tools: [mcp] parent fabricate fails closed, without printing .text."
 
     - name: Mismatch must fail closed, name fabrication, and not print .text
       block:
@@ -182,7 +299,6 @@
               findings: []
               scores: { security: 10 }
               prompt_nonce: "definitelyNotTheNonce"
-              prompt_attestation: "983793103fcc7fd1bfa9955d09fd72c1470449f6fa8ed74d4701a71fb858ecc6"
             cursor_nonce_lens_label: "Security lens"
 
         - name: Fail if the fabricated nonce was accepted
@@ -194,45 +310,8 @@
             that:
               - "'fabricat' in (ansible_failed_result.msg | default('') | lower)"
               - "'.text' not in (ansible_failed_result.msg | default(''))"
+              - "'HMAC' not in (ansible_failed_result.msg | default(''))"
             fail_msg: >-
               Expected a fabrication-named fail_msg without .text.
               Got: {{ ansible_failed_result.msg | default('') }}
-            success_msg: "Mismatch fails closed naming fabrication, without printing .text."
-
-    - name: HMAC of a different payload must fail closed (dropped findings)
-      block:
-        - name: Assert a copied nonce whose HMAC belongs to other findings
-          ansible.builtin.include_role:
-            name: review
-            tasks_from: assert_cursor_prompt_nonce
-          vars:
-            cursor_nonce_structured:
-              findings:
-                - lens: Security
-                  file: app.py
-                  line: 1
-                  severity: Critical
-                  description: rce
-                  evidence: eval(x)
-                  confidence: HIGH
-                  fix: don't
-              scores: { security: 10 }
-              prompt_nonce: "{{ review_prompt_nonce }}"
-              prompt_attestation: "983793103fcc7fd1bfa9955d09fd72c1470449f6fa8ed74d4701a71fb858ecc6"
-            cursor_nonce_lens_label: "Security lens"
-
-        - name: Fail if a stolen HMAC for a different payload was accepted
-          ansible.builtin.fail:
-            msg: "Expected a payload-bound HMAC mismatch to fail closed."
-      rescue:
-        - name: Confirm dropped-findings HMAC fails closed without .text or the key
-          ansible.builtin.assert:
-            that:
-              - "'prompt_attestation' in (ansible_failed_result.msg | default('') | lower)"
-              - "'.text' not in (ansible_failed_result.msg | default(''))"
-              - review_prompt_hmac_key not in (ansible_failed_result.msg | default(''))
-              - "'eval(x)' not in (ansible_failed_result.msg | default(''))"
-            fail_msg: >-
-              Expected a payload HMAC fail_msg without .text, key, or evidence.
-              Got: {{ ansible_failed_result.msg | default('') }}
-            success_msg: "Dropped findings fail closed on HMAC mismatch, without printing .text or the key."
+            success_msg: "Nonce mismatch fails closed naming fabrication, without printing .text."
