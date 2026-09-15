@@ -84,13 +84,6 @@ def cursor_defaults() -> dict[str, str]:
     }
 
 
-def provider_payload(family: str) -> dict[str, str]:
-    payload = {"agent_family": family}
-    if family == "cursor":
-        payload.update(cursor_defaults())
-    return payload
-
-
 def credential_present(family: str, env: Mapping[str, str] | None = None) -> bool:
     environ = os.environ if env is None else env
     key = _CREDENTIAL_ENV.get(family)
@@ -178,15 +171,10 @@ def running_inside_openshell(
     Isolation is already in place; skip that unless the operator passes
     --sandbox.
 
-    OPENSHELL_ENDPOINT is not proof of containment — operator machines set
-    it to talk to the gateway. Require a sandbox id/name or the in-guest
-    JWT marker.
+    OPENSHELL_ENDPOINT, OPENSHELL_SANDBOX, and OPENSHELL_SANDBOX_ID are
+    caller-controlled strings. Only the in-guest JWT marker is treated
+    as containment.
     """
-    environ = os.environ if env is None else env
-    if (environ.get("OPENSHELL_SANDBOX") or "").strip():
-        return True
-    if (environ.get("OPENSHELL_SANDBOX_ID") or "").strip():
-        return True
     marker = jwt_path if jwt_path is not None else Path("/etc/openshell/auth/sandbox.jwt")
     return marker.is_file()
 

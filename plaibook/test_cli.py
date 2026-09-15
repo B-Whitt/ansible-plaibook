@@ -135,6 +135,48 @@ def test_extra_vars_sandbox_and_passthrough():
     assert extras["use_sandbox"] is True
 
 
+def test_cmd_review_skips_resolve_family_when_agent_family_extra(tmp_path, monkeypatch):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
+    called = []
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        extras = json.loads(command[command.index("-e") + 1])
+        path = last_run_path(extras["last_run_id"], home=home)
+        path.write_text(json.dumps({"run_id": extras["last_run_id"], "status": "ok", "targets": []}))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr(
+        "plaibook.cli.resolve_family",
+        lambda **kwargs: called.append(kwargs),
+    )
+
+    code = cmd_review(
+        _args(
+            commit=True,
+            playbook_root=str(checkout),
+            cli_extra_vars=["agent_family=gemini"],
+        )
+    )
+    assert code == 0
+    assert called == []
+
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout), provider="cursor"))
+    assert code == 0
+    assert called and called[0]["cli_family"] == "cursor"
+
+
 def test_extra_vars_force_disables_same_commit_fast_path():
     extras = extra_vars_from_args(_args(target="org/repo#1", force=True), "runId0123456789")
     assert extras["review_same_commit_fast_path_enabled"] is False
@@ -518,6 +560,17 @@ def test_cmd_review_quiet_json_yaml_and_exit(tmp_path, monkeypatch, capsys):
     assert parsed["targets"][0]["score"] == 40.0
 
     capsys.readouterr()
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout), as_json=True, verbose=True))
+    out = capsys.readouterr()
+    assert captured["verbose"] is False
+    assert "-v" in captured["command"]
+    payload = json.loads(out.out)
+    assert payload["targets"][0]["verdict"] == "NEEDS_CHANGES"
+    assert "TASK [noisy]" not in out.out
+    assert "TASK [noisy]" in out.err
+    assert code == 2
+
+    capsys.readouterr()
     code = cmd_review(_args(commit=True, playbook_root=str(checkout), verbose=True))
     assert captured["verbose"] is True
     assert "-v" in captured["command"]
@@ -835,10 +888,10 @@ def test_running_inside_openshell_ignores_endpoint_only(tmp_path):
     )
     assert (
         running_inside_openshell(
-            env={"OPENSHELL_SANDBOX": "box-1"},
+            env={"OPENSHELL_SANDBOX": "box-1", "OPENSHELL_SANDBOX_ID": "abc"},
             jwt_path=missing,
         )
-        is True
+        is False
     )
     jwt = tmp_path / "sandbox.jwt"
     jwt.write_text("x")

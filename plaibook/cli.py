@@ -44,9 +44,10 @@ Critical/Major with file:line + why). Quiet TTY waits show a spinner on
 stderr (PLAIBOOK_SPINNER=0 to disable), with a second line for the current
 stage (setup, checkout, scan, lenses, merge, explore, verify, persist).
 --json / --yaml emit the structured last_run + summary fields. -v passes
--v to ansible-playbook (task names). -vv / --debug passes -vv (task names
-and module args) and skips the spinner. --full (or -v) adds the findings.md
-report. A score line plus finding counts is not a review.
+-v to ansible-playbook (task names). Combined with --json/--yaml, ansible
+output goes to stderr so stdout stays parseable. -vv / --debug passes -vv
+(task names and module args) and skips the spinner. --full (or -v) adds
+the findings.md report. A score line plus finding counts is not a review.
 Same-commit cache hits print that they reused the prior review (why cost
 is $0.00). -f / --force disables that fast path and re-runs the lenses.
 
@@ -391,15 +392,16 @@ def cmd_review(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     extras.setdefault("ansible_python_interpreter", sys.executable)
-    try:
-        resolve_family(
-            cli_family=getattr(args, "provider", None),
-            stdin=sys.stdin,
-            stderr=sys.stderr,
-        )
-    except (ValueError, ConfigError) as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
+    if getattr(args, "provider", None) or "agent_family" not in extras:
+        try:
+            resolve_family(
+                cli_family=getattr(args, "provider", None),
+                stdin=sys.stdin,
+                stderr=sys.stderr,
+            )
+        except (ValueError, ConfigError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     sandbox_error = _apply_sandbox_fallback(args, extras)
     if sandbox_error:
         print(sandbox_error, file=sys.stderr)
@@ -416,9 +418,9 @@ def cmd_review(args: argparse.Namespace) -> int:
         return 2
 
     structured = args.as_json or args.as_yaml
-    passthrough = ansible_verbosity(args) > 0
+    inherit_tty = (not structured) and ansible_verbosity(args) > 0
     try:
-        if passthrough:
+        if inherit_tty:
             sys.stderr.write(_progress_line(args))
             sys.stderr.flush()
             result = run_ansible_playbook(command, playbook_root=root, verbose=True)
@@ -452,14 +454,18 @@ def cmd_review(args: argparse.Namespace) -> int:
     except (PlaybookTimeoutError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    captured = "" if inherit_tty else ((result.stderr or "") + (result.stdout or ""))
+    if structured and ansible_verbosity(args) > 0 and captured.strip():
+        sys.stderr.write(captured)
+        if not captured.endswith("\n"):
+            sys.stderr.write("\n")
+        captured = ""
     summary_file = last_run_path(run_id)
     if not summary_file.is_file():
-        if not passthrough:
-            captured = (result.stderr or "") + (result.stdout or "")
-            if captured.strip():
-                sys.stderr.write(captured)
-                if not captured.endswith("\n"):
-                    sys.stderr.write("\n")
+        if captured.strip():
+            sys.stderr.write(captured)
+            if not captured.endswith("\n"):
+                sys.stderr.write("\n")
         print(
             f"ansible-playbook exited {result.returncode} without writing {summary_file}",
             file=sys.stderr,

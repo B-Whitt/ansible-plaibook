@@ -18,9 +18,10 @@ plaibook review org/repo#123
 ```
 
 `--yaml` is the YAML form of `--json`. `-v` passes `-v` to
-`ansible-playbook` (task names). `-vv` / `--debug` passes `-vv` (task
-names and module args) and skips the spinner. `--full` (or `-v`) adds
-the findings.md report.
+`ansible-playbook` (task names). Combined with `--json` / `--yaml`,
+that ansible output goes to stderr so stdout stays parseable. `-vv` /
+`--debug` passes `-vv` (task names and module args) and skips the
+spinner. `--full` (or `-v`) adds the findings.md report.
 `-f` / `--force` re-runs lenses even when this commit was already
 reviewed. A same-commit cache hit is labeled in the pretty review so a
 $0.00 cost is not mistaken for a live run.
@@ -29,9 +30,9 @@ contains `review.yml`. First run with no operator config prompts for a
 provider and writes `~/.config/ansible-plaibook/vars.yml`. `--provider
 cursor` does the same non-interactively and defaults Cursor to
 `gpt-5.6-luna` / `high`. PR/branch reviews skip nested OpenShell when
-this process is already inside a sandbox. They fail closed if that SDK
-is not importable from this interpreter (`--no-sandbox` to review on
-the host, `--sandbox` to require it).
+this process is already inside a sandbox (in-guest JWT). They fail
+closed if that SDK is not importable from this interpreter
+(`--no-sandbox` to review on the host, `--sandbox` to require it).
 
 ## Output sugar
 
