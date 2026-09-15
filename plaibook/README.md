@@ -29,8 +29,9 @@ contains `review.yml`. First run with no operator config prompts for a
 provider and writes `~/.config/ansible-plaibook/vars.yml`. `--provider
 cursor` does the same non-interactively and defaults Cursor to
 `gpt-5.6-luna` / `high`. PR/branch reviews skip nested OpenShell when
-this process is already inside a sandbox, or when that SDK is not
-importable from this interpreter (`--no-sandbox` / `--sandbox`).
+this process is already inside a sandbox. They fail closed if that SDK
+is not importable from this interpreter (`--no-sandbox` to review on
+the host, `--sandbox` to require it).
 
 ## Output sugar
 

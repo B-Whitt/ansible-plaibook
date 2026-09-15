@@ -22,7 +22,7 @@ status: stable
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `use_sandbox` | `true` for `pr`/`branch` on a normal host with the OpenShell SDK; skipped inside an OpenShell sandbox | Runs the target-repo checkout and checklist execution inside an OpenShell sandbox. Nested sandboxing is skipped when `OPENSHELL_SANDBOX` / `OPENSHELL_SANDBOX_ID` is set. `plai review --no-sandbox` skips it. A copy of the SDK in another venv does not count. |
+| `use_sandbox` | `true` for `pr`/`branch` on a normal host with the OpenShell SDK; skipped inside an OpenShell sandbox | Runs the target-repo checkout and checklist execution inside an OpenShell sandbox. Nested sandboxing is skipped when `OPENSHELL_SANDBOX` / `OPENSHELL_SANDBOX_ID` is set. `plai review --no-sandbox` skips it. Missing SDK on a normal host fails closed. A copy of the SDK in another venv does not count. |
 | `post_results` | `false` | Posts the rendered review back to the real PR/MR. Reviewing is safe to automate; posting is a write to shared state and needs explicit opt-in. |
 | `fail_on_regressions` | `false` for `pr`/`branch`, `true` for `commit` | Whether a `NEEDS_CHANGES` verdict with a real Critical/Major finding makes the Ansible run itself exit non-zero. Lets a `commit_review` invocation gate a hook on the exit code directly. |
 | `review_same_commit_fast_path_enabled` | `true` | Skips lens dispatch, merge, and persistence when the target's current commit matches the last-reviewed one. `plai review -f` / `--force` sets this `false`. Pretty stdout labels a cache hit so a $0.00 cost is not mistaken for a live run. |

@@ -118,9 +118,9 @@ ansible-playbook review.yml -e review_targets_raw="org/repo#123"
   source-branch-controlled `CHECKLIST.md`, i.e. untrusted input).
   `plai review --no-sandbox` skips it. Already inside OpenShell
   (`OPENSHELL_SANDBOX` / `OPENSHELL_SANDBOX_ID`), the CLI skips nested
-  sandboxing without a warning. On a normal host it also skips when the
-  OpenShell SDK is not importable from `plai`'s interpreter (a copy in
-  another venv does not count). Playbook path:
+  sandboxing without a warning. On a normal host a missing OpenShell
+  SDK fails closed (a copy in another venv does not count); pass
+  `--no-sandbox` to review on the host. Playbook path:
   `-e use_sandbox=false`.
 - `post_results` defaults to `false` — reviewing is safe to automate;
   posting the review back to the real PR/MR is a write to shared state

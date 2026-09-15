@@ -12,12 +12,14 @@ from typing import Sequence
 from plaibook import __version__
 from plaibook.config import (
     FAMILIES,
+    ConfigError,
     openshell_available,
     resolve_family,
     running_inside_openshell,
 )
 from plaibook.playbook import (
     PlaybookNotFoundError,
+    PlaybookTimeoutError,
     build_ansible_command,
     find_playbook_root,
     generate_run_id,
@@ -50,9 +52,10 @@ is $0.00). -f / --force disables that fast path and re-runs the lenses.
 
 First review with no operator config prompts for a provider and writes
 ~/.config/ansible-plaibook/vars.yml. Cursor defaults to gpt-5.6-luna / high.
-PR/branch reviews skip OpenShell when this process is already inside
-an OpenShell sandbox, or when the SDK is not importable from this
-interpreter (--sandbox to require it, --no-sandbox to skip it).
+PR/branch reviews skip nested OpenShell when this process is already
+inside an OpenShell sandbox. They fail closed if the SDK is not
+importable from this interpreter (--no-sandbox to review on the host,
+--sandbox to require it).
 
 AAP / execution-environment jobs keep calling ansible-playbook review.yml.
 
@@ -204,7 +207,8 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         help=(
             "Run PR/branch briefing in an OpenShell sandbox. Default is on for "
             "pr/branch when the SDK is importable and this process is not "
-            "already inside OpenShell."
+            "already inside OpenShell. Missing SDK fails closed unless "
+            "--no-sandbox."
         ),
     )
     review.add_argument(
@@ -300,7 +304,7 @@ def _validate_review_args(args: argparse.Namespace) -> str | None:
 
 
 def _apply_sandbox_fallback(args: argparse.Namespace, extras: dict) -> str | None:
-    """Skip nested OpenShell when we are already inside one, or the SDK is missing."""
+    """Fail closed when a PR/branch review cannot create the default sandbox."""
     if extras.get("review_type") == "commit" and "use_sandbox" not in extras:
         return None
     if extras.get("use_sandbox") is True and not openshell_available():
@@ -319,12 +323,13 @@ def _apply_sandbox_fallback(args: argparse.Namespace, extras: dict) -> str | Non
         return None
     if openshell_available():
         return None
-    extras["use_sandbox"] = False
-    sys.stderr.write(
-        "OpenShell SDK is not importable from this interpreter; "
-        "reviewing without a sandbox. Pass --sandbox to require it.\n"
+    return (
+        "OpenShell SDK is not importable from "
+        f"{sys.executable}. PR/branch reviews run untrusted checklist "
+        "commands and require a sandbox. Install OpenShell in this "
+        "interpreter (pip install 'openshell>=0.0.116,<0.0.120'), or pass "
+        "--no-sandbox to review on the host. A copy in another venv does not count."
     )
-    return None
 
 
 def _emit_summary(document: dict, args: argparse.Namespace) -> None:
@@ -387,7 +392,7 @@ def cmd_review(args: argparse.Namespace) -> int:
             stdin=sys.stdin,
             stderr=sys.stderr,
         )
-    except ValueError as exc:
+    except (ValueError, ConfigError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     sandbox_error = _apply_sandbox_fallback(args, extras)
@@ -407,37 +412,41 @@ def cmd_review(args: argparse.Namespace) -> int:
 
     structured = args.as_json or args.as_yaml
     passthrough = ansible_verbosity(args) > 0
-    if passthrough:
-        sys.stderr.write(_progress_line(args))
-        sys.stderr.flush()
-        result = run_ansible_playbook(command, playbook_root=root, verbose=True)
-    elif spinner_enabled(sys.stderr):
-        progress = tempfile.NamedTemporaryFile(
-            prefix="plaibook-progress-",
-            suffix=".txt",
-            delete=False,
-        )
-        try:
-            progress.write(b"setup\n")
-            progress.close()
-            with WaitSpinner(
-                _progress_line(args).rstrip("\n"),
-                stream=sys.stderr,
-                progress_file=progress.name,
-            ):
-                result = run_ansible_playbook(
-                    command,
-                    playbook_root=root,
-                    verbose=False,
-                    env={"PLAIBOOK_PROGRESS_FILE": progress.name},
-                )
-        finally:
-            Path(progress.name).unlink(missing_ok=True)
-    else:
-        if not structured:
+    try:
+        if passthrough:
             sys.stderr.write(_progress_line(args))
             sys.stderr.flush()
-        result = run_ansible_playbook(command, playbook_root=root, verbose=False)
+            result = run_ansible_playbook(command, playbook_root=root, verbose=True)
+        elif spinner_enabled(sys.stderr):
+            progress = tempfile.NamedTemporaryFile(
+                prefix="plaibook-progress-",
+                suffix=".txt",
+                delete=False,
+            )
+            try:
+                progress.write(b"setup\n")
+                progress.close()
+                with WaitSpinner(
+                    _progress_line(args).rstrip("\n"),
+                    stream=sys.stderr,
+                    progress_file=progress.name,
+                ):
+                    result = run_ansible_playbook(
+                        command,
+                        playbook_root=root,
+                        verbose=False,
+                        env={"PLAIBOOK_PROGRESS_FILE": progress.name},
+                    )
+            finally:
+                Path(progress.name).unlink(missing_ok=True)
+        else:
+            if not structured:
+                sys.stderr.write(_progress_line(args))
+                sys.stderr.flush()
+            result = run_ansible_playbook(command, playbook_root=root, verbose=False)
+    except (PlaybookTimeoutError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     summary_file = last_run_path(run_id)
     if not summary_file.is_file():
         if not passthrough:

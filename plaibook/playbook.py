@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import secrets
 import shutil
+import signal
 import string
 import subprocess
 import sys
@@ -14,6 +15,8 @@ from pathlib import Path
 PLAYBOOK_NAME = "review.yml"
 ANSIBLE_CFG_NAME = "ansible.cfg"
 ENV_ROOT = "PLAIBOOK_ROOT"
+ENV_TIMEOUT = "PLAIBOOK_PLAYBOOK_TIMEOUT"
+DEFAULT_PLAYBOOK_TIMEOUT_SECONDS = 3600
 RUN_ID_CHARS = string.ascii_letters + string.digits
 RUN_ID_LENGTH = 16
 CACHE_DIRNAME = "ansible-plaibook"
@@ -21,6 +24,18 @@ CACHE_DIRNAME = "ansible-plaibook"
 
 class PlaybookNotFoundError(FileNotFoundError):
     """review.yml could not be located from this install."""
+
+
+class PlaybookTimeoutError(TimeoutError):
+    """ansible-playbook exceeded PLAIBOOK_PLAYBOOK_TIMEOUT."""
+
+    def __init__(self, seconds: float, command: list[str]):
+        self.seconds = seconds
+        self.command = command
+        super().__init__(
+            f"ansible-playbook exceeded {seconds:.0f}s timeout. "
+            f"Set {ENV_TIMEOUT} to raise the limit (seconds)."
+        )
 
 
 def generate_run_id() -> str:
@@ -105,6 +120,33 @@ def build_ansible_command(
     return command
 
 
+def playbook_timeout_seconds(env: dict[str, str] | None = None) -> float:
+    """Seconds ansible-playbook may run before the CLI kills the process group."""
+    environ = os.environ if env is None else env
+    raw = (environ.get(ENV_TIMEOUT) or "").strip()
+    if not raw:
+        return float(DEFAULT_PLAYBOOK_TIMEOUT_SECONDS)
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{ENV_TIMEOUT}={raw!r} must be a positive number of seconds") from exc
+    if value <= 0:
+        raise ValueError(f"{ENV_TIMEOUT}={raw!r} must be a positive number of seconds")
+    return value
+
+
+def _kill_process_group(proc: subprocess.Popen[str]) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
 def run_ansible_playbook(
     command: list[str],
     *,
@@ -113,17 +155,24 @@ def run_ansible_playbook(
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run ansible-playbook. Quiet mode captures output; -v inherits the TTY."""
+    timeout = playbook_timeout_seconds()
     merged = os.environ.copy()
     if env:
         merged.update(env)
     merged["ANSIBLE_CONFIG"] = str(playbook_root / ANSIBLE_CFG_NAME)
-    if verbose:
-        return subprocess.run(command, env=merged, check=False, text=True)
-    return subprocess.run(
-        command,
-        env=merged,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    kwargs: dict = {
+        "args": command,
+        "env": merged,
+        "text": True,
+        "start_new_session": True,
+    }
+    if not verbose:
+        kwargs["stdout"] = subprocess.PIPE
+        kwargs["stderr"] = subprocess.PIPE
+    proc = subprocess.Popen(**kwargs)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        _kill_process_group(proc)
+        raise PlaybookTimeoutError(timeout, command) from exc
+    return subprocess.CompletedProcess(command, proc.returncode, stdout or "", stderr or "")

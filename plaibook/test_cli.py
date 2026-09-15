@@ -206,16 +206,29 @@ def test_prompt_saves_typed_family(tmp_path, monkeypatch):
     assert saved["review_cursor_model"] == "gpt-5.6-luna"
 
 
-def test_sandbox_fallback_skips_when_sdk_missing(monkeypatch, capsys):
+def test_sandbox_fallback_fails_closed_when_sdk_missing(monkeypatch, capsys):
     from plaibook.cli import _apply_sandbox_fallback
 
     monkeypatch.setattr("plaibook.cli.openshell_available", lambda: False)
     monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
     extras = {"review_type": "pr", "review_targets_raw": "org/repo#1"}
     error = _apply_sandbox_fallback(_args(target="org/repo#1"), extras)
+    assert error is not None
+    assert "require a sandbox" in error
+    assert "--no-sandbox" in error
+    assert "use_sandbox" not in extras
+    assert capsys.readouterr().err == ""
+
+
+def test_sandbox_fallback_explicit_no_sandbox_when_sdk_missing(monkeypatch):
+    from plaibook.cli import _apply_sandbox_fallback
+
+    monkeypatch.setattr("plaibook.cli.openshell_available", lambda: False)
+    monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
+    extras = {"review_type": "pr", "review_targets_raw": "org/repo#1", "use_sandbox": False}
+    error = _apply_sandbox_fallback(_args(target="org/repo#1", use_sandbox=False), extras)
     assert error is None
     assert extras["use_sandbox"] is False
-    assert "without a sandbox" in capsys.readouterr().err
 
 
 def test_sandbox_fallback_quiet_when_already_inside_openshell(monkeypatch, capsys):
@@ -712,3 +725,86 @@ def test_wait_spinner_reads_progress_file(tmp_path, monkeypatch):
     text = "".join(stream.buf)
     assert "  lenses" in text
     assert "  explore" in text
+
+
+def test_cmd_review_pr_fails_closed_without_openshell(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    called = []
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.openshell_available", lambda: False)
+    monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
+    monkeypatch.setattr(
+        "plaibook.cli.run_ansible_playbook",
+        lambda *args, **kwargs: called.append(True),
+    )
+
+    code = cmd_review(_args(target="org/repo#1", playbook_root=str(checkout)))
+    err = capsys.readouterr().err
+    assert code == 2
+    assert called == []
+    assert "require a sandbox" in err
+
+
+def test_load_vars_malformed_yaml_is_config_error(tmp_path):
+    from plaibook.config import ConfigError, load_vars
+
+    path = tmp_path / "vars.yml"
+    path.write_text("agent_family: [unterminated\n", encoding="utf-8")
+    try:
+        load_vars(path=path)
+    except ConfigError as exc:
+        assert str(path) in str(exc)
+        assert "cannot parse" in str(exc)
+    else:
+        raise AssertionError("expected ConfigError")
+
+
+def test_cmd_review_malformed_vars_yml(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    xdg = tmp_path / "xdg"
+    (xdg / "ansible-plaibook").mkdir(parents=True)
+    (xdg / "ansible-plaibook" / "vars.yml").write_text("agent_family: [\n", encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    monkeypatch.delenv("ANSIBLE_REVIEW_AGENT_FAMILY", raising=False)
+    monkeypatch.setattr("plaibook.cli.openshell_available", lambda: True)
+
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout)))
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "cannot parse" in err
+    assert "vars.yml" in err
+
+
+def test_playbook_timeout_seconds_rejects_non_positive(monkeypatch):
+    from plaibook.playbook import playbook_timeout_seconds
+
+    monkeypatch.delenv("PLAIBOOK_PLAYBOOK_TIMEOUT", raising=False)
+    assert playbook_timeout_seconds() == 3600
+    monkeypatch.setenv("PLAIBOOK_PLAYBOOK_TIMEOUT", "0")
+    try:
+        playbook_timeout_seconds()
+    except ValueError as exc:
+        assert "PLAIBOOK_PLAYBOOK_TIMEOUT" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_run_ansible_playbook_times_out(tmp_path, monkeypatch):
+    from plaibook.playbook import PlaybookTimeoutError, run_ansible_playbook
+
+    monkeypatch.setenv("PLAIBOOK_PLAYBOOK_TIMEOUT", "0.2")
+    (tmp_path / "ansible.cfg").write_text("[defaults]\n")
+    try:
+        run_ansible_playbook(["sleep", "10"], playbook_root=tmp_path, verbose=False)
+    except PlaybookTimeoutError as exc:
+        assert exc.seconds == 0.2
+        assert "timeout" in str(exc)
+    else:
+        raise AssertionError("expected PlaybookTimeoutError")

@@ -13,6 +13,10 @@ import yaml
 CONFIG_DIRNAME = "ansible-plaibook"
 VARS_NAME = "vars.yml"
 FAMILIES = ("cursor", "claude", "gemini", "openai", "claude_cli")
+
+
+class ConfigError(Exception):
+    """Operator vars.yml could not be read or parsed."""
 CURSOR_DEFAULT_MODEL = "gpt-5.6-luna"
 CURSOR_DEFAULT_EFFORT = "high"
 _CREDENTIAL_ENV = {
@@ -38,7 +42,16 @@ def load_vars(*, path: Path | None = None, env: Mapping[str, str] | None = None)
     target = path if path is not None else vars_path(env=env)
     if not target.is_file():
         return {}
-    loaded = yaml.safe_load(target.read_text(encoding="utf-8"))
+    try:
+        loaded = yaml.safe_load(target.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ConfigError(f"cannot read {target}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigError(f"cannot decode {target}: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise ConfigError(
+            f"cannot parse {target}: {exc}. Fix the YAML or delete the file and re-run."
+        ) from exc
     return dict(loaded) if isinstance(loaded, dict) else {}
 
 
