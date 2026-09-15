@@ -1,7 +1,12 @@
 ---
 # Prompt-side-only ai-guardian scan of shared untrusted content (diff + PR/MR description).
 # Scans once, shared across lenses (not per-lens). Response-side scanning is out of scope.
-# Self-installs ai-guardian in sandbox when missing; requires pre-install on unsandboxed host.
+# Self-installs ai-guardian in sandbox when missing. Unsandboxed runs require a
+# pre-install on the controller -- use_sandbox=false never self-installs, so a
+# missing binary means there is no deterministic scan this run. Report that as
+# "ai-guardian not installed" (Ansible's command module returns rc=2 for
+# ENOENT, not 127). Do not lump a missing tool in with a scan that ran and
+# errored.
 # Scans FILE, not inline `--text`, to avoid exposing untrusted content in process arguments.
 # Guardian findings are informational-only, separate from severity scoring.
 
@@ -38,6 +43,13 @@
       ansible.builtin.set_fact:
         _guardian_real_nl: "\n"
 
+    # Never pass omit through Jinja into delegate_to: Ansible can treat
+    # the omit placeholder as a hostname. Unsandboxed runs delegate to
+    # inventory_hostname (this play's localhost).
+    - name: Resolve the scan host without passing omit into delegate_to
+      ansible.builtin.set_fact:
+        _guardian_scan_host: "{{ review_delegate_host if (review_delegate_host | default('') | trim | length > 0) else inventory_hostname }}"
+
     # PR/MR description is untrusted input reaching the same lenses
     # (review_agent_prompt.j2/security_agent_prompt.j2 both render it),
     # same trust boundary as the diff itself -- scanned together in one
@@ -61,7 +73,7 @@
       ansible.builtin.tempfile:
         state: file
         suffix: "-ai-guardian-input.txt"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_input_file
 
@@ -80,7 +92,7 @@
         content: "{{ _guardian_scan_input }}"
         dest: "{{ _guardian_input_file.path }}"
         mode: "0600"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_input_write_result
 
@@ -93,7 +105,7 @@
       ansible.builtin.tempfile:
         state: file
         suffix: "-ai-guardian-findings.json"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_json_output_file
 
@@ -111,7 +123,7 @@
       ansible.builtin.file:
         path: "{{ _guardian_json_output_file.path }}"
         mode: "0600"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_json_output_chmod_result
 
@@ -120,16 +132,30 @@
       vars:
         fail_if_unreachable_result_var: _guardian_json_output_chmod_result
 
+    # command -v is a shell builtin, so the lookup still goes through
+    # sh. Do not interpolate review_guardian_binary into that script:
+    # extra-vars / inventory can put shell metacharacters in the name.
+    # $0 is the dummy argv, $1 is the name as an exec argument.
+    - name: Build argv that looks up the guardian binary without interpolating it into shell
+      ansible.builtin.set_fact:
+        _guardian_binary_lookup_argv:
+          - sh
+          - -c
+          - 'command -v "$1"'
+          - sh
+          - "{{ review_guardian_binary }}"
+
     # Only meaningful in the sandboxed case (review_delegate_host set)
-    # -- an unsandboxed run has no delegate host to check, and the
-    # empty-string default keeps this whole precheck+install pair
-    # skipped for it, matching the documented controller-precondition
-    # design above.
+    # -- an unsandboxed run has no delegate host to install onto.
+    # The precheck itself always runs, including on the controller:
+    # unsandboxed missing-binary used to fall through to the scan
+    # command, which Ansible records as rc=2 with empty stderr
+    # ("ai-guardian scan exited 2: "), indistinguishable from a scan
+    # that ran and errored.
     - name: Check whether ai-guardian is already present on the scan host
       ansible.builtin.command:
-        argv: [sh, -c, "command -v ai-guardian"]
-      when: review_delegate_host | default('') | trim | length > 0
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+        argv: "{{ _guardian_binary_lookup_argv }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_binary_precheck
       failed_when: false
@@ -269,7 +295,7 @@
           ansible.builtin.tempfile:
             state: directory
             suffix: "-ai-guardian-wheelhouse"
-          delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+          delegate_to: "{{ _guardian_scan_host }}"
           ignore_unreachable: true
           register: _guardian_sandbox_wheelhouse_dir
 
@@ -282,7 +308,7 @@
             src: "{{ _guardian_wheelhouse_dir.path }}/"
             dest: "{{ _guardian_sandbox_wheelhouse_dir.path }}/"
             mode: preserve
-          delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+          delegate_to: "{{ _guardian_scan_host }}"
           ignore_unreachable: true
           register: _guardian_copy_wheelhouse_result
 
@@ -312,7 +338,7 @@
               - "{{ _guardian_sandbox_wheelhouse_dir.path }}"
               - -r
               - "{{ _guardian_sandbox_wheelhouse_dir.path }}/guardian-ai-guardian-requirements.txt"
-          delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+          delegate_to: "{{ _guardian_scan_host }}"
           ignore_unreachable: true
           register: _guardian_install_result
           changed_when: true
@@ -348,7 +374,7 @@
               - "{{ _guardian_sandbox_wheelhouse_dir.path }}"
               - -r
               - "{{ _guardian_sandbox_wheelhouse_dir.path }}/guardian-requests-requirements.txt"
-          delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+          delegate_to: "{{ _guardian_scan_host }}"
           ignore_unreachable: true
           register: _guardian_install_requests_result
           changed_when: true
@@ -377,7 +403,7 @@
           ansible.builtin.file:
             path: "{{ _guardian_sandbox_wheelhouse_dir.path }}"
             state: absent
-          delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+          delegate_to: "{{ _guardian_scan_host }}"
           ignore_unreachable: true
           ignore_errors: true
           register: _guardian_sandbox_wheelhouse_cleanup_result
@@ -396,6 +422,32 @@
           when: >-
             (_guardian_sandbox_wheelhouse_cleanup_result is defined)
             and (_guardian_sandbox_wheelhouse_cleanup_result.failed | default(false))
+
+    - name: Re-check whether ai-guardian is present on the scan host
+      ansible.builtin.command:
+        argv: "{{ _guardian_binary_lookup_argv }}"
+      delegate_to: "{{ _guardian_scan_host }}"
+      ignore_unreachable: true
+      register: _guardian_binary_postcheck
+      failed_when: false
+      changed_when: false
+
+    - ansible.builtin.include_tasks: fail_if_sandbox_unreachable.yml
+      vars:
+        fail_if_unreachable_result_var: _guardian_binary_postcheck
+      when: review_delegate_host | default('') | trim | length > 0
+
+    - name: Record whether ai-guardian is actually installed
+      ansible.builtin.set_fact:
+        _guardian_binary_present: "{{ _guardian_binary_postcheck.rc == 0 }}"
+
+    - name: Skip the scan when ai-guardian is not installed
+      when: not (_guardian_binary_present | bool)
+      ansible.builtin.set_fact:
+        guardian_scan_available: false
+        guardian_scan_skip_reason: "ai-guardian not installed"
+        guardian_findings: []
+        guardian_blocking_findings: []
 
     # CI=true is required, not optional politeness -- see
     # handoff.ansible-plaibook-guardian-integration.yaml's own live-
@@ -429,15 +481,16 @@
     # design intent. The rescue: below is what actually delivers that
     # protection; timeout: 30 alone does not.
     - name: Scan the shared diff/PR-description content
+      when: _guardian_binary_present | bool
       ansible.builtin.command:
         argv:
-          - ai-guardian
+          - "{{ review_guardian_binary }}"
           - scan
           - "{{ _guardian_input_file.path }}"
           - --json-output
           - "{{ _guardian_json_output_file.path }}"
           - --exit-code
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       environment:
         CI: "true"
@@ -447,27 +500,33 @@
       changed_when: false
 
     - name: Fail loudly if the sandbox connection was unreachable
+      when: _guardian_binary_present | bool
       ansible.builtin.include_tasks: fail_if_sandbox_unreachable.yml
       vars:
         fail_if_unreachable_result_var: _guardian_scan_result
 
-    # rc 127 (command not found) is the specific, common "not
-    # installed" case worth naming plainly rather than lumping into a
-    # generic "scan failed" bucket -- rc 1 with --exit-code just means
-    # "findings exist", not a failure, so it must NOT be treated as
-    # unavailable here.
+    # rc 0/1: scan ran (1 means findings exist with --exit-code).
+    # Missing binary: name it "ai-guardian not installed". Ansible's
+    # command module returns rc=2 and msg "[Errno 2] No such file or
+    # directory" when the executable is absent -- not 127. A missing
+    # tool and a failing scan need different operator responses.
     - name: Determine whether the scan actually ran
+      when: _guardian_binary_present | bool
       ansible.builtin.set_fact:
         guardian_scan_available: "{{ _guardian_scan_result.rc in [0, 1] }}"
         guardian_scan_skip_reason: >-
           {{ '' if _guardian_scan_result.rc in [0, 1]
-             else ('ai-guardian not found on the scan host' if _guardian_scan_result.rc == 127
-             else 'ai-guardian scan exited ' ~ _guardian_scan_result.rc ~ ': ' ~ (_guardian_scan_result.stderr | default('') | trim)) }}
+             else ('ai-guardian not installed'
+                   if ((_guardian_scan_result.rc == 127)
+                       or (_guardian_scan_result.rc == 2
+                           and ('No such file or directory' in (_guardian_scan_result.msg | default(''))
+                                or 'No such file or directory' in (_guardian_scan_result.stderr | default('')))))
+                   else 'ai-guardian scan exited ' ~ _guardian_scan_result.rc ~ ': ' ~ (_guardian_scan_result.stderr | default('') | trim)) }}
 
     - name: Read the JSON findings if the scan actually ran
       ansible.builtin.slurp:
         path: "{{ _guardian_json_output_file.path }}"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       register: _guardian_findings_raw
       ignore_errors: true
@@ -490,6 +549,7 @@
     # than a false clean result -- the exact distinction this task
     # exists to preserve.
     - name: Parse the scanned findings, demoting availability if the read itself failed
+      when: _guardian_binary_present | bool
       ansible.builtin.set_fact:
         guardian_findings: "{{ (_guardian_findings_raw.content | b64decode | from_json) if (guardian_scan_available | bool and not (_guardian_findings_raw.failed | default(false))) else [] }}"
         guardian_scan_available: "{{ guardian_scan_available | bool and not (_guardian_findings_raw.failed | default(false)) }}"
@@ -515,7 +575,7 @@
       loop:
         - "{{ _guardian_input_file.path }}"
         - "{{ _guardian_json_output_file.path }}"
-      delegate_to: "{{ review_delegate_host | default(omit, true) }}"
+      delegate_to: "{{ _guardian_scan_host }}"
       ignore_unreachable: true
       ignore_errors: true
       register: _guardian_cleanup_result

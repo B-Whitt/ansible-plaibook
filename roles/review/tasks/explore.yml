@@ -3,6 +3,9 @@
 # Shared single pass preserves concurrent baseline; only pays for extra turns if model needs them.
 # Gating moved to caller (full_review.yml) for cleaner skip behavior.
 
+- name: Generate a per-run prompt nonce for the dispatch canary
+  ansible.builtin.include_tasks: generate_prompt_nonce.yml
+
 - name: Render the explore agent system prompt
   ansible.builtin.set_fact:
     explore_system_prompt: "{{ lookup('template', role_path + '/templates/explore_agent_prompt.j2') }}"

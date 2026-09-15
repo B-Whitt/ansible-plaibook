@@ -3,6 +3,9 @@
 # lives on the include_tasks call itself rather than a block: -- same
 # reasoning as same_commit_fast_path.yml's own header comment.
 
+- name: Generate a per-run prompt nonce for the dispatch canary
+  ansible.builtin.include_tasks: generate_prompt_nonce.yml
+
 # Created once here, not inside dump_debug_prompt.yml itself -- that
 # file is included once per lens, once for explore, and once per
 # verified finding, so a per-include mkdir (even though

@@ -1,0 +1,13 @@
+---
+# One 16-character nonce per review run, same alphabet as last_run_id.
+# Embedded only in the trusted lens/explore/verify *prompts* (the
+# Cursor subagent channel). Asserted on the named *_lens nested
+# execute so a parent that never invoked the subagent cannot pass.
+# Idempotent: later includes reuse the value generated at the start of
+# full_review.yml. HMAC payload attestation is gone; do not regenerate
+# a dispatcher HMAC key.
+
+- name: Generate a per-run prompt nonce for the dispatch canary
+  when: review_prompt_nonce is not defined or (review_prompt_nonce | default('') | length == 0)
+  ansible.builtin.set_fact:
+    review_prompt_nonce: "{{ lookup('password', '/dev/null length=16 chars=ascii_letters,digits') }}"

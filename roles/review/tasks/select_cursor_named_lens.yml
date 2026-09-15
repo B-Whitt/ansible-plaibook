@@ -1,0 +1,59 @@
+---
+# Consume the named *_lens structured_tool execute, not parent last-call.
+#
+# aknochow.cursor.agent returns structured_tool_calls classified parent vs
+# nested by joining execute tool_call_id to the parent run stream.
+# Parent last-call (.structured) is a lie when both called. Do not
+# revive HMAC. Do not treat a field inside args as caller identity.
+# Do not print .text or payloads in fail_msg.
+#
+# Vars:
+#   cursor_raw: module result
+#   cursor_nonce_lens_label: human label
+#   cursor_named_lens_required: if true (default), fail closed when
+#     nested execute is missing. If false, parent-only still fails
+#     closed (GetDynamicTools fabrication) but zero executes is "no
+#     report yet" for explore/verify mid-turns.
+#
+# Sets:
+#   cursor_lens_structured: nested args, or omit when not required and
+#     nothing nested
+#   cursor_named_lens_present: bool
+
+- name: "Cursor: split {{ cursor_nonce_lens_label }} structured_tool_calls"
+  ansible.builtin.set_fact:
+    _cursor_nested_calls: "{{ (cursor_raw.structured_tool_calls | default([])) | selectattr('caller', 'equalto', 'nested') | list }}"
+    _cursor_parent_calls: "{{ (cursor_raw.structured_tool_calls | default([])) | selectattr('caller', 'equalto', 'parent') | list }}"
+
+- name: "Cursor: fail closed if {{ cursor_nonce_lens_label }} only the parent called the tool"
+  when: _cursor_parent_calls | length > 0 and _cursor_nested_calls | length == 0
+  ansible.builtin.fail:
+    msg: >-
+      {{ cursor_nonce_lens_label }} (agent_family=cursor) had a parent
+      {{ cursor_lens_tool | default('structured_tool') }} execute and no
+      nested execute. The named *_lens subagent did not submit findings.
+      Parent last-call is dispatch fabrication (including GetDynamicTools
+      with tools: [mcp]), not a clean review. The model's draft is NOT
+      printed here.
+
+- name: "Cursor: fail closed if {{ cursor_nonce_lens_label }} named lens never called the tool"
+  when:
+    - cursor_named_lens_required | default(true) | bool
+    - _cursor_nested_calls | length == 0
+  ansible.builtin.fail:
+    msg: >-
+      {{ cursor_nonce_lens_label }} (agent_family=cursor) had no nested
+      {{ cursor_lens_tool | default('structured_tool') }} execute. The
+      named *_lens subagent did not submit findings. Do not use parent
+      last-call. The model's draft is NOT printed here.
+
+- name: "Cursor: take the last nested execute args for {{ cursor_nonce_lens_label }}"
+  when: _cursor_nested_calls | length > 0
+  ansible.builtin.set_fact:
+    cursor_lens_structured: "{{ _cursor_nested_calls[-1].args }}"
+    cursor_named_lens_present: true
+
+- name: "Cursor: record no nested execute for {{ cursor_nonce_lens_label }}"
+  when: _cursor_nested_calls | length == 0
+  ansible.builtin.set_fact:
+    cursor_named_lens_present: false

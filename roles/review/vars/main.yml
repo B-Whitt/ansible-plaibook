@@ -61,10 +61,16 @@ security_findings_schema:
       properties:
         security: { type: number }
       required: [security]
+    # The nonce detects "the Cursor subagent never ran" when the
+    # returned value mismatches the nonce embedded in the trusted lens
+    # prompt. Payload bind for Cursor is the named *_lens nested
+    # execute, not a model-computed digest. additionalProperties is
+    # false, so prompt_nonce is a schema edit, not an extra key.
+    prompt_nonce: { type: string }
     findings:
       type: array
       items: "{{ _finding_item }}"
-  required: [findings, scores]
+  required: [findings, scores, prompt_nonce]
 
 review_findings_schema:
   type: object
@@ -77,10 +83,11 @@ review_findings_schema:
         functionality: { type: number }
         quality: { type: number }
       required: [functionality, quality]
+    prompt_nonce: { type: string }
     findings:
       type: array
       items: "{{ _finding_item }}"
-  required: [findings, scores]
+  required: [findings, scores, prompt_nonce]
 
 # The explore agent (tasks/explore.yml) only ever reports findings,
 # never its own lens scores: it's a bolt-on pass looking beyond the
@@ -89,10 +96,11 @@ explore_findings_schema:
   type: object
   additionalProperties: false
   properties:
+    prompt_nonce: { type: string }
     findings:
       type: array
       items: "{{ _finding_item }}"
-  required: [findings]
+  required: [findings, prompt_nonce]
 
 # A deliberately small, read-only toolset for the explore agent: just
 # enough to check something beyond the diff (a stale doc reference,
@@ -243,6 +251,7 @@ verify_verdict_schema:
         topic overlap (or lack of one), not a restatement of either
         finding's full text. Write "N/A -- no prior round findings were
         shown" if continues_finding_id is null because none were shown.
+    prompt_nonce: { type: string }
   required:
     - evidence_status
     - evidence
@@ -254,6 +263,7 @@ verify_verdict_schema:
     - silent_failure
     - continues_finding_id
     - continues_finding_id_rationale
+    - prompt_nonce
 
 # Independent second call (verify_continuity_audit.yml), run only when
 # verify_finding.yml's own turn loop claimed a continues_finding_id:
@@ -270,4 +280,5 @@ continuity_audit_schema:
       enum: [plausible, implausible]
     rationale:
       type: string
-  required: [verdict, rationale]
+    prompt_nonce: { type: string }
+  required: [verdict, rationale, prompt_nonce]

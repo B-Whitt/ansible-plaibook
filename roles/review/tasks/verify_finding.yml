@@ -10,6 +10,9 @@
 # trio the other providers get. verify_agent_prompt.j2's tool references
 # don't apply there, so those families share the claude_cli prompt
 # template rather than an in-template agent_family branch.
+- name: Generate a per-run prompt nonce for the dispatch canary
+  ansible.builtin.include_tasks: generate_prompt_nonce.yml
+
 - name: Render the verify agent system prompt for this finding
   ansible.builtin.set_fact:
     verify_system_prompt: >-

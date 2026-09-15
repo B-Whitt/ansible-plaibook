@@ -1,0 +1,11 @@
+{% if review_prompt_nonce | default('') | length > 0 %}
+
+## Dispatch canary
+
+Your structured output MUST include `prompt_nonce` set to exactly this
+value, copied verbatim with no extra characters, whitespace, or quotes:
+
+{{ review_prompt_nonce }}
+
+Do not invent a different nonce. This field is required by the schema.
+{% endif %}
