@@ -43,9 +43,18 @@ def generate_run_id() -> str:
     return "".join(secrets.choice(RUN_ID_CHARS) for _ in range(RUN_ID_LENGTH))
 
 
-def last_run_path(run_id: str, home: Path | None = None) -> Path:
+def last_run_dir(home: Path | None = None) -> Path:
     root = home if home is not None else Path.home()
-    return root / ".cache" / CACHE_DIRNAME / f"last_run.{run_id}.json"
+    return root / ".cache" / CACHE_DIRNAME
+
+
+def last_run_path(run_id: str, home: Path | None = None) -> Path:
+    return last_run_dir(home) / f"last_run.{run_id}.json"
+
+
+def last_run_canonical_path(home: Path | None = None) -> Path:
+    """Last-write-wins sibling of last_run.<run_id>.json."""
+    return last_run_dir(home) / "last_run.json"
 
 
 def find_playbook_root(start: Path | None = None, env: dict[str, str] | None = None) -> Path:
