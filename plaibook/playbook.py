@@ -101,9 +101,21 @@ def _is_playbook_root(path: Path) -> bool:
 
 
 def ansible_playbook_bin() -> str:
-    sibling = Path(sys.executable).resolve().parent / "ansible-playbook"
-    if sibling.is_file() and os.access(sibling, os.X_OK):
-        return str(sibling)
+    """Prefer ansible-playbook next to this interpreter, even if python is a symlink.
+
+    ``Path.resolve()`` follows ``.venv/bin/python`` into ``/usr/bin``, so the
+    sibling lookup would miss ``.venv/bin/ansible-playbook`` and fall through
+    to an unrelated PATH binary.
+    """
+    exe = Path(sys.executable)
+    candidates = [exe.parent / "ansible-playbook", exe.resolve().parent / "ansible-playbook"]
+    seen: set[Path] = set()
+    for sibling in candidates:
+        if sibling in seen:
+            continue
+        seen.add(sibling)
+        if sibling.is_file() and os.access(sibling, os.X_OK):
+            return str(sibling)
     found = shutil.which("ansible-playbook")
     if found:
         return found

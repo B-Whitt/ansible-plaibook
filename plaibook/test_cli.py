@@ -354,6 +354,34 @@ def test_build_ansible_command_debug_passes_vv(tmp_path):
     assert command[3] == "-e"
 
 
+def test_ansible_playbook_bin_prefers_venv_when_python_is_symlink(tmp_path, monkeypatch):
+    import os
+    import stat
+    from pathlib import Path
+
+    from plaibook.playbook import ansible_playbook_bin
+
+    real_python = tmp_path / "usr" / "bin" / "python3"
+    real_python.parent.mkdir(parents=True)
+    real_python.write_text("#!/bin/sh\n")
+    real_python.chmod(stat.S_IRWXU)
+    venv_bin = tmp_path / "venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    venv_python = venv_bin / "python"
+    venv_python.symlink_to(real_python)
+    venv_ap = venv_bin / "ansible-playbook"
+    venv_ap.write_text("#!/bin/sh\n")
+    venv_ap.chmod(stat.S_IRWXU)
+    path_ap = tmp_path / "path" / "ansible-playbook"
+    path_ap.parent.mkdir()
+    path_ap.write_text("#!/bin/sh\n")
+    path_ap.chmod(stat.S_IRWXU)
+
+    monkeypatch.setattr("plaibook.playbook.sys.executable", str(venv_python))
+    monkeypatch.setenv("PATH", str(path_ap.parent) + os.pathsep + os.environ.get("PATH", ""))
+    assert Path(ansible_playbook_bin()).resolve() == venv_ap.resolve()
+
+
 def test_find_playbook_root_prefers_env(tmp_path, monkeypatch):
     checkout = tmp_path / "ansible-plaibook"
     checkout.mkdir()
