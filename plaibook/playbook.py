@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import secrets
 import shutil
@@ -139,8 +140,8 @@ def playbook_timeout_seconds(env: dict[str, str] | None = None) -> float:
         value = float(raw)
     except ValueError as exc:
         raise ValueError(f"{ENV_TIMEOUT}={raw!r} must be a positive number of seconds") from exc
-    if value <= 0:
-        raise ValueError(f"{ENV_TIMEOUT}={raw!r} must be a positive number of seconds")
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{ENV_TIMEOUT}={raw!r} must be a positive finite number of seconds")
     return value
 
 

@@ -198,10 +198,20 @@ def resolve_family(
         return family
 
     configured = load_vars(env=environ).get("agent_family")
-    if configured in FAMILIES:
+    if configured not in (None, ""):
+        if parse_family(str(configured)) is None:
+            raise ConfigError(
+                f"unknown provider {configured!r} in {vars_path(env=environ)}; "
+                f"choose one of: {', '.join(FAMILIES)}"
+            )
         return None
     env_family = (environ.get("ANSIBLE_REVIEW_AGENT_FAMILY") or "").strip()
     if env_family:
+        if parse_family(env_family) is None:
+            raise ConfigError(
+                f"unknown provider {env_family!r} in ANSIBLE_REVIEW_AGENT_FAMILY; "
+                f"choose one of: {', '.join(FAMILIES)}"
+            )
         return None
 
     tty = stdin.isatty() if interactive is None else interactive

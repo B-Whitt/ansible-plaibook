@@ -33,6 +33,7 @@ from plaibook.summary import (
     enrich_last_run,
     format_pretty,
     load_json,
+    sanitize_display_line,
 )
 from plaibook.wait import WaitSpinner, spinner_enabled
 
@@ -362,12 +363,12 @@ def _emit_summary(document: dict, args: argparse.Namespace) -> None:
 
 def _progress_line(args: argparse.Namespace) -> str:
     if args.commit:
-        repo = args.repo_path or "."
-        sha = args.commit_sha or "HEAD"
+        repo = sanitize_display_line(args.repo_path or ".")
+        sha = sanitize_display_line(args.commit_sha or "HEAD")
         return f"Reviewing commit {sha} in {repo}\n"
     if args.branch_target:
-        return f"Reviewing branch {args.branch_target}\n"
-    return f"Reviewing {args.target}\n"
+        return f"Reviewing branch {sanitize_display_line(args.branch_target)}\n"
+    return f"Reviewing {sanitize_display_line(args.target)}\n"
 
 
 def cmd_review(args: argparse.Namespace) -> int:

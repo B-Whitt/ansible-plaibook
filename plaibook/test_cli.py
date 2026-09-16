@@ -254,6 +254,34 @@ def test_prompt_saves_typed_family(tmp_path, monkeypatch):
     assert saved["review_cursor_model"] == "gpt-5.6-luna"
 
 
+def test_resolve_family_rejects_invalid_configured_and_env(tmp_path, monkeypatch):
+    import os
+    from io import StringIO
+
+    from plaibook.config import ConfigError, resolve_family, save_vars, vars_path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("ANSIBLE_REVIEW_AGENT_FAMILY", raising=False)
+    save_vars({"agent_family": "not-a-family"}, env=os.environ)
+    try:
+        resolve_family(cli_family=None, stdin=StringIO(""), stderr=StringIO(), env=os.environ)
+    except ConfigError as exc:
+        assert "not-a-family" in str(exc)
+        assert str(vars_path(env=os.environ)) in str(exc)
+    else:
+        raise AssertionError("expected ConfigError")
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
+    monkeypatch.setenv("ANSIBLE_REVIEW_AGENT_FAMILY", "also-bad")
+    try:
+        resolve_family(cli_family=None, stdin=StringIO(""), stderr=StringIO(), env=os.environ)
+    except ConfigError as exc:
+        assert "also-bad" in str(exc)
+        assert "ANSIBLE_REVIEW_AGENT_FAMILY" in str(exc)
+    else:
+        raise AssertionError("expected ConfigError")
+
+
 def test_sandbox_fallback_fails_closed_when_sdk_missing(monkeypatch, capsys):
     from plaibook.cli import _apply_sandbox_fallback
 
@@ -819,6 +847,22 @@ def test_wait_spinner_writes_frames_on_tty(monkeypatch):
     assert "38;2;" not in text
 
 
+def test_wait_spinner_strips_controls_from_label(monkeypatch):
+    from io import StringIO
+
+    from plaibook.wait import WaitSpinner
+
+    stream = StringIO()
+    monkeypatch.setenv("PLAIBOOK_SPINNER", "0")
+    with WaitSpinner("Reviewing org/repo#1\x1b[31m\rFAKE", stream=stream):
+        pass
+    text = stream.getvalue()
+    assert "\x1b" not in text
+    assert "\r" not in text
+    assert "FAKE" in text
+    assert "Reviewing org/repo#1" in text
+
+
 def test_wait_spinner_truecolor_when_color_enabled(monkeypatch):
     import time
 
@@ -985,6 +1029,20 @@ def test_playbook_timeout_seconds_rejects_non_positive(monkeypatch):
         assert "PLAIBOOK_PLAYBOOK_TIMEOUT" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+    monkeypatch.setenv("PLAIBOOK_PLAYBOOK_TIMEOUT", "inf")
+    try:
+        playbook_timeout_seconds()
+    except ValueError as exc:
+        assert "finite" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for inf")
+    monkeypatch.setenv("PLAIBOOK_PLAYBOOK_TIMEOUT", "nan")
+    try:
+        playbook_timeout_seconds()
+    except ValueError as exc:
+        assert "finite" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for nan")
 
 
 def test_run_ansible_playbook_times_out(tmp_path, monkeypatch):

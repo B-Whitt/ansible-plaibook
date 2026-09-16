@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import TextIO
 
+from plaibook.summary import sanitize_display_line
+
 # Braille spinner, same family as many CLI waiters (including Cursor).
 _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _HIDE_CURSOR = "\033[?25l"
@@ -70,11 +72,16 @@ def hsv_to_rgb(h: float, s: float = 1.0, v: float = 1.0) -> tuple[int, int, int]
 
 # HSV hue of pure blue; the spinner starts here and walks the circle.
 _HUE_START_BLUE = 2.0 / 3.0
+_MAX_WAIT_TEXT = 200
 
 
 def spinner_rgb(elapsed: float) -> tuple[int, int, int]:
     """Walk the hue circle about once every 3 seconds, starting on blue."""
     return hsv_to_rgb((_HUE_START_BLUE + elapsed * 0.33) % 1.0, 1.0, 1.0)
+
+
+def _safe_wait_text(text: str) -> str:
+    return sanitize_display_line(text)[:_MAX_WAIT_TEXT]
 
 
 class WaitSpinner:
@@ -87,14 +94,14 @@ class WaitSpinner:
         progress_file: str | Path | None = None,
         detail: str = "setup",
     ) -> None:
-        self.label = " ".join(label.split())
+        self.label = _safe_wait_text(label)
         self.stream = stream if stream is not None else sys.stderr
         self._enabled = spinner_enabled(self.stream)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._started = 0.0
         self._progress_file = Path(progress_file) if progress_file else None
-        self._detail = detail
+        self._detail = _safe_wait_text(detail) or "setup"
         self._painted_two_lines = False
 
     def __enter__(self) -> WaitSpinner:
@@ -127,7 +134,7 @@ class WaitSpinner:
             try:
                 text = self._progress_file.read_text(encoding="utf-8").strip()
                 if text:
-                    return text.splitlines()[-1].strip()
+                    return _safe_wait_text(text.splitlines()[-1])
             except OSError:
                 pass
         return self._detail
