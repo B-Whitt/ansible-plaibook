@@ -83,3 +83,48 @@ def test_sanitize_clone_url_strips_controls_and_bad_ports():
     assert sanitize_clone_url(bidi) == "https://github.com/org/repo.git"
     assert "\u202e" not in format_stage_line("checkout", clone_url=bidi)
     assert "\u200b" not in format_stage_line("checkout", clone_url=bidi)
+
+
+def test_write_progress_line_only_cli_owned_tempfile(tmp_path, monkeypatch):
+    import os
+    from pathlib import Path
+
+    from plaibook.progress import (
+        allowed_progress_path,
+        create_progress_file,
+        write_progress_line,
+    )
+
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+
+    progress_dir, progress_path = create_progress_file()
+    try:
+        assert Path(progress_path).read_text(encoding="utf-8") == "setup\n"
+        assert write_progress_line(progress_path, "lenses") is True
+        assert Path(progress_path).read_text(encoding="utf-8") == "lenses\n"
+        assert allowed_progress_path(progress_path) is not None
+
+        outside = tmp_path / "passwd"
+        outside.write_text("keep\n", encoding="utf-8")
+        assert write_progress_line(str(outside), "overwrite") is False
+        assert outside.read_text(encoding="utf-8") == "keep\n"
+
+        relative = "plaibook-progress-nope.txt"
+        assert allowed_progress_path(relative) is None
+        assert write_progress_line(relative, "x") is False
+
+        link = Path(progress_dir) / "plaibook-progress-link.txt"
+        link.symlink_to(outside)
+        assert write_progress_line(str(link), "pwn") is False
+        assert outside.read_text(encoding="utf-8") == "keep\n"
+
+        os.chmod(progress_dir, 0o755)
+        assert write_progress_line(progress_path, "after-mode") is False
+        assert Path(progress_path).read_text(encoding="utf-8") == "lenses\n"
+    finally:
+        Path(progress_path).unlink(missing_ok=True)
+        Path(progress_dir, "plaibook-progress-link.txt").unlink(missing_ok=True)
+        os.chmod(progress_dir, 0o700)
+        Path(progress_dir).rmdir()
+

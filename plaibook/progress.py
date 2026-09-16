@@ -3,11 +3,17 @@
 
 from __future__ import annotations
 
+import os
+import stat
+import tempfile
 from urllib.parse import urlsplit, urlunsplit
 
 from plaibook.summary import sanitize_display_line
 
 MAX_CLONE_URL_DISPLAY = 200
+PROGRESS_FILE_PREFIX = "plaibook-progress-"
+PROGRESS_FILE_SUFFIX = ".txt"
+_PROGRESS_MAX_BYTES = 512
 
 # First match wins. Unmapped tasks leave the current stage unchanged.
 _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -158,3 +164,81 @@ def clone_url_from_task_args(args: object) -> str | None:
         cleaned = sanitize_clone_url(repo.strip())
         return cleaned or None
     return None
+
+
+def create_progress_file() -> tuple[str, str]:
+    """Private 0o700 dir + 0o600 file for the spinner. Caller deletes both."""
+    progress_dir = tempfile.mkdtemp(prefix=PROGRESS_FILE_PREFIX)
+    os.chmod(progress_dir, 0o700)
+    fd, progress_path = tempfile.mkstemp(
+        prefix=PROGRESS_FILE_PREFIX,
+        suffix=PROGRESS_FILE_SUFFIX,
+        dir=progress_dir,
+    )
+    try:
+        os.fchmod(fd, 0o600)
+        os.write(fd, b"setup\n")
+    finally:
+        os.close(fd)
+    return progress_dir, progress_path
+
+
+def allowed_progress_path(path: str) -> str | None:
+    """Return the path if it is a CLI-owned spinner file; otherwise None."""
+    raw = (path or "").strip()
+    if not raw or "\x00" in raw or not os.path.isabs(raw):
+        return None
+    name = os.path.basename(raw)
+    if not name.startswith(PROGRESS_FILE_PREFIX) or not name.endswith(PROGRESS_FILE_SUFFIX):
+        return None
+    if os.sep in name or (os.altsep and os.altsep in name):
+        return None
+    try:
+        real_tmp = os.path.realpath(tempfile.gettempdir())
+        real_parent = os.path.realpath(os.path.dirname(raw))
+        if os.path.commonpath([real_tmp, real_parent]) != real_tmp:
+            return None
+        parent_stat = os.stat(real_parent)
+    except (OSError, ValueError):
+        return None
+    if not stat.S_ISDIR(parent_stat.st_mode):
+        return None
+    if parent_stat.st_uid != os.geteuid():
+        return None
+    if stat.S_IMODE(parent_stat.st_mode) & 0o077:
+        return None
+    if not os.path.basename(real_parent).startswith(PROGRESS_FILE_PREFIX):
+        return None
+    return os.path.join(real_parent, name)
+
+
+def write_progress_line(path: str, line: str) -> bool:
+    """Replace a CLI-owned spinner file. False means no-op (unsafe path or I/O)."""
+    if not hasattr(os, "O_NOFOLLOW"):
+        return False
+    resolved = allowed_progress_path(path)
+    if resolved is None:
+        return False
+    text = (line or "").splitlines()[0][:_PROGRESS_MAX_BYTES]
+    flags = os.O_WRONLY | os.O_NOFOLLOW | os.O_TRUNC | getattr(os, "O_CLOEXEC", 0)
+    fd = -1
+    try:
+        fd = os.open(resolved, flags)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            return False
+        if info.st_uid != os.geteuid():
+            return False
+        if stat.S_IMODE(info.st_mode) & 0o077:
+            return False
+        os.write(fd, (text + "\n").encode("utf-8"))
+        return True
+    except OSError:
+        return False
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+

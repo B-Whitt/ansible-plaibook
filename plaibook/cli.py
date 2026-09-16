@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-import tempfile
 from pathlib import Path
 from typing import Sequence
 
@@ -26,6 +25,7 @@ from plaibook.playbook import (
     last_run_path,
     run_ansible_playbook,
 )
+from plaibook.progress import create_progress_file
 from plaibook.summary import (
     SummaryError,
     dump_json,
@@ -432,27 +432,25 @@ def cmd_review(args: argparse.Namespace) -> int:
             sys.stderr.flush()
             result = run_ansible_playbook(command, playbook_root=root, verbose=True)
         elif spinner_enabled(sys.stderr):
-            progress = tempfile.NamedTemporaryFile(
-                prefix="plaibook-progress-",
-                suffix=".txt",
-                delete=False,
-            )
+            progress_dir, progress_path = create_progress_file()
             try:
-                progress.write(b"setup\n")
-                progress.close()
                 with WaitSpinner(
                     _progress_line(args).rstrip("\n"),
                     stream=sys.stderr,
-                    progress_file=progress.name,
+                    progress_file=progress_path,
                 ):
                     result = run_ansible_playbook(
                         command,
                         playbook_root=root,
                         verbose=False,
-                        env={"PLAIBOOK_PROGRESS_FILE": progress.name},
+                        env={"PLAIBOOK_PROGRESS_FILE": progress_path},
                     )
             finally:
-                Path(progress.name).unlink(missing_ok=True)
+                Path(progress_path).unlink(missing_ok=True)
+                try:
+                    Path(progress_dir).rmdir()
+                except OSError:
+                    pass
         else:
             if not structured:
                 sys.stderr.write(_progress_line(args))
