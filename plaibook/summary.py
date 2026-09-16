@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -17,7 +18,9 @@ _ANSI_RE = re.compile(
     r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
     r"|\x1b[PX^_].*?(?:\x1b\\|\x07))"
 )
-_C0_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+# C0 except TAB/LF (those stay in multi-line report text), DEL, and 8-bit C1
+# (U+0080–U+009F). U+009B CSI is the non-ESC CSI that _ANSI_RE does not match.
+_C0_C1_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 class SummaryError(Exception):
@@ -190,17 +193,22 @@ def _cache_hit_line(document: dict[str, Any], target: dict[str, Any]) -> str | N
     return "  same-commit cache hit (no new agents; $0.00 is expected). Re-run with -f to force."
 
 
+def _strip_format_controls(text: str) -> str:
+    """Drop Unicode Cf (bidi overrides, zero-width, BOM) after C0/C1 removal."""
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+
+
 def sanitize_display_text(text: str) -> str:
-    """Strip ANSI/OSC and C0 controls from untrusted review text before a TTY."""
+    """Strip ANSI/OSC, C0/C1, and bidi/zero-width from untrusted review text."""
     cleaned = _ANSI_RE.sub("", text or "")
-    return _C0_RE.sub("", cleaned)
+    return _strip_format_controls(_C0_C1_RE.sub("", cleaned))
 
 
 def sanitize_display_line(text: Any) -> str:
-    """Sanitize a single output field: no ANSI/C0, and no forged extra lines."""
+    """Sanitize a single output field: no ANSI/C0/C1/bidi, and no forged extra lines."""
     cleaned = _ANSI_RE.sub("", str(text if text is not None else ""))
     cleaned = cleaned.replace("\r", " ").replace("\n", " ").replace("\t", " ")
-    return " ".join(_C0_RE.sub("", cleaned).split())
+    return " ".join(_strip_format_controls(_C0_C1_RE.sub("", cleaned)).split())
 
 
 def _format_point_finding(finding: dict[str, Any]) -> list[str]:

@@ -23,7 +23,6 @@ from plaibook.playbook import (
     build_ansible_command,
     find_playbook_root,
     generate_run_id,
-    last_run_canonical_path,
     last_run_path,
     run_ansible_playbook,
 )
@@ -468,15 +467,10 @@ def cmd_review(args: argparse.Namespace) -> int:
         if not captured.endswith("\n"):
             sys.stderr.write("\n")
         captured = ""
+    # Always last_run.<run_id>.json — never last_run.json. The playbook
+    # always-block writes both (including same-commit cache hits); the
+    # canonical path is last-write-wins and can belong to another run.
     summary_file = last_run_path(run_id)
-    # Same-commit fast path skips persist.yml; the always-block still writes
-    # last_run.json (and usually last_run.<id>.json). If the run-scoped file
-    # is missing after a successful playbook, fall back to the canonical
-    # snapshot so a cache hit still prints the prior review.
-    if not summary_file.is_file() and result.returncode == 0:
-        canonical = last_run_canonical_path()
-        if canonical.is_file():
-            summary_file = canonical
     if not summary_file.is_file():
         if captured.strip():
             sys.stderr.write(captured)

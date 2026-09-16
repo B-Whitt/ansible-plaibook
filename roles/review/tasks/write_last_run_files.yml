@@ -71,7 +71,10 @@
 # last-write-wins race -- a caller that captures THIS path from the
 # debug line below (not the fixed path) is guaranteed to read this
 # invocation's own result, even if another run (this repo or a
-# different one) overwrites the fixed path in between. Never cleaned
+# different one) overwrites the fixed path in between. The plaibook/plai
+# CLI reads ONLY this file; it never falls back to last_run.json. Same-
+# commit cache hits skip persist.yml but this always-block still runs,
+# so the run-scoped copy must be written every invocation. Never cleaned
 # up automatically -- no automatic deletion of anything per this
 # project's convention; if these ever need pruning, that's a
 # separate, explicit ask.

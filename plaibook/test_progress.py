@@ -74,3 +74,12 @@ def test_sanitize_clone_url_strips_controls_and_bad_ports():
     assert format_stage_line("checkout", clone_url="not a url") == "checkout"
     assert sanitize_clone_url("https://github.com:70000/org/repo.git") == ""
     assert format_stage_line("checkout", clone_url="https://github.com:70000/org/repo.git") == "checkout"
+    csi = "https://github.com/org/repo.git\u009b[2J"
+    cleaned_csi = sanitize_clone_url(csi)
+    assert "\u009b" not in cleaned_csi
+    assert cleaned_csi.startswith("https://github.com/org/repo.git")
+    assert "\u009b" not in format_stage_line("checkout", clone_url=csi)
+    bidi = "https://github.com/org/\u202erepo.git\u200b"
+    assert sanitize_clone_url(bidi) == "https://github.com/org/repo.git"
+    assert "\u202e" not in format_stage_line("checkout", clone_url=bidi)
+    assert "\u200b" not in format_stage_line("checkout", clone_url=bidi)

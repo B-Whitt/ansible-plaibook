@@ -20,6 +20,10 @@
   ansible.builtin.debug:
     msg: "Same-commit fast path — findings not re-persisted, no new review directory created."
 
+# persist.yml is skipped; review.yml's always-block still writes both
+# last_run.json and last_run.<last_run_id>.json. The CLI reads only the
+# run-scoped file, so a cache hit is not allowed to omit it.
+
 # Without this, pipeline_findings_reports (last_run.json's own "targets"
 # list) stays empty on a fast-path hit -- a legitimate cache hit (which
 # can carry a real NEEDS_CHANGES verdict) then looks identical to the

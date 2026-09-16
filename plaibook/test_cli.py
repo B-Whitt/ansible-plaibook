@@ -656,7 +656,7 @@ def test_quiet_dumps_ansible_output_when_last_run_missing(tmp_path, monkeypatch,
     assert "ERROR: nope" in err
 
 
-def test_cmd_review_cache_hit_falls_back_to_canonical_last_run(tmp_path, monkeypatch, capsys):
+def test_cmd_review_cache_hit_reads_run_scoped_last_run(tmp_path, monkeypatch, capsys):
     checkout = tmp_path / "checkout"
     checkout.mkdir()
     (checkout / "review.yml").write_text("---\n")
@@ -666,21 +666,66 @@ def test_cmd_review_cache_hit_falls_back_to_canonical_last_run(tmp_path, monkeyp
     cache.mkdir(parents=True)
 
     def fake_run(command, *, playbook_root, verbose, env=None):
-        canonical = last_run_canonical_path(home=home)
-        canonical.write_text(
+        extras = json.loads(command[command.index("-e") + 1])
+        run_id = extras["last_run_id"]
+        payload = {
+            "run_id": run_id,
+            "status": "ok",
+            "cost_usd": 0.0,
+            "commit": "abc1234",
+            "targets": [
+                {
+                    "target": "org/repo#1",
+                    "verdict": "READY_FOR_HUMAN_REVIEW",
+                    "score": 100.0,
+                    "cache_hit": True,
+                    "commit": "abc1234",
+                }
+            ],
+        }
+        last_run_path(run_id, home=home).write_text(json.dumps(payload))
+        last_run_canonical_path(home=home).write_text(json.dumps(payload))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr("plaibook.cli.resolve_family", lambda **kwargs: None)
+
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout)))
+    out = capsys.readouterr()
+    assert code == 0
+    assert "READY_FOR_HUMAN_REVIEW" in out.out
+    assert "same-commit cache hit" in out.out
+    assert "without writing" not in out.err
+
+
+def test_cmd_review_does_not_fall_back_to_canonical_last_run(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    cache = home / ".cache" / "ansible-plaibook"
+    cache.mkdir(parents=True)
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        last_run_canonical_path(home=home).write_text(
             json.dumps(
                 {
-                    "run_id": "priorRunId000001",
+                    "run_id": "otherRunId0000001",
                     "status": "ok",
                     "cost_usd": 0.0,
-                    "commit": "abc1234",
+                    "commit": "deadbee",
                     "targets": [
                         {
-                            "target": "org/repo#1",
+                            "target": "other/repo#9",
                             "verdict": "READY_FOR_HUMAN_REVIEW",
                             "score": 100.0,
-                            "cache_hit": True,
-                            "commit": "abc1234",
                         }
                     ],
                 }
@@ -695,18 +740,14 @@ def test_cmd_review_cache_hit_falls_back_to_canonical_last_run(tmp_path, monkeyp
         lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
     )
     monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
-    monkeypatch.setattr(
-        "plaibook.cli.last_run_canonical_path",
-        lambda: last_run_canonical_path(home=home),
-    )
     monkeypatch.setattr("plaibook.cli.resolve_family", lambda **kwargs: None)
 
     code = cmd_review(_args(commit=True, playbook_root=str(checkout)))
     out = capsys.readouterr()
-    assert code == 0
-    assert "READY_FOR_HUMAN_REVIEW" in out.out
-    assert "same-commit cache hit" in out.out
-    assert "without writing" not in out.err
+    assert code == 2
+    assert "READY_FOR_HUMAN_REVIEW" not in out.out
+    assert "other/repo#9" not in out.out
+    assert "without writing" in out.err
 
 
 def test_format_elapsed_and_spinner_gate(monkeypatch):
@@ -1006,6 +1047,39 @@ def test_save_vars_oserror_is_config_error(tmp_path):
         assert "cannot write" in str(exc)
     else:
         raise AssertionError("expected ConfigError")
+
+
+def test_pretty_strips_c1_bidi_and_zero_width():
+    payload = "SAFE\u009b[2J\u202eHIDDEN\u200bZW"
+    pretty = format_pretty(
+        {
+            "targets": [
+                {
+                    "target": "org/repo#1",
+                    "verdict": "NEEDS_CHANGES",
+                    "score": 50,
+                    "findings": [
+                        {
+                            "severity": "Major",
+                            "file": "app.py",
+                            "line": 1,
+                            "title": payload,
+                            "description": "why " + payload,
+                        }
+                    ],
+                    "report": "report " + payload,
+                }
+            ]
+        },
+        full=True,
+    )
+    assert "\u009b" not in pretty
+    assert "\u202e" not in pretty
+    assert "\u200b" not in pretty
+    assert "SAFE" in pretty
+    assert "HIDDEN" in pretty
+    assert "ZW" in pretty
+    assert "[2J" in pretty
 
 
 def test_pretty_strips_ansi_from_findings_and_report():
