@@ -84,13 +84,18 @@ def test_parser_debug_and_vv_set_ansible_verbosity():
 
 
 def test_plaibook_and_plai_share_the_same_main():
+    from importlib.metadata import entry_points
+
     import plaibook.cli as cli
 
+    scripts = {ep.name: ep for ep in entry_points(group="console_scripts")}
+    assert scripts["plai"].value == "plaibook.cli:main"
+    assert scripts["plaibook"].value == "plaibook.cli:main"
+    assert scripts["plai"].load() is scripts["plaibook"].load() is cli.main
     parser_a = cli.build_parser(prog="plai")
     parser_b = cli.build_parser(prog="plaibook")
     assert parser_a.parse_args(["review", "--commit"]).commit is True
     assert parser_b.parse_args(["review", "--commit"]).commit is True
-    assert cli.main is cli.main
 
 
 def test_extra_vars_commit_and_pr_and_notes():

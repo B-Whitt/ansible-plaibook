@@ -5,6 +5,10 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit, urlunsplit
 
+from plaibook.summary import sanitize_display_line
+
+MAX_CLONE_URL_DISPLAY = 200
+
 # First match wins. Unmapped tasks leave the current stage unchanged.
 _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("cache", ("same-commit fast path", "same commit (fast")),
@@ -106,23 +110,26 @@ def stage_for_task(name: str) -> str | None:
 
 
 def sanitize_clone_url(url: str) -> str:
-    """Drop userinfo, query, and fragment so tokens never reach the spinner."""
-    text = (url or "").strip()
+    """Drop userinfo, query, fragment, and terminal controls before the spinner."""
+    text = sanitize_display_line(url or "").split(" ", 1)[0]
     if not text:
         return ""
     if "://" not in text:
-        return text
+        if text.startswith("git@") and ":" in text:
+            return text[:MAX_CLONE_URL_DISPLAY]
+        return ""
     try:
         parts = urlsplit(text)
+        host = parts.hostname or ""
+        port = parts.port
     except ValueError:
-        return "checkout"
-    host = parts.hostname or ""
+        return ""
     if not host:
-        return parts.scheme + "://" + (parts.path or "")
-    netloc = host
-    if parts.port:
-        netloc = f"{host}:{parts.port}"
-    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+        rendered = parts.scheme + "://" + (parts.path or "")
+    else:
+        netloc = host if port is None else f"{host}:{port}"
+        rendered = urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+    return rendered[:MAX_CLONE_URL_DISPLAY]
 
 
 def format_stage_line(stage: str, *, clone_url: str | None = None) -> str:

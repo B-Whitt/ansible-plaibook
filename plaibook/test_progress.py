@@ -58,3 +58,19 @@ def test_format_stage_line_reuses_playbook_clone_url():
         clone_url_from_task_args({"repo": "git@github.com:org/repo.git"})
         == "git@github.com:org/repo.git"
     )
+
+
+def test_sanitize_clone_url_strips_controls_and_bad_ports():
+    from plaibook.progress import format_stage_line, sanitize_clone_url
+
+    bell = "https://github.com/org/repo.git\x1b[31m\rINJECT"
+    assert sanitize_clone_url(bell) == "https://github.com/org/repo.git"
+    pretty = format_stage_line("checkout", clone_url=bell)
+    assert pretty == "checkout (https://github.com/org/repo.git)"
+    assert "\x1b" not in pretty
+    assert "\r" not in pretty
+    assert "INJECT" not in pretty
+    assert sanitize_clone_url("not a url\nFAKE") == ""
+    assert format_stage_line("checkout", clone_url="not a url") == "checkout"
+    assert sanitize_clone_url("https://github.com:70000/org/repo.git") == ""
+    assert format_stage_line("checkout", clone_url="https://github.com:70000/org/repo.git") == "checkout"
