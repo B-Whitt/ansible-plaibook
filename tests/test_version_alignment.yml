@@ -1,0 +1,48 @@
+---
+# The review skill's frontmatter version, the package version, and
+# plaibook/__init__.py __version__ are one string.
+#
+# Usage:
+#   ansible-playbook tests/test_version_alignment.yml
+
+- name: Skill, package, and module versions are the same string
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    repo_root: "{{ playbook_dir }}/.."
+    skill_version_pattern: '(?m)^version:\s*"([^"]+)"'
+    package_version_pattern: '(?m)^version\s*=\s*"([^"]+)"'
+    module_version_pattern: '(?m)^__version__\s*=\s*"([^"]+)"'
+
+  tasks:
+    - name: Read the skill frontmatter
+      ansible.builtin.slurp:
+        src: "{{ repo_root }}/.claude/skills/ansible-plaibook-review/SKILL.md"
+      register: skill_file
+
+    - name: Read the package version
+      ansible.builtin.slurp:
+        src: "{{ repo_root }}/pyproject.toml"
+      register: package_file
+
+    - name: Read the module version
+      ansible.builtin.slurp:
+        src: "{{ repo_root }}/plaibook/__init__.py"
+      register: module_file
+
+    - name: Skill, package, and module versions are the same string
+      vars:
+        skill_version: "{{ (skill_file.content | b64decode) | regex_findall(skill_version_pattern) | first }}"
+        package_version: "{{ (package_file.content | b64decode) | regex_findall(package_version_pattern) | first }}"
+        module_version: "{{ (module_file.content | b64decode) | regex_findall(module_version_pattern) | first }}"
+      ansible.builtin.assert:
+        that:
+          - skill_version == package_version
+          - skill_version == module_version
+        fail_msg: >-
+          Expected one version string.
+          skill={{ skill_version | default('') }}
+          package={{ package_version | default('') }}
+          module={{ module_version | default('') }}
