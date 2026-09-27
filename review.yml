@@ -63,12 +63,9 @@
     # it never needs isolation from itself. Override explicitly (-e
     # use_sandbox=true) if you want it anyway.
     use_sandbox: "{{ review_type != 'commit' }}"
-    # host.openshell.internal (not 127.0.0.1 / localhost): the gateway
-    # now splits its primary full-API listener from a restricted
-    # compute-driver-callback-only listener, and on a dual-stack host
-    # 127.0.0.1/localhost can land on either depending on resolver
-    # order. host.openshell.internal is baked into the gateway's own
-    # TLS cert SANs and always resolves to the primary listener.
+    # Fallback when the openshell CLI has no gateway config on this machine.
+    # A configured gateway (default name: openshell) replaces this with
+    # gateway_endpoint from ~/.config/openshell/gateways/<name>/metadata.json.
     sandbox_gateway: "https://host.openshell.internal:17670"
     sandbox_image: "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
     # SSH ProxyCommand runs on the controller, not in the sandbox.
@@ -77,14 +74,10 @@
     # that extra-var/set_fact leaks into delegate_to: sandbox_target and
     # the Mac venv path does not exist inside the guest.
     ssh_proxy_python: "{{ ansible_playbook_python | default('python3') }}"
-    # Local-dev-friendly default, same as sandbox_gateway/sandbox_tls_source
-    # below -- this personal checkout path doesn't exist inside a real AAP
-    # execution pod. Any real AAP Job Template must override this via
-    # extra_vars (e.g. -e ssh_proxy_script=/opt/openshell/ssh_proxy.py,
-    # the vendored EE path from execution-environment.yml) -- same
-    # override-on-the-Job-Template pattern already required for
-    # sandbox_gateway/sandbox_tls_source, not something to fix by changing
-    # this default (that would break local dev instead).
+    # Local default is the checkout path below. When that file is absent,
+    # the play uses ssh_proxy.py from the plaibook-installed
+    # aknochow.openshell collection. AAP still overrides this with
+    # -e ssh_proxy_script=/opt/openshell/ssh_proxy.py.
     ssh_proxy_script: "{{ lookup('env', 'HOME') }}/code/ansible-openshell/scripts/ssh_proxy.py"
 
     # 'local_mtls_dir': read certs from an openshell CLI-managed gateway dir.
@@ -202,6 +195,10 @@
       ansible.builtin.include_vars:
         file: "{{ _plaibook_xdg_vars }}"
 
+    - name: Use the selected OpenShell gateway endpoint
+      ansible.builtin.set_fact:
+        sandbox_gateway: "{{ sandbox_gateway_name | openshell_gateway_endpoint(sandbox_gateway) }}"
+
     - name: Record the review start time
       ansible.builtin.set_fact:
         review_started_at: "{{ now(utc=true).isoformat() }}"
@@ -284,6 +281,10 @@
     # venv. OpenAI/Claude/Gemini SDKs are not plaibook dependencies.
     - name: Ensure collections and provider SDKs before preflight
       ansible.builtin.include_tasks: roles/review/tasks/ensure_runtime_deps.yml
+
+    - name: Use the installed OpenShell SSH proxy when the configured path is missing
+      ansible.builtin.set_fact:
+        ssh_proxy_script: "{{ ssh_proxy_script | openshell_ssh_proxy }}"
 
     # Load the review role's provider defaults and validate provider-specific
     # controller prerequisites before creating a sandbox or cloning a target.

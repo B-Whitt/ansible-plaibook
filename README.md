@@ -289,25 +289,10 @@ tarball.
   (`ansible-galaxy collection build ~/code/ansible-openshell --output-path build/collections -f`,
   same for `ansible-claude`) and rebuild/push the EE whenever either
   collection changes, or AAP jobs will run against stale module code.
-- **`sandbox_gateway` must be `host.openshell.internal`, not
-  `127.0.0.1`/`localhost`, and that requires a manual `/etc/hosts`
-  entry.** OpenShell's podman driver splits the gateway into two
-  listeners: a primary (full API, including sandbox creation) and a
-  restricted compute-driver-callback-only listener. On a dual-stack
-  host they land on different addresses (primary on `[::1]`, callback
-  on `127.0.0.1`), so `127.0.0.1`/`localhost` non-deterministically
-  hits the wrong one and sandbox creation fails with
-  `PERMISSION_DENIED: compute-driver callback listeners accept
-  sandbox callback RPCs only`. `host.openshell.internal` is already
-  one of the SANs on OpenShell's own generated gateway TLS cert and
-  always resolves to the primary listener, but nothing makes it
-  actually resolve unless you add it to `/etc/hosts` yourself:
-  `echo "::1 host.openshell.internal" | sudo tee -a /etc/hosts`.
-  Also: OpenShell 0.0.106's own documented default registration
-  (`openshell gateway add https://[::1]:17670`, exactly what the
-  Homebrew formula's install caveat recommends) fails outright with
-  `invalid dns name`, a raw IPv6 literal isn't accepted as a TLS SNI
-  name by their CLI, with or without `--gateway-insecure`. This is an
-  upstream OpenShell bug, not something fixable from here; the
-  `/etc/hosts` route above is the least-bad workaround until it's
-  fixed upstream.
+- **The review uses the openshell CLI's selected gateway.** The
+  gateway name defaults to `openshell`. When
+  `~/.config/openshell/gateways/openshell/metadata.json` exists, its
+  `gateway_endpoint` is the sandbox URL (on a laptop that is often
+  `https://localhost:17670`). `https://host.openshell.internal:17670`
+  remains the fallback when that file is absent. Override either with
+  `-e sandbox_gateway=...` or `-e sandbox_gateway_name=...`.
