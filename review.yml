@@ -74,14 +74,10 @@
     # that extra-var/set_fact leaks into delegate_to: sandbox_target and
     # the Mac venv path does not exist inside the guest.
     ssh_proxy_python: "{{ ansible_playbook_python | default('python3') }}"
-    # Local-dev-friendly default, same as sandbox_gateway/sandbox_tls_source
-    # below -- this personal checkout path doesn't exist inside a real AAP
-    # execution pod. Any real AAP Job Template must override this via
-    # extra_vars (e.g. -e ssh_proxy_script=/opt/openshell/ssh_proxy.py,
-    # the vendored EE path from execution-environment.yml) -- same
-    # override-on-the-Job-Template pattern already required for
-    # sandbox_gateway/sandbox_tls_source, not something to fix by changing
-    # this default (that would break local dev instead).
+    # Local default is the checkout path below. When that file is absent,
+    # the play uses ssh_proxy.py from the plaibook-installed
+    # aknochow.openshell collection. AAP still overrides this with
+    # -e ssh_proxy_script=/opt/openshell/ssh_proxy.py.
     ssh_proxy_script: "{{ lookup('env', 'HOME') }}/code/ansible-openshell/scripts/ssh_proxy.py"
 
     # 'local_mtls_dir': read certs from an openshell CLI-managed gateway dir.
@@ -285,6 +281,10 @@
     # venv. OpenAI/Claude/Gemini SDKs are not plaibook dependencies.
     - name: Ensure collections and provider SDKs before preflight
       ansible.builtin.include_tasks: roles/review/tasks/ensure_runtime_deps.yml
+
+    - name: Use the installed OpenShell SSH proxy when the configured path is missing
+      ansible.builtin.set_fact:
+        ssh_proxy_script: "{{ ssh_proxy_script | openshell_ssh_proxy }}"
 
     # Load the review role's provider defaults and validate provider-specific
     # controller prerequisites before creating a sandbox or cloning a target.

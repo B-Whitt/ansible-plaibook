@@ -41,8 +41,31 @@ def openshell_gateway_endpoint(name: str, fallback: str, config_home: str | None
     return endpoint
 
 
+def openshell_ssh_proxy(configured: str, home: str | None = None) -> str:
+    """Use the installed collection script when *configured* is not a file."""
+    chosen = str(configured or "").strip()
+    if chosen and Path(chosen).is_file():
+        return chosen
+    root = Path(home) if home else Path.home()
+    installed = (
+        root
+        / ".cache"
+        / "ansible-plaibook"
+        / "collections"
+        / "ansible_collections"
+        / "aknochow"
+        / "openshell"
+        / "scripts"
+        / "ssh_proxy.py"
+    )
+    if installed.is_file():
+        return str(installed)
+    return chosen
+
+
 class FilterModule:
     def filters(self):
         return {
             "openshell_gateway_endpoint": openshell_gateway_endpoint,
+            "openshell_ssh_proxy": openshell_ssh_proxy,
         }

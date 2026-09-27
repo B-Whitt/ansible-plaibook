@@ -67,3 +67,29 @@ def test_gateway_name_cannot_escape_the_config_dir(tmp_path):
     mod = _filter()
     fallback = "https://host.openshell.internal:17670"
     assert mod.openshell_gateway_endpoint("../openshell", fallback, config_home=str(tmp_path)) == fallback
+
+
+def test_missing_proxy_uses_the_installed_collection_script(tmp_path):
+    mod = _filter()
+    installed = (
+        tmp_path
+        / ".cache"
+        / "ansible-plaibook"
+        / "collections"
+        / "ansible_collections"
+        / "aknochow"
+        / "openshell"
+        / "scripts"
+    )
+    installed.mkdir(parents=True)
+    script = installed / "ssh_proxy.py"
+    script.write_text("#!/usr/bin/env python\n", encoding="utf-8")
+    missing = str(tmp_path / "code" / "ansible-openshell" / "scripts" / "ssh_proxy.py")
+    assert mod.openshell_ssh_proxy(missing, home=str(tmp_path)) == str(script)
+
+
+def test_existing_proxy_path_is_kept(tmp_path):
+    mod = _filter()
+    chosen = tmp_path / "ssh_proxy.py"
+    chosen.write_text("#!/usr/bin/env python\n", encoding="utf-8")
+    assert mod.openshell_ssh_proxy(str(chosen), home=str(tmp_path)) == str(chosen)
