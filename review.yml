@@ -63,12 +63,9 @@
     # it never needs isolation from itself. Override explicitly (-e
     # use_sandbox=true) if you want it anyway.
     use_sandbox: "{{ review_type != 'commit' }}"
-    # host.openshell.internal (not 127.0.0.1 / localhost): the gateway
-    # now splits its primary full-API listener from a restricted
-    # compute-driver-callback-only listener, and on a dual-stack host
-    # 127.0.0.1/localhost can land on either depending on resolver
-    # order. host.openshell.internal is baked into the gateway's own
-    # TLS cert SANs and always resolves to the primary listener.
+    # Fallback when the openshell CLI has no gateway config on this machine.
+    # A configured gateway (default name: openshell) replaces this with
+    # gateway_endpoint from ~/.config/openshell/gateways/<name>/metadata.json.
     sandbox_gateway: "https://host.openshell.internal:17670"
     sandbox_image: "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
     # SSH ProxyCommand runs on the controller, not in the sandbox.
@@ -201,6 +198,10 @@
       when: _plaibook_xdg_vars_stat.stat.exists | bool and _plaibook_xdg_vars_stat.stat.isreg | bool
       ansible.builtin.include_vars:
         file: "{{ _plaibook_xdg_vars }}"
+
+    - name: Use the selected OpenShell gateway endpoint
+      ansible.builtin.set_fact:
+        sandbox_gateway: "{{ sandbox_gateway_name | openshell_gateway_endpoint(sandbox_gateway) }}"
 
     - name: Record the review start time
       ansible.builtin.set_fact:
