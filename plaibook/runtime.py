@@ -10,11 +10,15 @@ install`` at review time.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import sysconfig
 import tempfile
 from pathlib import Path
+
+# macOS XProtect blocks scripts that appear in /tmp and then run.
+_REJECTED_TMP_ROOTS = {Path("/tmp"), Path("/private/tmp")}
 
 
 def interpreter_is_externally_managed(python: str | None = None) -> bool:
@@ -78,14 +82,35 @@ def controller_python() -> str | None:
     exe = Path(sys.executable)
     if " " not in str(exe):
         return None
-    link_dir = Path.home() / ".local" / "share" / "ansible-plaibook"
-    wrapper = link_dir / "python"
+    link_dir = _wrapper_dir()
+    if link_dir is None:
+        return None
+    digest = hashlib.sha256(str(exe).encode()).hexdigest()[:16]
+    wrapper = link_dir / f"python-{digest}"
     if " " in str(wrapper):
         return None
     link_dir.mkdir(parents=True, exist_ok=True)
     body = f"#!/bin/sh\nexec { _sh_quote(str(exe)) } \"$@\"\n"
     _write_wrapper(wrapper, body)
     return str(wrapper)
+
+
+def _wrapper_dir() -> Path | None:
+    """A writable directory whose path contains no space.
+
+    ``~/.local/share`` is first. When the home directory itself contains a
+    space, use ``TMPDIR`` unless that directory is ``/tmp``.
+    """
+    candidates = [Path.home() / ".local" / "share" / "ansible-plaibook"]
+    tmp = os.environ.get("TMPDIR", "").strip()
+    if tmp:
+        resolved = Path(tmp).resolve()
+        if resolved not in _REJECTED_TMP_ROOTS and " " not in str(resolved):
+            candidates.append(resolved / "ansible-plaibook")
+    for directory in candidates:
+        if " " not in str(directory):
+            return directory
+    return None
 
 
 def _write_wrapper(wrapper: Path, body: str) -> None:
@@ -103,7 +128,7 @@ def _write_wrapper(wrapper: Path, body: str) -> None:
             handle.write(body)
         os.chmod(tmp, 0o755)
         os.replace(tmp, wrapper)
-    except Exception:
+    except OSError:
         tmp.unlink(missing_ok=True)
         raise
 

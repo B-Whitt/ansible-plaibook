@@ -26,15 +26,26 @@ def test_controller_python_wrapper_quotes_a_spaced_interpreter(tmp_path, monkeyp
     assert f"exec '{real}' \"$@\"\n" == text.split("#!/bin/sh\n", 1)[1]
 
 
-def test_controller_python_skips_when_home_contains_a_space(tmp_path, monkeypatch):
+def test_controller_python_uses_tmpdir_when_home_contains_a_space(tmp_path, monkeypatch):
     real = tmp_path / "Application Support" / "pipx" / "bin" / "python"
     real.parent.mkdir(parents=True)
     real.write_text("")
     home = tmp_path / "Ada Lovelace"
+    tmp = tmp_path / "wrappers"
+    monkeypatch.setenv("TMPDIR", str(tmp))
     monkeypatch.setattr("plaibook.runtime.sys.executable", str(real))
     monkeypatch.setattr("plaibook.runtime.Path.home", lambda: home)
-    assert controller_python() is None
+    wrapper = Path(controller_python())
+    assert " " not in str(wrapper)
+    assert str(wrapper).startswith(str(tmp))
     assert not (home / ".local").exists()
+    other = tmp_path / "Other App" / "bin" / "python"
+    other.parent.mkdir(parents=True)
+    other.write_text("")
+    monkeypatch.setattr("plaibook.runtime.sys.executable", str(other))
+    second = Path(controller_python())
+    assert second != wrapper
+    assert " " not in str(second)
 
 
 def test_externally_managed_marker(tmp_path, monkeypatch):
