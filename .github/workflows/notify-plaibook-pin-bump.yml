@@ -12,6 +12,8 @@ on:
       dispatch_token:
         required: false
 
+permissions: {}
+
 jobs:
   dispatch:
     name: repository_dispatch collection-pin-bump
