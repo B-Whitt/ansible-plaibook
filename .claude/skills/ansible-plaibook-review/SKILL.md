@@ -15,7 +15,9 @@ stdout.
 The human/skill/CI entry point is the **`plaibook` CLI**, also installed
 as **`plai`** (same `main`). The pip/uv distribution name is `plaibook`
 (not `plai`, taken on PyPI, and not `ansible-plaibook`). Product install
-is `pip install plaibook` then `plai review`. From this checkout,
+is `pipx install plaibook` then `plai review`. Homebrew and Debian
+refuse `pip install` into the system Python (PEP 668). Inside a
+virtualenv, `pip install plaibook` is the same install. From this checkout,
 `uv sync` / `pip install -e .` is the contributor path; `plai review
 ...` and `plaibook review ...` are equivalent. Raw
 `ansible-playbook review.yml` stays the AAP / execution-environment /

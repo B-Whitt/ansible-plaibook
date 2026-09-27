@@ -12,7 +12,10 @@ every time, invocable from a terminal, a git hook, or an AAP job
 template. Expect more playbooks here over time as other harness skills
 get the same treatment.
 
-Locally, **`pip install plaibook`** then **`plai review`**. The package
+Locally, **`pipx install plaibook`** then **`plai review`**. Homebrew and
+Debian system Pythons refuse `pip install` into that interpreter
+([PEP 668](https://peps.python.org/pep-0668/)). Inside a virtualenv you
+already manage, `pip install plaibook` is the same install. The package
 name is `plaibook` (not `plai`, taken on PyPI, and not
 `ansible-plaibook`). `plaibook` and `plai` share one entry point. The
 wheel vendors `review.yml`; first `plai review` installs Galaxy

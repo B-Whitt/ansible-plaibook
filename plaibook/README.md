@@ -12,11 +12,14 @@ distribution name is `plaibook` (not `plai`, taken on PyPI, and not
 ## Install
 
 ```bash
-pip install plaibook
+pipx install plaibook
 plai review
 ```
 
-That is the product. `plai review` with no arguments reviews `HEAD` in
+That is the product. `plai review` does not change. Homebrew and Debian
+refuse `pip install` into the system Python (PEP 668). Inside a
+virtualenv you already manage, `pip install plaibook` is the same
+install. `plai review` with no arguments reviews `HEAD` in
 the current directory. Needs Python 3.10 or newer. First run prompts
 for a provider (Cursor defaults to `gpt-5.6-luna` / `high`) and installs
 collections from GitHub into `~/.cache/ansible-plaibook/collections`
