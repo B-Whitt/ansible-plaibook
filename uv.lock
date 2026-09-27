@@ -854,6 +854,7 @@ dependencies = [
     { name = "cursor-sdk" },
     { name = "jinja2" },
     { name = "openshell", marker = "python_full_version >= '3.11'" },
+    { name = "packaging" },
     { name = "pyyaml" },
 ]
 
@@ -877,6 +878,7 @@ requires-dist = [
     { name = "cursor-sdk", marker = "extra == 'cursor'", specifier = ">=1.0.31,<2.0.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "openshell", marker = "python_full_version >= '3.11'", specifier = ">=0.0.116,<0.0.120" },
+    { name = "packaging", specifier = ">=21.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0,<10.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0,<8.0.0" },
     { name = "pyyaml", specifier = ">=6.0.0" },

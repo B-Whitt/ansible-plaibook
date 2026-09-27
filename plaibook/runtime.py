@@ -10,8 +10,10 @@ install`` at review time.
 
 from __future__ import annotations
 
+import os
 import sys
 import sysconfig
+import tempfile
 from pathlib import Path
 
 
@@ -77,15 +79,33 @@ def controller_python() -> str | None:
     if " " not in str(exe):
         return None
     link_dir = Path.home() / ".local" / "share" / "ansible-plaibook"
-    link_dir.mkdir(parents=True, exist_ok=True)
     wrapper = link_dir / "python"
-    target = str(exe)
-    body = f"#!/bin/sh\nexec { _sh_quote(target) } \"$@\"\n"
-    current = wrapper.read_text(encoding="utf-8") if wrapper.is_file() else ""
-    if current != body:
-        wrapper.write_text(body, encoding="utf-8")
-        wrapper.chmod(0o755)
+    if " " in str(wrapper):
+        return None
+    link_dir.mkdir(parents=True, exist_ok=True)
+    body = f"#!/bin/sh\nexec { _sh_quote(str(exe)) } \"$@\"\n"
+    _write_wrapper(wrapper, body)
     return str(wrapper)
+
+
+def _write_wrapper(wrapper: Path, body: str) -> None:
+    if wrapper.is_file():
+        try:
+            current = wrapper.read_text(encoding="utf-8")
+        except OSError:
+            current = ""
+        if current == body and os.access(wrapper, os.X_OK):
+            return
+    fd, name = tempfile.mkstemp(dir=wrapper.parent, prefix=".python-", suffix=".tmp")
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(body)
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, wrapper)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _sh_quote(value: str) -> str:
