@@ -28,6 +28,7 @@ from urllib.parse import unquote, urlparse
 from plaibook.collections import redact_git_userinfo
 from plaibook.pip_hashed import lock_digest, pip_install_hashed_argv
 from plaibook.playbook import last_run_dir
+from plaibook.runtime import interpreter_is_externally_managed
 
 # Same pin as aknochow.openshell (OPENSHELL_SDK_SPEC). 0.0.116 is the
 # first release this collection calls; 0.0.120 is excluded so a later
@@ -317,6 +318,12 @@ def ensure_openshell_sdk(
         )
     if _interpreter_satisfies(exe):
         return
+    if interpreter_is_externally_managed(exe):
+        raise OpenshellSdkError(
+            f"OpenShell SDK ({SDK_SPEC}) is not installed for {exe}. "
+            "Reinstall plaibook with pipx (or into a virtualenv). "
+            "Pass --no-sandbox to review without a sandbox."
+        )
     out = stderr if stderr is not None else sys.stderr
     try:
         dry_argv = pip_install_hashed_argv(exe, HASHED_REQUIREMENTS, dry_run=True)

@@ -415,6 +415,11 @@ def cmd_review(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    from plaibook.runtime import controller_python
+
+    wrapper = controller_python()
+    if wrapper:
+        extras["controller_python"] = wrapper
     if _wants_sandbox(extras):
         try:
             reexec_sandbox_runtime(stderr=sys.stderr)

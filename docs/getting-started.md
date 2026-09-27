@@ -12,9 +12,14 @@ The short command is **`plai`**. The package and full command are
 **`plaibook`**. They share one entry point.
 
 ```bash
-pip install plaibook
+pipx install plaibook
 plai review
 ```
+
+`plai review` is unchanged. Homebrew and Debian
+refuse `pip install` into the system Python (PEP 668); `pipx` (or
+`uv tool install plaibook`) is the install that puts `plai` on `PATH`.
+Inside a virtualenv you already manage, `pip install plaibook` works.
 
 Needs Python 3.10 or newer (3.10 stays on ansible-core 2.16; 3.11+
 gets 2.18/2.19). OpenShell sandboxes need Python 3.11+. A 3.10 `plai review`

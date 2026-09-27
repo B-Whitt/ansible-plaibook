@@ -217,7 +217,7 @@
     # add_host and as its own host fact (same precedence as this set_fact).
     - name: Align local module execution with the playbook interpreter
       ansible.builtin.set_fact:
-        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+        ansible_python_interpreter: "{{ controller_python | default(ansible_playbook_python) }}"
 
     - name: Split survey-provided newline-separated targets into a list
       when: >-

@@ -17,7 +17,10 @@ import subprocess
 import sys
 from typing import TextIO
 
-from plaibook.pip_hashed import pinned_versions, pip_install_hashed_argv
+from packaging.requirements import Requirement
+
+from plaibook.pip_hashed import HASHED_DIR, pinned_versions, pip_install_hashed_argv
+from plaibook.runtime import interpreter_is_externally_managed
 
 # (import-name, distribution-name). Import names are what find_spec must see.
 FAMILY_REQUIREMENTS: dict[str, tuple[tuple[str, str], ...]] = {
@@ -34,6 +37,12 @@ FAMILY_HASHED_FILE: dict[str, str] = {
     "claude": "claude-requirements.txt",
     "gemini": "gemini-requirements.txt",
     "cursor": "cursor-requirements.txt",
+}
+_FAMILY_IN: dict[str, str] = {
+    "openai": "openai.in",
+    "claude": "claude.in",
+    "gemini": "gemini.in",
+    "cursor": "cursor.in",
 }
 
 
@@ -68,8 +77,13 @@ def ensure_provider_sdk(
     if not missing:
         _patch_cursor_http2_proxy(key, exe)
         return
-    out = stderr if stderr is not None else sys.stderr
     label = ", ".join(f"{dist}=={ver}" for _mod, dist, ver in missing)
+    if interpreter_is_externally_managed(exe):
+        raise ProviderSdkError(
+            f"{label} is not installed for {exe}. "
+            "Reinstall plaibook with pipx (or into a virtualenv) so the SDK is part of the install."
+        )
+    out = stderr if stderr is not None else sys.stderr
     out.write(f"Installing {key} provider SDK ({label}) for {exe}…\n")
     out.flush()
     try:
@@ -109,13 +123,39 @@ def _normalize_dist(name: str) -> str:
     return name.replace("_", "-").lower()
 
 
+def _declared_range_allows(dist_name: str, installed: str) -> bool:
+    """True when the installed version is inside the family ``*.in`` range."""
+    want = _normalize_dist(dist_name)
+    for filename in _FAMILY_IN.values():
+        path = HASHED_DIR / filename
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            req = Requirement(line)
+            if _normalize_dist(req.name) != want:
+                continue
+            if not req.specifier:
+                return True
+            return req.specifier.contains(installed, prereleases=True)
+    return False
+
+
 def _requirement_satisfied(python: str, import_name: str, dist_name: str, expected: str | None) -> bool:
     if not expected:
         return False
     if not _module_present(python, import_name):
         return False
     installed = _dist_version(python, dist_name)
-    return installed == expected
+    if not installed:
+        return False
+    if installed == expected:
+        return True
+    return _declared_range_allows(dist_name, installed)
 
 
 def _module_present(python: str, name: str) -> bool:
