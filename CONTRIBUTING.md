@@ -79,7 +79,10 @@ URL, webhook HMAC secret, and a job template that runs the same bumper.
 
 ## Commit Standards
 
-- Sign off all commits (`git commit -s`).
+- `git commit -s` is the DCO trailer (`Signed-off-by`).
+- `git commit -S` with `CURSOR_SIGNING_KEY` is what makes GitHub show
+  the commit as Verified. The key is the GitHub SSH signing key titled
+  `cursor-signing`, and the committer email is `aknochow@redhat.com`.
 - Include AI assistance attribution via trailer when applicable:
   `Assisted-by: Provider (model)`, using the actual provider/tool and exact
   model that performed the work (for example,

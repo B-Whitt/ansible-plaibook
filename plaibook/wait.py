@@ -134,10 +134,15 @@ class WaitSpinner:
             try:
                 text = self._progress_file.read_text(encoding="utf-8").strip()
                 if text:
-                    return _safe_wait_text(text.splitlines()[-1])
+                    # Keep the last real stage. Path.write_text truncates
+                    # before it writes, so a poll in that window is empty
+                    # and must not flash the initial "setup" line.
+                    updated = _safe_wait_text(text.splitlines()[-1])
+                    if updated:
+                        self._detail = updated
             except OSError:
                 pass
-        return self._detail
+        return self._detail or "setup"
 
     def _run(self) -> None:
         color = _use_color()

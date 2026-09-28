@@ -1217,6 +1217,17 @@ def test_wait_spinner_truecolor_when_color_enabled(monkeypatch):
     assert "38;2;" in text
 
 
+def test_wait_spinner_keeps_last_stage_when_progress_file_is_empty(tmp_path):
+    from plaibook.wait import WaitSpinner
+
+    progress = tmp_path / "progress.txt"
+    progress.write_text("lenses\n")
+    spinner = WaitSpinner("Reviewing org/repo#1", progress_file=progress)
+    assert spinner._read_detail() == "lenses"
+    progress.write_text("")
+    assert spinner._read_detail() == "lenses"
+
+
 def test_wait_spinner_reads_progress_file(tmp_path, monkeypatch):
     import time
 
@@ -1236,15 +1247,23 @@ def test_wait_spinner_reads_progress_file(tmp_path, monkeypatch):
         def flush(self) -> None:
             return None
 
+    def wait_until(predicate, timeout=5.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.01)
+        raise AssertionError("spinner did not show the progress stage in time: " + "".join(stream.buf))
+
     progress = tmp_path / "progress.txt"
     progress.write_text("lenses\n")
     stream = Tty()
     monkeypatch.delenv("PLAIBOOK_SPINNER", raising=False)
     monkeypatch.setenv("NO_COLOR", "1")
     with WaitSpinner("Reviewing org/repo#1", stream=stream, progress_file=progress):
-        time.sleep(0.2)
+        wait_until(lambda: "  lenses" in "".join(stream.buf))
         progress.write_text("explore\n")
-        time.sleep(0.2)
+        wait_until(lambda: "  explore" in "".join(stream.buf))
     text = "".join(stream.buf)
     assert "  lenses" in text
     assert "  explore" in text

@@ -27,6 +27,7 @@ PLAYBOOKS=(
   "tests/test_resolve_target_pr_parsing.yml"
   "tests/test_sandbox_unreachable_teardown.yml"
   "tests/test_verify_score_recompute.yml"
+  "tests/test_version_alignment.yml"
 )
 
 echo "Running ${#PLAYBOOKS[@]} offline Ansible playbook test(s)..."
