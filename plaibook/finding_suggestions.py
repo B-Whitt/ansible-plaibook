@@ -20,6 +20,12 @@ _PROSE_START = re.compile(
 )
 _UNSAFE_LINE = re.compile(r"\b(TODO|FIXME|rest of|unchanged)\b", re.IGNORECASE)
 _SAFE_PATH = re.compile(r"^[A-Za-z0-9_./@+-]+$")
+# Case-sensitive so "Return the value." stays prose and "return value" stays source.
+_STATEMENT = re.compile(
+    r"^(?:return|raise|pass|break|continue|yield|assert|del|global|nonlocal|"
+    r"import|from|with|for|while|if|elif|else|try|except|finally|class|def|"
+    r"async|await|lambda|match|case)\b"
+)
 
 
 def _safe_patch(body: str, limit: int = 12) -> bool:
@@ -38,16 +44,22 @@ def _safe_patch(body: str, limit: int = 12) -> bool:
 def _looks_like_prose(body: str) -> bool:
     """True when the replacement is a sentence rather than source.
 
-    Code syntax is checked first so indented source such as
-    ``return name.endswith(suffix)`` stays a suggestion. Indentation
-    alone does not: the prose check runs on the stripped first line.
+    A programming statement such as ``return value`` or ``import os`` is
+    source, including when it is indented. Imperative prose is rejected
+    before punctuation is treated as proof of source, so ``Use timeout=30.``
+    is not a suggestion.
     """
-    if re.search(r"[=(){}\[\]<>]", body):
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if any(_STATEMENT.match(line) for line in lines):
         return False
-    first = body.strip().splitlines()[0] if body.strip() else ""
+    first = lines[0] if lines else ""
     if _PROSE_START.match(first):
         return True
-    return "\n" not in body and body.rstrip().endswith(".") and " " in body
+    if "\n" not in body and body.rstrip().endswith(".") and " " in body:
+        return True
+    if re.search(r"[=(){}\[\]<>]", body):
+        return False
+    return False
 
 
 def _valid_location(finding: dict[str, Any]) -> bool:

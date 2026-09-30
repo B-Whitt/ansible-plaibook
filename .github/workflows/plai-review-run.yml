@@ -138,13 +138,11 @@ jobs:
           IGNORE_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          gate_sha="$(python3 scripts/github_pr_review.py gate-sha --repo "$REPO" --head "$SHA" --merge "$MERGE" --ignore-run-id "$IGNORE_RUN_ID")"
-          echo "gate sha ${gate_sha}"
           attempts=100
           state=waiting
           for _ in $(seq 1 "$attempts"); do
             set +e
-            state="$(python3 scripts/github_pr_review.py gate --repo "$REPO" --sha "$gate_sha" --ignore-run-id "$IGNORE_RUN_ID")"
+            state="$(python3 scripts/github_pr_review.py gate --repo "$REPO" --sha "$SHA" --merge "$MERGE" --ignore-run-id "$IGNORE_RUN_ID")"
             rc=$?
             set -e
             echo "gate ${state}"
@@ -211,7 +209,9 @@ jobs:
           fi
           uv python install 3.12
           uv venv "$RUNNER_TEMP/plai-venv"
-          uv pip install --python "$RUNNER_TEMP/plai-venv/bin/python" "$tools"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/plai-venv/bin/activate"
+          uv sync --locked --no-dev --project "$tools" --active
 
       - name: Snapshot the publisher
         if: steps.provider.outputs.ready == 'true'

@@ -92,6 +92,10 @@ def test_reusable_workflow_permissions_and_pins():
     assert "pull-requests: write" not in text
     assert "--no-sandbox" not in text
     assert "review_require_ci_passing=false" in text
+    assert "uv sync --locked --no-dev --project" in text
+    assert "uv pip install" not in text
+    assert '--merge "$MERGE"' in text
+    assert "gate-sha" not in text
     assert "job.workflow_sha" in text
     assert "job.workflow_repository" in text
     assert "inputs.source_sha" in text

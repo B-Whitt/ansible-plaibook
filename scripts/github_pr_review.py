@@ -543,29 +543,66 @@ def other_check_count(repo: str, sha: str, ignore_run_id: str = "") -> int:
     return len(latest_check_runs(others))
 
 
-def select_gate_sha(head_sha: str, head_count: int, merge_sha: str, merge_count: int) -> str:
-    """Use the commit that has the other workflows' check runs.
+def commits_to_gate(head_sha: str, head_count: int, merge_sha: str, merge_count: int) -> list[str]:
+    """Commits whose other checks must pass before the review runs.
 
-    pull_request checks in this repository are attached to the head commit.
-    The merge commit is empty unless the head has no other runs.
+    When both the head and the merge commit have other checks, both are
+    required. A single check on the head does not stand in for the merge
+    commit. One side is used only when the other has no other checks.
     """
-    if head_count > 0:
-        return head_sha
-    if merge_sha != head_sha and _SHA.fullmatch(merge_sha or "") and merge_count > 0:
-        return merge_sha
-    return head_sha
+    commits: list[str] = []
+    if head_count > 0 and _SHA.fullmatch(head_sha):
+        commits.append(head_sha)
+    if merge_sha and merge_sha != head_sha and merge_count > 0 and _SHA.fullmatch(merge_sha):
+        commits.append(merge_sha)
+    if not commits and _SHA.fullmatch(head_sha):
+        commits.append(head_sha)
+    return commits
+
+
+def combine_gate_states(states: list[str]) -> str:
+    """Fail if either commit failed. Wait if either is still running."""
+    if not states or "waiting" in states:
+        if states and "failed" in states:
+            return "failed"
+        return "waiting"
+    if "failed" in states:
+        return "failed"
+    return "passed"
+
+
+def select_gate_sha(head_sha: str, head_count: int, merge_sha: str, merge_count: int) -> str:
+    """Return the only commit that has other checks.
+
+    Both commits must be gated together when each has checks. This helper
+    is for the single-commit case.
+    """
+    commits = commits_to_gate(head_sha, head_count, merge_sha, merge_count)
+    if len(commits) != 1:
+        raise RuntimeError("gate the head and merge commits together")
+    return commits[0]
 
 
 def resolve_gate_sha(repo: str, head_sha: str, merge_sha: str = "", ignore_run_id: str = "") -> str:
     if not _SHA.fullmatch(head_sha):
         raise RuntimeError("head SHA must be 40 hex characters")
     head_count = other_check_count(repo, head_sha, ignore_run_id)
-    if head_count > 0:
-        return head_sha
     merge_count = 0
     if merge_sha and merge_sha != head_sha and _SHA.fullmatch(merge_sha):
         merge_count = other_check_count(repo, merge_sha, ignore_run_id)
     return select_gate_sha(head_sha, head_count, merge_sha, merge_count)
+
+
+def gate_commits(repo: str, head_sha: str, merge_sha: str = "", ignore_run_id: str = "") -> str:
+    """Gate every commit that carries other checks."""
+    if not _SHA.fullmatch(head_sha):
+        raise RuntimeError("head SHA must be 40 hex characters")
+    head_count = other_check_count(repo, head_sha, ignore_run_id)
+    merge_count = 0
+    if merge_sha and merge_sha != head_sha and _SHA.fullmatch(merge_sha):
+        merge_count = other_check_count(repo, merge_sha, ignore_run_id)
+    commits = commits_to_gate(head_sha, head_count, merge_sha, merge_count)
+    return combine_gate_states([gate(repo, sha, ignore_run_id) for sha in commits])
 
 
 def gate(repo: str, sha: str, ignore_run_id: str = "") -> str:
@@ -838,7 +875,11 @@ def _cmd_resolve(args: argparse.Namespace) -> int:
 
 def _cmd_gate(args: argparse.Namespace) -> int:
     try:
-        state = gate(args.repo, args.sha, ignore_run_id=args.ignore_run_id)
+        merge = getattr(args, "merge", "") or ""
+        if merge:
+            state = gate_commits(args.repo, args.sha, merge, ignore_run_id=args.ignore_run_id)
+        else:
+            state = gate(args.repo, args.sha, ignore_run_id=args.ignore_run_id)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -979,6 +1020,7 @@ def main(argv: list[str] | None = None) -> int:
     gate_cmd = sub.add_parser("gate")
     gate_cmd.add_argument("--repo", required=True)
     gate_cmd.add_argument("--sha", required=True)
+    gate_cmd.add_argument("--merge", default="")
     gate_cmd.add_argument("--ignore-run-id", default="")
     gate_cmd.set_defaults(func=_cmd_gate)
 

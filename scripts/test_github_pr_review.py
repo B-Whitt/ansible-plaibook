@@ -12,6 +12,8 @@ from github_pr_review import (
     REVIEW_KEYWORD,
     _cmd_publish,
     check_conclusion,
+    combine_gate_states,
+    commits_to_gate,
     concrete_replacement,
     fill_pull_request,
     gate_state,
@@ -241,18 +243,30 @@ def test_fill_pull_request_records_the_merge_commit(monkeypatch):
     assert resolved["merge_sha"] == merge
 
 
-def test_select_gate_sha_prefers_the_head_when_it_has_check_runs():
+def test_select_gate_sha_uses_the_only_commit_with_checks():
     head, merge = "a" * 40, "b" * 40
-    assert select_gate_sha(head, 3, merge, 9) == head
     assert select_gate_sha(head, 0, merge, 2) == merge
+    assert select_gate_sha(head, 3, merge, 0) == head
     assert select_gate_sha(head, 0, "", 0) == head
     assert select_gate_sha(head, 0, merge, 0) == head
+    with pytest.raises(RuntimeError, match="together"):
+        select_gate_sha(head, 1, merge, 9)
 
 
-def test_resolve_gate_sha_skips_the_merge_commit_when_the_head_has_runs(monkeypatch):
+def test_commits_to_gate_includes_both_when_both_have_checks():
+    head, merge = "a" * 40, "b" * 40
+    assert commits_to_gate(head, 1, merge, 9) == [head, merge]
+    assert commits_to_gate(head, 3, merge, 0) == [head]
+    assert commits_to_gate(head, 0, merge, 2) == [merge]
+    assert combine_gate_states(["passed", "failed"]) == "failed"
+    assert combine_gate_states(["failed", "waiting"]) == "failed"
+    assert combine_gate_states(["passed", "waiting"]) == "waiting"
+    assert combine_gate_states(["passed", "passed"]) == "passed"
+
+
+def test_resolve_gate_sha_skips_the_merge_commit_when_it_has_no_runs(monkeypatch):
     def fake_count(repo, sha, ignore_run_id=""):
-        assert sha == "a" * 40
-        return 4
+        return 4 if sha == "a" * 40 else 0
 
     monkeypatch.setattr("github_pr_review.other_check_count", fake_count)
     chosen = resolve_gate_sha("aknochow/ansible-plaibook", "a" * 40, "b" * 40)
@@ -335,6 +349,14 @@ def test_replacement_becomes_a_committable_suggestion():
     indented["replacement"] = "    Add a suffix check.\n"
     assert suggestion_replacement(indented) is None
     assert suggestion_errors(indented)
+    for source in ("return value\n", "raise error\n", "pass\n", "import os\n"):
+        coded = dict(finding)
+        coded["replacement"] = source
+        coded["start_line"] = coded["line"]
+        assert suggestion_replacement(coded) == source.strip("\n")
+    timed = dict(finding)
+    timed["replacement"] = "Use timeout=30."
+    assert suggestion_replacement(timed) is None
     comments, _retire, _updates = partition_actions(
         [{"op": "create", "body": body, "path": "app.py", "line": 4, "start_line": 3}],
         rehome=False,
