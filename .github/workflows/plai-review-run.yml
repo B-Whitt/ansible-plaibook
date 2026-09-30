@@ -55,7 +55,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
         with:
           repository: aknochow/ansible-plaibook
-          ref: "0000000000000000000000000000000000000000"
+          ref: "f648a1f16e53545c385b3772f9eb3824a6fd8c17"
           persist-credentials: false
 
       - name: Check out the pull request base
