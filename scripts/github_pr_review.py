@@ -376,19 +376,6 @@ def resolve_event(event_name: str, event: dict[str, Any], repo: str) -> dict[str
             "sha": "",
             "trigger": event_name,
         }
-    if event_name == "workflow_run":
-        run = event.get("workflow_run") or {}
-        if run.get("event") != "pull_request":
-            return {"action": "skip", "reason": "workflow_run was not a pull request"}
-        prs = run.get("pull_requests") or []
-        pr = str(prs[0].get("number")) if prs else ""
-        return {
-            "action": "review",
-            "repo": repo,
-            "pr": pr,
-            "sha": str(run.get("head_sha") or ""),
-            "trigger": event_name,
-        }
     return {"action": "skip", "reason": f"unsupported event {event_name}"}
 
 

@@ -19,6 +19,7 @@ def _run(root: Path, markers: list[str], files: list[str]) -> dict:
         text=True,
         capture_output=True,
         check=True,
+        timeout=30,
     )
     return json.loads(completed.stdout)
 

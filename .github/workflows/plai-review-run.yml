@@ -5,13 +5,15 @@ name: plaibook review
 # a controller. post_results stays false. The provider is cursor. Sibling
 # repositories must call this file at a full commit SHA because it receives
 # CURSOR_API_KEY. PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY post
-# that review as the app (name the app plai-review). The job token is contents:read and
+# that review as the GitHub App whose slug is plai-review. The job token is contents:read and
 # pull-requests:read, so it cannot write the pull request. Posting uses
 # the GitHub App installation token, and only in the publish step, after
-# the agent has finished. The review step installs OpenShell with the
-# upstream installer, which starts a local gateway. The community sandbox
-# image embeds a policy this gateway cannot activate, so the job sets a
-# global policy first, then runs plai review with the default sandbox.
+# the agent has finished. That step runs a copy of the publisher taken
+# before the agent starts. The review step installs OpenShell from the
+# pinned v0.1.2 installer, which starts a local gateway. The community
+# sandbox image is pinned by digest. It embeds a policy this gateway
+# cannot activate, so the job sets a global filesystem policy with no
+# network rules, then runs plai review with that image.
 # CURSOR_API_KEY stays in that step because the
 # Cursor SDK call runs on the controller. The job token is read-only and
 # is used to fetch the pull request. Tool execution runs in the sandbox.
@@ -50,6 +52,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    env:
+      SANDBOX_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
     steps:
       - name: Require a full commit SHA for this workflow
         id: pin
@@ -73,12 +77,9 @@ jobs:
             repository="${PIN_REPOSITORY:-aknochow/ansible-plaibook}"
           fi
           if [ "${#sha}" -ne 40 ]; then
-            if [ "${GITHUB_REPOSITORY}" = "aknochow/ansible-plaibook" ]; then
-              sha="${GITHUB_SHA}"
-            else
-              echo "reusable workflow ref must be a 40-character commit SHA" >&2
-              exit 1
-            fi
+            echo "reusable workflow ref must be a 40-character commit SHA" >&2
+            echo "pull_request GITHUB_SHA is the merge commit and is not a tools pin" >&2
+            exit 1
           fi
           case "$sha" in
             *[!0-9a-f]*)
@@ -96,6 +97,15 @@ jobs:
           ref: ${{ steps.pin.outputs.sha }}
           persist-credentials: false
 
+      - name: Check out the pull request base
+        if: github.event.pull_request.base.sha != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-plaibook
+          persist-credentials: false
+
       - name: Resolve the pull request
         id: target
         env:
@@ -110,16 +120,12 @@ jobs:
           REPO: ${{ steps.target.outputs.repo }}
           SHA: ${{ steps.target.outputs.sha }}
           MERGE: ${{ steps.target.outputs.merge_sha }}
-          TRIGGER: ${{ steps.target.outputs.trigger }}
           IGNORE_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           gate_sha="$(python3 scripts/github_pr_review.py gate-sha --repo "$REPO" --head "$SHA" --merge "$MERGE" --ignore-run-id "$IGNORE_RUN_ID")"
           echo "gate sha ${gate_sha}"
-          attempts=1
-          if [ "$TRIGGER" != "workflow_run" ]; then
-            attempts=100
-          fi
+          attempts=100
           state=waiting
           for _ in $(seq 1 "$attempts"); do
             set +e
@@ -139,10 +145,6 @@ jobs:
               echo "gate exited ${rc}" >&2
               exit 1
             fi
-            if [ "$attempts" -eq 1 ]; then
-              echo "state=waiting" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
             sleep 30
           done
           echo "state=waiting" >> "$GITHUB_OUTPUT"
@@ -150,8 +152,7 @@ jobs:
       - name: Stop when the other checks have not passed
         if: >-
           steps.target.outputs.action == 'review' &&
-          (steps.gate.outputs.state == 'failed' ||
-           (steps.gate.outputs.state == 'waiting' && steps.target.outputs.trigger != 'workflow_run'))
+          (steps.gate.outputs.state == 'failed' || steps.gate.outputs.state == 'waiting')
         run: |
           set -euo pipefail
           if [ "${{ steps.gate.outputs.state }}" = "failed" ]; then
@@ -179,20 +180,51 @@ jobs:
         if: steps.provider.outputs.ready == 'true'
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
 
-      - name: Install plaibook from this commit
+      - name: Install plaibook
         if: steps.provider.outputs.ready == 'true'
         run: |
           set -euo pipefail
+          tools="$GITHUB_WORKSPACE"
+          sdk="trusted-plaibook/plaibook/openshell_sdk.py"
+          if [ -f "$sdk" ] && grep -q 'openshell>=0.1.2' "$sdk"; then
+            tools="$GITHUB_WORKSPACE/trusted-plaibook"
+            echo "Installing plaibook from the pull request base"
+          else
+            echo "The pull request base does not contain the OpenShell 0.1 client. Installing the pinned workflow revision."
+          fi
           uv python install 3.12
           uv venv "$RUNNER_TEMP/plai-venv"
-          uv pip install --python "$RUNNER_TEMP/plai-venv/bin/python" .
+          uv pip install --python "$RUNNER_TEMP/plai-venv/bin/python" "$tools"
+
+      - name: Snapshot the publisher
+        if: steps.provider.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          src="$GITHUB_WORKSPACE"
+          if [ -f trusted-plaibook/scripts/github_app_token.py ]; then
+            src="$GITHUB_WORKSPACE/trusted-plaibook"
+            echo "Publisher snapshot is the pull request base"
+          else
+            echo "Publisher snapshot is the pinned workflow revision"
+          fi
+          mkdir -p "$RUNNER_TEMP/publisher/scripts" "$RUNNER_TEMP/publisher/plaibook"
+          cp "$src/scripts/github_app_token.py" "$src/scripts/github_pr_review.py" "$RUNNER_TEMP/publisher/scripts/"
+          cp "$src/plaibook/__init__.py" "$src/plaibook/finding_suggestions.py" "$RUNNER_TEMP/publisher/plaibook/"
+          (
+            cd "$RUNNER_TEMP/publisher"
+            sha256sum scripts/github_app_token.py scripts/github_pr_review.py plaibook/__init__.py plaibook/finding_suggestions.py > checksums.txt
+          )
 
       - name: Install OpenShell
         if: steps.provider.outputs.ready == 'true'
         run: |
           set -euo pipefail
-          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
-          if ! command -v openshell >/dev/null 2>&1 && [ -x "$HOME/.local/bin/openshell" ]; then
+          installer="$RUNNER_TEMP/openshell-install.sh"
+          curl -fsSL "https://raw.githubusercontent.com/NVIDIA/OpenShell/6648bd0c290efbc41ba131ee9831ee45cd431f94/install.sh" -o "$installer"
+          echo "5c98a86a4b811c471b212219cb2a62d458244220ffa71ac8e3baf3700b17b871  $installer" | sha256sum -c -
+          OPENSHELL_VERSION=v0.1.2 sh "$installer"
+          if [ -x "$HOME/.local/bin/openshell" ]; then
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
             export PATH="$HOME/.local/bin:$PATH"
           fi
           openshell status
@@ -204,12 +236,10 @@ jobs:
           OPENSHELL_PROVISION_TIMEOUT: "180"
         run: |
           set -euo pipefail
-          # ghcr.io/nvidia/openshell-community/sandboxes/base:latest embeds
-          # /etc/openshell/policy.yaml. On this gateway that policy stays
-          # ConfigurationInvalid until the 300s repair window expires, so
-          # the sandbox never reaches Ready. A global policy replaces the
-          # image policy. Model calls stay on the controller, so the guest
-          # does not need the image's network rules.
+          # The pinned sandbox image embeds /etc/openshell/policy.yaml. On
+          # this gateway that policy stays ConfigurationInvalid until the
+          # 300s repair window expires. A global policy with no network
+          # rules replaces it. Model calls stay on the controller.
           cat > "$RUNNER_TEMP/plaibook-sandbox-policy.yaml" <<'EOF'
           version: 1
           filesystem_policy:
@@ -230,10 +260,9 @@ jobs:
             compatibility: best_effort
           EOF
           openshell policy set --global --yes --policy "$RUNNER_TEMP/plaibook-sandbox-policy.yaml"
-          image="ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
           if ! timeout 300 openshell sandbox create \
             --name plaibook-image-warm \
-            --from "$image" \
+            --from "$SANDBOX_IMAGE" \
             --detach \
             --no-tty; then
             openshell sandbox get plaibook-image-warm || true
@@ -266,6 +295,7 @@ jobs:
             -v \
             -e review_require_ci_passing=false \
             -e sandbox_wait_timeout=600 \
+            -e sandbox_image="$SANDBOX_IMAGE" \
             > "${RUNNER_TEMP}/plai-review.json"
           rc=$?
           set -e
@@ -282,6 +312,8 @@ jobs:
             echo "PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY are required to post. This job token cannot write the pull request." >&2
             exit 1
           fi
+          cd "$RUNNER_TEMP/publisher"
+          sha256sum -c checksums.txt
           token="$(python3 scripts/github_app_token.py --repo "${{ steps.target.outputs.repo }}")"
           echo "::add-mask::${token}"
           GITHUB_TOKEN="${token}" python3 scripts/github_pr_review.py publish \
