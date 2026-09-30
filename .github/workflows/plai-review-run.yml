@@ -27,12 +27,12 @@ on:
   workflow_call:
     inputs:
       source_sha:
-        description: 40-character commit of this workflow. Required for a caller in another repository.
-        required: false
+        description: 40-character commit of this workflow. The caller passes this explicitly.
+        required: true
         type: string
       source_repository:
         description: owner/name that contains this workflow.
-        required: false
+        required: true
         type: string
     secrets:
       cursor_api_key:
@@ -58,27 +58,15 @@ jobs:
       - name: Require a full commit SHA for this workflow
         id: pin
         env:
-          # inputs.source_sha is the pin an external caller passes.
-          # job.workflow_sha is the called workflow file on github.com when
-          # that input is empty. github.workflow_sha is the caller, so an
-          # external uses: ...@<sha> must not check that out.
+          # The caller passes both values. There is no job-context fallback.
           INPUT_SHA: ${{ inputs.source_sha }}
           INPUT_REPOSITORY: ${{ inputs.source_repository }}
-          PIN_SHA: ${{ job.workflow_sha }}
-          PIN_REPOSITORY: ${{ job.workflow_repository }}
         run: |
           set -euo pipefail
           sha="${INPUT_SHA:-}"
           repository="${INPUT_REPOSITORY:-}"
-          if [ -z "$sha" ]; then
-            sha="${PIN_SHA:-}"
-          fi
-          if [ -z "$repository" ]; then
-            repository="${PIN_REPOSITORY:-aknochow/ansible-plaibook}"
-          fi
-          if [ "${#sha}" -ne 40 ]; then
-            echo "reusable workflow ref must be a 40-character commit SHA" >&2
-            echo "pull_request GITHUB_SHA is the merge commit and is not a tools pin" >&2
+          if [ "${#sha}" -ne 40 ] || [ -z "$repository" ]; then
+            echo "source_sha must be a 40-character commit and source_repository must be owner/name" >&2
             exit 1
           fi
           case "$sha" in

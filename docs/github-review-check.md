@@ -54,8 +54,8 @@ jobs:
       github_app_private_key: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}
 ```
 
-Pass `source_repository` and `source_sha` from a caller in another repository. Those inputs are the checkout ref. `github.workflow_sha` is the caller commit, so an external pin must not use it. This repository calls the workflow by path and leaves the inputs empty. On github.com, `job.workflow_sha` is that path's commit. `GITHUB_SHA` on `pull_request` is the merge commit and is not used as the tools pin. When the pull request base already contains the OpenShell 0.1 client, plaibook is installed from that base commit. The publisher that receives the GitHub App private key is the copy taken before `plai review` starts.
+Every caller passes `source_repository` and `source_sha`. Those inputs are the checkout ref. This repository calls the workflow at commit `0ef2a6b6925beb98d0f0887c08b968f1e168f4d9` and passes that same commit as `source_sha`. `GITHUB_SHA` on `pull_request` is the merge commit and is not the tools pin. When the pull request base already contains the OpenShell 0.1 client, plaibook is installed from that base commit. The publisher that receives the GitHub App private key is the copy taken before `plai review` starts.
 
 Without the GitHub App secrets the publish step fails. The job token cannot post the review.
 
-Do not pass that secret to a `uses:` ref of `@main`. This repository calls the workflow with a same-repository path. The workflow runs from the pull request, so this change does not have to be on the default branch before the first review. This change does not edit branch protection. After it is on the default branch, require the check name `plaibook review`.
+Do not pass that secret to a `uses:` ref of `@main`. This repository calls the workflow at a full commit SHA. This change does not edit branch protection. After it is on the default branch, require the check name `plaibook review`. The GitHub App slug is `plai-review`.

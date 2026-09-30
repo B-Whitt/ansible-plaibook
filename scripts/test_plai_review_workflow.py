@@ -60,8 +60,8 @@ def test_reusable_workflow_permissions_and_pins():
     assert "policy set --global --yes" in text
     assert "OPENSHELL_PROVISION_TIMEOUT" in text
     inputs = document["on"]["workflow_call"]["inputs"]
-    assert inputs["source_sha"]["required"] is False
-    assert inputs["source_repository"]["required"] is False
+    assert inputs["source_sha"]["required"] is True
+    assert inputs["source_repository"]["required"] is True
     assert "inputs.source_sha" in text
     publish = [step for step in job["steps"] if step.get("name") == "Post the review"]
     assert len(publish) == 1
@@ -86,8 +86,8 @@ def test_reusable_workflow_permissions_and_pins():
     assert "pull-requests: write" not in text
     assert "--no-sandbox" not in text
     assert "review_require_ci_passing=false" in text
-    assert "job.workflow_sha" in text
-    assert "job.workflow_repository" in text
+    assert "job.workflow_sha" not in text
+    assert "job.workflow_repository" not in text
     assert "GITHUB_WORKFLOW_SHA" not in text
     assert "GITHUB_WORKFLOW_REF" not in text
     assert "github_app_token.py" in text
@@ -113,7 +113,14 @@ def test_caller_does_not_pin_a_floating_secret_ref():
         "pull-requests": "read",
     }
     assert "checks" not in job["permissions"]
-    assert job["uses"] == "./.github/workflows/plai-review-run.yml"
+    pinned = (
+        "aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml"
+        "@0ef2a6b6925beb98d0f0887c08b968f1e168f4d9"
+    )
+    assert job["uses"] == pinned
+    assert job["with"]["source_repository"] == "aknochow/ansible-plaibook"
+    assert job["with"]["source_sha"] == "0ef2a6b6925beb98d0f0887c08b968f1e168f4d9"
+    assert "uses: ./." not in text
     assert job["secrets"]["cursor_api_key"] == "${{ secrets.CURSOR_API_KEY }}"
     assert job["secrets"]["github_app_id"] == "${{ secrets.PLAI_GITHUB_APP_ID }}"
     assert job["secrets"]["github_app_private_key"] == "${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}"
