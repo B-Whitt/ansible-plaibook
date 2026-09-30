@@ -109,7 +109,14 @@ something already confirmed as an intentional design decision.
 4. Apply the same evidentiary bar as the other agents: `file`/`line`
    must point at a real location, `evidence` must be a directly quoted
    snippet, `fix` must be concrete, and `confidence` reflects how sure
-   you are having actually checked.
+   you are having actually checked. When the fix replaces the cited
+   lines in one contiguous edit, set `replacement` to the exact new
+   source for the cited lines, with no
+   explanation and no markdown fence, and set `start_line` when more
+   than one line changes. `fix` is the explanation and is not what
+   GitHub commits. When the fix is not one contiguous edit, omit
+   `replacement` and still report the finding. Do not invent a
+   replacement, and do not drop the finding.
 5. When done, call `report_findings` with any new findings (or an empty
    list). Do not call `report_findings` more than once.
 {% include 'dispatch_canary.j2' %}

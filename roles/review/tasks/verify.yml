@@ -158,3 +158,17 @@
     findings_major: "{{ deduped_findings | selectattr('severity', 'equalto', 'Major') | list }}"
     findings_minor: "{{ deduped_findings | selectattr('severity', 'equalto', 'Minor') | list }}"
     findings_nit: "{{ deduped_findings | selectattr('severity', 'equalto', 'Nit') | list }}"
+
+# A replacement, when set, must be the drop-in source GitHub can commit.
+# A finding with no replacement stays in the review. It is not a suggestion.
+- name: Check that every replacement is a committable suggestion
+  assert_finding_suggestions:
+    findings: "{{ deduped_findings | rejectattr('evidence_status', 'equalto', 'refuted') | list }}"
+  register: suggestion_check
+
+- name: Assert every replacement renders a suggestion block
+  ansible.builtin.assert:
+    that:
+      - suggestion_check.failures | length == 0
+    fail_msg: "{{ suggestion_check.failures | join('\n') }}"
+    success_msg: "Every replacement renders a suggestion block."

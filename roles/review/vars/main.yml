@@ -31,6 +31,12 @@ _finding_item:
       type: string
       enum: [HIGH, MEDIUM, LOW]
     fix: { type: string }
+    # Exact new source for start_line..line when the fix is one contiguous
+    # edit. Omit it when the fix is not a single drop-in. Do not drop the
+    # finding. start_line is the first replaced line; omit it for a one-line
+    # replacement.
+    replacement: { type: string }
+    start_line: { type: integer }
   required: [lens, file, line, severity, description, evidence, confidence, fix]
 
 # scores declared before findings: a model's malformed-JSON failure

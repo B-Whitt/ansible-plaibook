@@ -1,0 +1,58 @@
+name: plaibook review
+
+# Starts on a pull request and waits until the other checks on that
+# commit have passed, then posts the review. The check name is the job
+# name, "plaibook review". Re-run with a pull-request comment that
+# starts with /plai-review, or workflow_dispatch. Those reruns post
+# another review. They do not update the pull_request job check that
+# branch protection sees. A newer push or comment for the same pull
+# request cancels the in-flight run.
+# This file calls the reusable workflow in the same repository. Other
+# repositories pass CURSOR_API_KEY and must pin that workflow with a
+# full commit SHA. The caller grants contents:read and pull-requests:read.
+# The called job keeps that read-only token. Posting uses the GitHub App
+# installation token. PLAI_GITHUB_APP_ID and
+# PLAI_GITHUB_APP_PRIVATE_KEY post the review as that GitHub App.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to review
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: plaibook-review-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: plaibook review
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (
+        github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+      )
+      || (
+        github.event_name == 'issue_comment'
+        && github.event.issue.pull_request
+        && github.event.comment.user.type != 'Bot'
+        && !endsWith(github.event.comment.user.login, '[bot]')
+        && startsWith(github.event.comment.body, '/plai-review')
+      )
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/plai-review-run.yml
+    secrets:
+      cursor_api_key: ${{ secrets.CURSOR_API_KEY }}
+      github_app_id: ${{ secrets.PLAI_GITHUB_APP_ID }}
+      github_app_private_key: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}

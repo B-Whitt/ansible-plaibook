@@ -179,6 +179,10 @@ directly from a lens's own self-reported score line, since a lens can
 verbally retract a finding without recomputing the number that goes with
 it.
 
+## GitHub check
+
+Pull requests can require the check `plaibook review`. It runs `plai review` on the GitHub-hosted runner after the other checks on that commit have passed, then posts suggestion comments. It does not call an Automation Controller. See [github-review-check.md](github-review-check.md).
+
 ## Post the review back to the real PR/MR (opt-in)
 
 Reviewing is safe to automate by default; posting is a write to shared
