@@ -125,11 +125,12 @@ def test_caller_does_not_pin_a_floating_secret_ref():
     assert job["permissions"]["checks"] == "read"
     pinned = (
         "aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml"
-        "@aa26c63a82151c9f9240b7815f5f4009d3aeaa8f"
+        "@40d6c02af5b5f1f8999a28751f0bfa841352e4e2"
     )
     assert job["uses"] == pinned
-    assert job["with"]["source_repository"] == "aknochow/ansible-plaibook"
-    assert job["with"]["source_sha"] == "aa26c63a82151c9f9240b7815f5f4009d3aeaa8f"
+    assert "with" not in job
+    assert "source_sha" not in text
+    assert "job.workflow_sha" not in text
     assert "uses: ./." not in text
     assert job["secrets"]["cursor_api_key"] == "${{ secrets.CURSOR_API_KEY }}"
     assert job["secrets"]["github_app_id"] == "${{ secrets.PLAI_GITHUB_APP_ID }}"

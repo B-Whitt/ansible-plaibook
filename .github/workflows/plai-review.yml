@@ -10,10 +10,9 @@ name: plaibook review
 # This file calls the reusable workflow at an immutable commit, not a
 # same-repository path. A path call would run the pull request's copy of
 # that file with CURSOR_API_KEY and the GitHub App private key. The
-# called workflow checks out source_sha after requiring it to equal
-# job.workflow_sha. This caller passes the same commit as the uses
-# ref. The caller grants contents:read, pull-requests:read, and
-# checks:read. The called job
+# called workflow checks out a fixed commit of this repository. This
+# caller does not pass a ref. The caller grants contents:read,
+# pull-requests:read, and checks:read. The called job
 # keeps that read-only token. Posting uses the GitHub App installation
 # token. PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY post the
 # review as the GitHub App whose slug is plai-review.
@@ -56,10 +55,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
-    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@aa26c63a82151c9f9240b7815f5f4009d3aeaa8f
-    with:
-      source_repository: aknochow/ansible-plaibook
-      source_sha: aa26c63a82151c9f9240b7815f5f4009d3aeaa8f
+    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@40d6c02af5b5f1f8999a28751f0bfa841352e4e2
     secrets:
       cursor_api_key: ${{ secrets.CURSOR_API_KEY }}
       github_app_id: ${{ secrets.PLAI_GITHUB_APP_ID }}
