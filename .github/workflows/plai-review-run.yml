@@ -9,10 +9,10 @@ name: plaibook review
 # pull-requests:read, so it cannot write the pull request. Posting uses
 # the GitHub App installation token, and only in the publish step, after
 # the agent has finished. The review step installs OpenShell with the
-# upstream installer, which starts a local gateway, pulls
-# review.yml's sandbox image once, and runs plai review with the default
-# sandbox. The first pull of that image is about 1 GiB and did not finish
-# inside the playbook's 300s ready wait. CURSOR_API_KEY stays in that step because the
+# upstream installer, which starts a local gateway. The community sandbox
+# image embeds a policy this gateway cannot activate, so the job sets a
+# global policy first, then runs plai review with the default sandbox.
+# CURSOR_API_KEY stays in that step because the
 # Cursor SDK call runs on the controller. The job token is read-only and
 # is used to fetch the pull request. Tool execution runs in the sandbox.
 #
@@ -197,23 +197,50 @@ jobs:
           fi
           openshell status
 
-      - name: Pull the review sandbox image
+      - name: Replace the image policy and pull the review sandbox
         if: steps.provider.outputs.ready == 'true'
         env:
           OPENSHELL_WORKSPACE: default
-          # Idle timeout while the gateway pulls. Pull progress extends it.
-          # The outer timeout is the wall clock for a pull that stops reporting.
-          OPENSHELL_PROVISION_TIMEOUT: "900"
+          OPENSHELL_PROVISION_TIMEOUT: "180"
         run: |
           set -euo pipefail
+          # ghcr.io/nvidia/openshell-community/sandboxes/base:latest embeds
+          # /etc/openshell/policy.yaml. On this gateway that policy stays
+          # ConfigurationInvalid until the 300s repair window expires, so
+          # the sandbox never reaches Ready. A global policy replaces the
+          # image policy. Model calls stay on the controller, so the guest
+          # does not need the image's network rules.
+          cat > "$RUNNER_TEMP/plaibook-sandbox-policy.yaml" <<'EOF'
+          version: 1
+          filesystem_policy:
+            include_workdir: true
+            read_only:
+              - /usr
+              - /lib
+              - /bin
+              - /proc
+              - /dev/urandom
+              - /etc
+              - /var/log
+            read_write:
+              - /sandbox
+              - /tmp
+              - /dev/null
+          landlock:
+            compatibility: best_effort
+          process:
+            run_as_user: sandbox
+            run_as_group: sandbox
+          EOF
+          openshell policy set --global --yes --policy "$RUNNER_TEMP/plaibook-sandbox-policy.yaml"
           image="ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
-          if ! timeout 1800 openshell sandbox create \
+          if ! timeout 300 openshell sandbox create \
             --name plaibook-image-warm \
             --from "$image" \
             --detach \
             --no-tty; then
             openshell sandbox get plaibook-image-warm || true
-            journalctl --user -u openshell-gateway --no-pager -n 80 || true
+            journalctl --user -u openshell-gateway --no-pager -n 40 || true
             exit 1
           fi
           openshell sandbox delete plaibook-image-warm

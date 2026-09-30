@@ -48,6 +48,7 @@ def test_reusable_workflow_permissions_and_pins():
     assert "install.sh" in text
     assert "ghcr.io/nvidia/openshell-community/sandboxes/base:latest" in text
     assert "plaibook-image-warm" in text
+    assert "policy set --global --yes" in text
     assert "OPENSHELL_PROVISION_TIMEOUT" in text
     inputs = document["on"]["workflow_call"]["inputs"]
     assert inputs["source_sha"]["required"] is False
