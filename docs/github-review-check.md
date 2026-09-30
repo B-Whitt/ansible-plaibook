@@ -55,7 +55,7 @@ jobs:
       github_app_private_key: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}
 ```
 
-`source_sha` and `source_repository` must be the repository and commit of that workflow file, the same commit as the `uses` ref. The reusable workflow rejects the inputs unless they equal `job.workflow_repository` and `job.workflow_sha`, which GitHub sets to this file, then checks out the inputs. This repository calls the workflow at commit `deed891f0fd7d347d1120257d8ca318b80b99926` and passes that same commit. The review job installs that tree with `uv sync --locked`. `GITHUB_SHA` on `pull_request` is the merge commit and is not the tools pin. When the pull request base already contains the OpenShell 0.1 client, plaibook is installed from that base commit. The publisher that receives the GitHub App private key is the copy taken before `plai review` starts.
+`source_sha` and `source_repository` must be the repository and commit of that workflow file, the same commit as the `uses` ref. The reusable workflow rejects the inputs unless they equal `job.workflow_repository` and `job.workflow_sha`, which GitHub sets to this file, then checks out the inputs. This repository calls the workflow at commit `aa26c63a82151c9f9240b7815f5f4009d3aeaa8f` and passes that same commit. The review job installs that tree with `uv sync --locked`. `GITHUB_SHA` on `pull_request` is the merge commit and is not the tools pin. When the pull request base already contains the OpenShell 0.1 client, plaibook is installed from that base commit. The publisher that receives the GitHub App private key is the copy taken before `plai review` starts.
 
 Without the GitHub App secrets the publish step fails. The job token cannot post the review.
 
