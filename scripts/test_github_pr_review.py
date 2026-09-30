@@ -318,10 +318,10 @@ def test_other_check_count_ignores_plaibook_review_runs(monkeypatch):
     assert other_check_count("aknochow/ansible-plaibook", "a" * 40) == 1
 
 
-def test_gate_does_not_pass_when_no_other_check_exists():
+def test_gate_passes_when_no_other_check_exists():
     runs = [{"name": CHECK_NAME, "status": "completed", "conclusion": "success", "check_suite": {"id": 1}}]
     suites = [{"id": 1, "status": "completed", "conclusion": "success"}]
-    assert gate_state(runs, suites) == "waiting"
+    assert gate_state(runs, suites) == "passed"
 
 
 def test_replacement_becomes_a_committable_suggestion():

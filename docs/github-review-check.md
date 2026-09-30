@@ -8,7 +8,7 @@ status: stable
 
 # GitHub plaibook review check
 
-The check name to require in branch protection is **`plaibook review`**.
+The check name GitHub reports for this repository is **`plaibook review / plaibook review`**. The caller job and the called job are both named `plaibook review`, and a reusable workflow qualifies the called job with the caller job's name. Branch protection here should require that qualified name. An external caller must require the name produced by its own caller job, `<caller job name> / plaibook review`.
 
 It runs on the GitHub-hosted runner. It does not call an Automation Controller. `post_results` stays `false`. The workflow posts the pull-request review itself.
 
@@ -28,7 +28,7 @@ The GitHub App slug is `plai-review`. The review author is `plai-review[bot]`. G
 
 Re-run the review with a pull-request comment that starts with `/plai-review`, or with `workflow_dispatch` and the pull request number. That posts another review. It does not update the `plaibook review` check on the pull request head. That check is the job started by `pull_request`. Comments from bots, and from users who are not OWNER, MEMBER, or COLLABORATOR, are ignored.
 
-The gate reads check runs on the pull request head and on the merge commit. When both commits have other checks, both must pass. A commit with no other checks is skipped. The review is still published against the head SHA.
+The gate reads check runs on the pull request head and on the merge commit. When both commits have other checks, both must pass. In-progress checks wait. A commit with no other checks passes, and the review still runs. The review is published against the head SHA.
 
 The job token is `contents: read`, `pull-requests: read`, and `checks: read`. `checks: read` is what the gate uses to list check runs on a private repository. The token cannot write the pull request. The publish step runs after the agent and posts with the GitHub App installation token. The review step installs OpenShell and uses the default sandbox. `CURSOR_API_KEY` is present in the review step because the Cursor SDK call runs on the controller. `PLAI_GITHUB_APP_ID` and `PLAI_GITHUB_APP_PRIVATE_KEY` are required to post.
 
@@ -46,17 +46,14 @@ jobs:
       pull-requests: read
       checks: read
     uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@<40-character-sha>
-    with:
-      source_repository: aknochow/ansible-plaibook
-      source_sha: <40-character-sha>
     secrets:
       cursor_api_key: ${{ secrets.CURSOR_API_KEY }}
       github_app_id: ${{ secrets.PLAI_GITHUB_APP_ID }}
       github_app_private_key: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}
 ```
 
-`source_sha` and `source_repository` must be the repository and commit of that workflow file, the same commit as the `uses` ref. The reusable workflow rejects the inputs unless they equal `job.workflow_repository` and `job.workflow_sha`, which GitHub sets to this file, then checks out the inputs. This repository calls the workflow at commit `aa26c63a82151c9f9240b7815f5f4009d3aeaa8f` and passes that same commit. The review job installs that tree with `uv sync --locked`. `GITHUB_SHA` on `pull_request` is the merge commit and is not the tools pin. When the pull request base already contains the OpenShell 0.1 client, plaibook is installed from that base commit. The publisher that receives the GitHub App private key is the copy taken before `plai review` starts.
+Callers do not pass a repository or a ref. The reusable workflow checks out `aknochow/ansible-plaibook` at a fixed commit written in that file. This repository calls the workflow at commit `aa26c63a82151c9f9240b7815f5f4009d3aeaa8f`. The review job installs that tree with `uv sync --locked`. `GITHUB_SHA` on `pull_request` is the merge commit and is not the tools pin. When the pull request base already contains the OpenShell 0.1 client, plaibook is installed from that base commit. The publisher that receives the GitHub App private key is the copy taken before `plai review` starts.
 
 Without the GitHub App secrets the publish step fails. The job token cannot post the review.
 
-Do not pass that secret to a `uses:` ref of `@main`. This repository calls the workflow at a full commit SHA. This change does not edit branch protection. After it is on the default branch, require the check name `plaibook review`. The GitHub App slug is `plai-review`.
+Do not pass that secret to a `uses:` ref of `@main`. This repository calls the workflow at a full commit SHA. This change does not edit branch protection. After it is on the default branch, require the check name `plaibook review / plaibook review`. The GitHub App slug is `plai-review`.

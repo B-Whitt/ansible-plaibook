@@ -213,7 +213,8 @@ def gate_state(check_runs: list[dict[str, Any]], check_suites: list[dict[str, An
 
     ``skipped`` and ``neutral`` do not block. A failed check blocks.
     In-progress work waits. A suite with no check runs does not: an empty
-    queued suite never becomes a check.
+    queued suite never becomes a check. No other checks means passed, so a
+    repository without other CI still gets a review.
     """
     others = [run for run in check_runs if not _is_review_check(run)]
     review_suites = _review_suite_ids(check_runs)
@@ -231,7 +232,7 @@ def gate_state(check_runs: list[dict[str, Any]], check_suites: list[dict[str, An
         if suite.get("conclusion") in _BAD_SUITE:
             return "failed"
     if not others:
-        return "waiting"
+        return "passed"
     if any(run.get("conclusion") not in _PASS_CONCLUSIONS for run in others):
         return "failed"
     return "passed"
