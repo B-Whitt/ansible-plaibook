@@ -100,7 +100,7 @@
   ignore_unreachable: true
   changed_when: false
   register: _full_diff_result
-  timeout: 30
+  timeout: 120
 
 - name: Fail loudly if the sandbox connection was unreachable
   ansible.builtin.include_tasks: fail_if_sandbox_unreachable.yml
@@ -115,7 +115,7 @@
   ignore_unreachable: true
   changed_when: false
   register: _diff_files_result
-  timeout: 30
+  timeout: 120
 
 - name: Fail loudly if the sandbox connection was unreachable
   ansible.builtin.include_tasks: fail_if_sandbox_unreachable.yml
@@ -130,7 +130,7 @@
   ignore_unreachable: true
   changed_when: false
   register: _diff_numstat_result
-  timeout: 30
+  timeout: 120
 
 - name: Fail loudly if the sandbox connection was unreachable
   ansible.builtin.include_tasks: fail_if_sandbox_unreachable.yml
@@ -145,7 +145,7 @@
   ignore_unreachable: true
   changed_when: false
   register: _deleted_files_result
-  timeout: 30
+  timeout: 120
 
 - name: Fail loudly if the sandbox connection was unreachable
   ansible.builtin.include_tasks: fail_if_sandbox_unreachable.yml
@@ -328,7 +328,7 @@
   changed_when: false
   failed_when: false
   register: _commit_count_result
-  timeout: 30
+  timeout: 120
 
 # failed_when: false above absorbs an ordinary non-zero exit (handled
 # below by rc == 0), but not an UNREACHABLE sandbox connection, a

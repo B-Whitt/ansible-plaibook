@@ -228,9 +228,6 @@ jobs:
               - /dev/null
           landlock:
             compatibility: best_effort
-          process:
-            run_as_user: sandbox
-            run_as_group: sandbox
           EOF
           openshell policy set --global --yes --policy "$RUNNER_TEMP/plaibook-sandbox-policy.yaml"
           image="ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
@@ -263,6 +260,7 @@ jobs:
             "${{ steps.target.outputs.repo }}/${{ steps.target.outputs.pr }}" \
             --json \
             --force \
+            -v \
             -e review_require_ci_passing=false \
             -e sandbox_wait_timeout=600 \
             > "${RUNNER_TEMP}/plai-review.json"
