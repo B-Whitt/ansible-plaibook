@@ -45,13 +45,16 @@ jobs:
       contents: read
       pull-requests: read
     uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@<40-character-sha>
+    with:
+      source_repository: aknochow/ansible-plaibook
+      source_sha: <40-character-sha>
     secrets:
       cursor_api_key: ${{ secrets.CURSOR_API_KEY }}
       github_app_id: ${{ secrets.PLAI_GITHUB_APP_ID }}
       github_app_private_key: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}
 ```
 
-Callers do not pass a repository or a ref. The reusable workflow checks out `job.workflow_repository` at `job.workflow_sha`, which GitHub sets to the repository and commit of that workflow file. This repository calls the workflow at commit `24d0933dcb7c116c76c49050e5dfd0a8f4e02952`. `GITHUB_SHA` on `pull_request` is the merge commit and is not the tools pin. When the pull request base already contains the OpenShell 0.1 client, plaibook is installed from that base commit. The publisher that receives the GitHub App private key is the copy taken before `plai review` starts.
+`source_sha` and `source_repository` must be the repository and commit of that workflow file, the same commit as the `uses` ref. The reusable workflow rejects the inputs unless they equal `job.workflow_repository` and `job.workflow_sha`, which GitHub sets to this file, then checks out the inputs. This repository calls the workflow at commit `d3899af387e12efacca9dd1d024a227dbb594178` and passes that same commit. `GITHUB_SHA` on `pull_request` is the merge commit and is not the tools pin. When the pull request base already contains the OpenShell 0.1 client, plaibook is installed from that base commit. The publisher that receives the GitHub App private key is the copy taken before `plai review` starts.
 
 Without the GitHub App secrets the publish step fails. The job token cannot post the review.
 
