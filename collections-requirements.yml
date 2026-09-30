@@ -9,7 +9,10 @@
 collections:
   - name: https://github.com/aknochow/ansible-openshell.git
     type: git
-    version: f2df487af9d08d314235394e281b71cfdcdb5134
+    # exec() on openshell 0.1 requires workspace. This SHA is
+    # cursor/openshell-exec-workspace-41b9; plaibook fetches the commit
+    # directly, so it does not have to be on main yet.
+    version: b0fce7dfea5fe7794bfb67a874f018d74f6dd63f
   - name: https://github.com/aknochow/ansible-claude.git
     type: git
     version: 4b59640b7728b0604f0fd450d3cc9afe276e6c6a
