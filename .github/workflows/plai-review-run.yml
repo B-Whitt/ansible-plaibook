@@ -9,8 +9,10 @@ name: plaibook review
 # pull-requests:read, so it cannot write the pull request. Posting uses
 # the GitHub App installation token, and only in the publish step, after
 # the agent has finished. The review step installs OpenShell with the
-# upstream installer, which starts a local gateway, and runs plai review
-# with the default sandbox. CURSOR_API_KEY stays in that step because the
+# upstream installer, which starts a local gateway, pulls
+# review.yml's sandbox image once, and runs plai review with the default
+# sandbox. The first pull of that image is about 1 GiB and did not finish
+# inside the playbook's 300s ready wait. CURSOR_API_KEY stays in that step because the
 # Cursor SDK call runs on the controller. The job token is read-only and
 # is used to fetch the pull request. Tool execution runs in the sandbox.
 #
@@ -195,6 +197,27 @@ jobs:
           fi
           openshell status
 
+      - name: Pull the review sandbox image
+        if: steps.provider.outputs.ready == 'true'
+        env:
+          OPENSHELL_WORKSPACE: default
+          # Idle timeout while the gateway pulls. Pull progress extends it.
+          # The outer timeout is the wall clock for a pull that stops reporting.
+          OPENSHELL_PROVISION_TIMEOUT: "900"
+        run: |
+          set -euo pipefail
+          image="ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
+          if ! timeout 1800 openshell sandbox create \
+            --name plaibook-image-warm \
+            --from "$image" \
+            --detach \
+            --no-tty; then
+            openshell sandbox get plaibook-image-warm || true
+            journalctl --user -u openshell-gateway --no-pager -n 80 || true
+            exit 1
+          fi
+          openshell sandbox delete plaibook-image-warm
+
       - name: Run plai review
         id: plai
         if: steps.provider.outputs.ready == 'true'
@@ -214,6 +237,7 @@ jobs:
             --json \
             --force \
             -e review_require_ci_passing=false \
+            -e sandbox_wait_timeout=600 \
             > "${RUNNER_TEMP}/plai-review.json"
           rc=$?
           set -e

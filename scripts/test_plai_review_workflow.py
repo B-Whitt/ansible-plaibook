@@ -44,7 +44,11 @@ def test_reusable_workflow_permissions_and_pins():
     assert "CURSOR_API_KEY" in plai_steps[0]["env"]
     assert "PLAI_GITHUB_APP_PRIVATE_KEY" not in plai_steps[0].get("env", {})
     assert "--no-sandbox" not in plai_steps[0]["run"]
+    assert "sandbox_wait_timeout=600" in plai_steps[0]["run"]
     assert "install.sh" in text
+    assert "ghcr.io/nvidia/openshell-community/sandboxes/base:latest" in text
+    assert "plaibook-image-warm" in text
+    assert "OPENSHELL_PROVISION_TIMEOUT" in text
     inputs = document["on"]["workflow_call"]["inputs"]
     assert inputs["source_sha"]["required"] is False
     assert inputs["source_repository"]["required"] is False
