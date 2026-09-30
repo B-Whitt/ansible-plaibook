@@ -36,7 +36,13 @@ def _safe_patch(body: str, limit: int = 12) -> bool:
 
 
 def _looks_like_prose(body: str) -> bool:
-    if re.search(r"[=(){}\[\]<>]|^\s+\S", body, re.MULTILINE):
+    """True when the replacement is a sentence rather than source.
+
+    Code syntax is checked first so indented source such as
+    ``return name.endswith(suffix)`` stays a suggestion. Indentation
+    alone does not: the prose check runs on the stripped first line.
+    """
+    if re.search(r"[=(){}\[\]<>]", body):
         return False
     first = body.strip().splitlines()[0] if body.strip() else ""
     if _PROSE_START.match(first):

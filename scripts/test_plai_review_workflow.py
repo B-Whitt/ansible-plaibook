@@ -59,10 +59,15 @@ def test_reusable_workflow_permissions_and_pins():
     assert "plaibook-image-warm" in text
     assert "policy set --global --yes" in text
     assert "OPENSHELL_PROVISION_TIMEOUT" in text
-    inputs = document["on"]["workflow_call"]["inputs"]
-    assert inputs["source_sha"]["required"] is True
-    assert inputs["source_repository"]["required"] is True
-    assert "inputs.source_sha" in text
+    call = document["on"]["workflow_call"]
+    assert "inputs" not in call
+    assert "source_sha" not in text
+    assert "source_repository" not in text
+    checkout = next(step for step in job["steps"] if step.get("name") == "Check out this workflow commit")
+    assert checkout["with"]["repository"] == "${{ job.workflow_repository }}"
+    assert checkout["with"]["ref"] == "${{ job.workflow_sha }}"
+    for step in job["steps"]:
+        assert "${{" not in step.get("run", ""), step.get("name")
     publish = [step for step in job["steps"] if step.get("name") == "Post the review"]
     assert len(publish) == 1
     assert "PLAI_GITHUB_APP_PRIVATE_KEY" in publish[0]["env"]
@@ -86,8 +91,9 @@ def test_reusable_workflow_permissions_and_pins():
     assert "pull-requests: write" not in text
     assert "--no-sandbox" not in text
     assert "review_require_ci_passing=false" in text
-    assert "job.workflow_sha" not in text
-    assert "job.workflow_repository" not in text
+    assert "job.workflow_sha" in text
+    assert "job.workflow_repository" in text
+    assert "inputs.source_sha" not in text
     assert "GITHUB_WORKFLOW_SHA" not in text
     assert "GITHUB_WORKFLOW_REF" not in text
     assert "github_app_token.py" in text

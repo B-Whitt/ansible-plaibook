@@ -26,6 +26,7 @@ from github_pr_review import (
     resolve_gate_sha,
     review_event,
     review_matches,
+    result_for_publish,
     review_payload,
     reviewed_sha_is_current,
     select_gate_sha,
@@ -330,6 +331,10 @@ def test_replacement_becomes_a_committable_suggestion():
     prose["replacement"] = "Add a suffix check so external callers are recognized."
     assert suggestion_replacement(prose) is None
     assert suggestion_errors(prose)
+    indented = dict(finding)
+    indented["replacement"] = "    Add a suffix check.\n"
+    assert suggestion_replacement(indented) is None
+    assert suggestion_errors(indented)
     comments, _retire, _updates = partition_actions(
         [{"op": "create", "body": body, "path": "app.py", "line": 4, "start_line": 3}],
         rehome=False,
@@ -405,6 +410,22 @@ def test_summary_includes_models_cost_and_tokens():
     body = summary_body(result, [])
     assert "cursor · composer-2.5 · 8 agents · $0.0345 · 10 in / 2 out" in body
     assert "Score: 93.3" in body
+
+
+def test_malformed_result_becomes_a_failure(tmp_path):
+    path = tmp_path / "plai-review.json"
+    path.write_text("{truncated", encoding="utf-8")
+    result = result_for_publish(str(path), 0)
+    assert result is not None
+    assert result["status"] == "failed"
+    assert result["targets"] == []
+    assert "JSON" in result["error"]
+    missing = result_for_publish(str(tmp_path / "absent.json"), 2)
+    assert missing is not None
+    assert "exited 2" in missing["error"]
+    valid = tmp_path / "ok.json"
+    valid.write_text('{"status": "ok", "targets": []}', encoding="utf-8")
+    assert result_for_publish(str(valid), 0)["status"] == "ok"
 
 
 def test_conclusion_and_posting():

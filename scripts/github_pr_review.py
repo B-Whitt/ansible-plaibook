@@ -866,7 +866,12 @@ def _cmd_fail(args: argparse.Namespace) -> int:
 
 
 def result_for_publish(path: str, review_rc: object) -> dict[str, Any] | None:
+    present = bool(path) and os.path.isfile(path) and os.path.getsize(path) > 0
     result = _load_result(path)
+    if present and result is None:
+        if review_rc not in (0, "0"):
+            return {"status": "failed", "error": f"plai review exited {review_rc}", "targets": []}
+        return {"status": "failed", "error": "plai review result is not valid JSON", "targets": []}
     if review_rc not in (0, "0") and result is None:
         return {"status": "failed", "error": f"plai review exited {review_rc}", "targets": []}
     return result
@@ -875,7 +880,11 @@ def result_for_publish(path: str, review_rc: object) -> dict[str, Any] | None:
 def _load_result(path: str) -> dict[str, Any] | None:
     if not path or not os.path.isfile(path) or os.path.getsize(path) == 0:
         return None
-    loaded = json.loads(open(path, encoding="utf-8").read())
+    try:
+        with open(path, encoding="utf-8") as handle:
+            loaded = json.loads(handle.read())
+    except (OSError, json.JSONDecodeError):
+        return None
     if not isinstance(loaded, dict):
         return None
     return loaded

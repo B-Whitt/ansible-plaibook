@@ -4,7 +4,10 @@ name: plaibook review
 # request have passed, then posts one pull request review. Does not call
 # a controller. post_results stays false. The provider is cursor. Sibling
 # repositories must call this file at a full commit SHA because it receives
-# CURSOR_API_KEY. PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY post
+# CURSOR_API_KEY. Checkout uses job.workflow_repository and job.workflow_sha,
+# which GitHub sets to this file's repository and commit. Callers do not
+# pass a ref. Values that reach the shell are environment variables.
+# PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY post
 # that review as the GitHub App whose slug is plai-review. The job token is contents:read and
 # pull-requests:read, so it cannot write the pull request. Posting uses
 # the GitHub App installation token, and only in the publish step, after
@@ -25,15 +28,6 @@ name: plaibook review
 
 on:
   workflow_call:
-    inputs:
-      source_sha:
-        description: 40-character commit of this workflow. The caller passes this explicitly.
-        required: true
-        type: string
-      source_repository:
-        description: owner/name that contains this workflow.
-        required: true
-        type: string
     secrets:
       cursor_api_key:
         required: true
@@ -55,34 +49,38 @@ jobs:
     env:
       SANDBOX_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
     steps:
-      - name: Require a full commit SHA for this workflow
-        id: pin
+      - name: Require this workflow commit
         env:
-          # The caller passes both values. There is no job-context fallback.
-          INPUT_SHA: ${{ inputs.source_sha }}
-          INPUT_REPOSITORY: ${{ inputs.source_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
         run: |
           set -euo pipefail
-          sha="${INPUT_SHA:-}"
-          repository="${INPUT_REPOSITORY:-}"
-          if [ "${#sha}" -ne 40 ] || [ -z "$repository" ]; then
-            echo "source_sha must be a 40-character commit and source_repository must be owner/name" >&2
+          sha="${WORKFLOW_SHA:-}"
+          repository="${WORKFLOW_REPOSITORY:-}"
+          if [ "${#sha}" -ne 40 ]; then
+            echo "job.workflow_sha must be the 40-character commit of this workflow file" >&2
             exit 1
           fi
           case "$sha" in
             *[!0-9a-f]*)
-              echo "reusable workflow ref must be a 40-character commit SHA" >&2
+              echo "job.workflow_sha must be a 40-character commit" >&2
               exit 1
               ;;
           esac
-          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
-          echo "repository=${repository}" >> "$GITHUB_OUTPUT"
+          case "$repository" in
+            [A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*)
+              ;;
+            *)
+              echo "job.workflow_repository must be owner/name" >&2
+              exit 1
+              ;;
+          esac
 
-      - name: Check out the pinned plaibook workflow
+      - name: Check out this workflow commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
         with:
-          repository: ${{ steps.pin.outputs.repository }}
-          ref: ${{ steps.pin.outputs.sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
 
       - name: Check out the pull request base
@@ -141,9 +139,11 @@ jobs:
         if: >-
           steps.target.outputs.action == 'review' &&
           (steps.gate.outputs.state == 'failed' || steps.gate.outputs.state == 'waiting')
+        env:
+          GATE_STATE: ${{ steps.gate.outputs.state }}
         run: |
           set -euo pipefail
-          if [ "${{ steps.gate.outputs.state }}" = "failed" ]; then
+          if [ "$GATE_STATE" = "failed" ]; then
             echo "Other checks failed. plaibook review runs only after they pass. No review ran."
           else
             echo "Other checks are still running. plaibook review runs only after they pass."
@@ -273,11 +273,20 @@ jobs:
           # Ansible's log is Python stderr. Without this the step stays blank
           # until the process exits.
           PYTHONUNBUFFERED: "1"
+          REVIEW_REPO: ${{ steps.target.outputs.repo }}
+          REVIEW_PR: ${{ steps.target.outputs.pr }}
         run: |
           set -euo pipefail
+          case "$REVIEW_REPO" in
+            [A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*) ;;
+            *) echo "pull request repository is not owner/name" >&2; exit 1 ;;
+          esac
+          case "$REVIEW_PR" in
+            *[!0-9]*|"") echo "pull request number must be digits" >&2; exit 1 ;;
+          esac
           set +e
           "$RUNNER_TEMP/plai-venv/bin/plai" review \
-            "${{ steps.target.outputs.repo }}/${{ steps.target.outputs.pr }}" \
+            "$REVIEW_REPO/$REVIEW_PR" \
             --json \
             --force \
             -v \
@@ -294,19 +303,40 @@ jobs:
         env:
           PLAI_GITHUB_APP_ID: ${{ secrets.github_app_id }}
           PLAI_GITHUB_APP_PRIVATE_KEY: ${{ secrets.github_app_private_key }}
+          REVIEW_REPO: ${{ steps.target.outputs.repo }}
+          REVIEW_SHA: ${{ steps.target.outputs.sha }}
+          REVIEW_PR: ${{ steps.target.outputs.pr }}
+          REVIEW_RC: ${{ steps.plai.outputs.rc }}
         run: |
           set -euo pipefail
           if [ -z "${PLAI_GITHUB_APP_ID}" ] || [ -z "${PLAI_GITHUB_APP_PRIVATE_KEY}" ]; then
             echo "PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY are required to post. This job token cannot write the pull request." >&2
             exit 1
           fi
+          case "$REVIEW_REPO" in
+            [A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*) ;;
+            *) echo "pull request repository is not owner/name" >&2; exit 1 ;;
+          esac
+          case "$REVIEW_SHA" in
+            *[!0-9a-f]*|"") echo "head sha must be hex" >&2; exit 1 ;;
+          esac
+          if [ "${#REVIEW_SHA}" -ne 40 ]; then
+            echo "head sha must be a 40-character commit" >&2
+            exit 1
+          fi
+          case "$REVIEW_PR" in
+            *[!0-9]*|"") echo "pull request number must be digits" >&2; exit 1 ;;
+          esac
+          case "$REVIEW_RC" in
+            *[!0-9]*|"") echo "review exit code must be digits" >&2; exit 1 ;;
+          esac
           cd "$RUNNER_TEMP/publisher"
           sha256sum -c checksums.txt
-          token="$(python3 scripts/github_app_token.py --repo "${{ steps.target.outputs.repo }}")"
+          token="$(python3 scripts/github_app_token.py --repo "$REVIEW_REPO")"
           echo "::add-mask::${token}"
           GITHUB_TOKEN="${token}" python3 scripts/github_pr_review.py publish \
-            --repo "${{ steps.target.outputs.repo }}" \
-            --sha "${{ steps.target.outputs.sha }}" \
-            --pr "${{ steps.target.outputs.pr }}" \
+            --repo "$REVIEW_REPO" \
+            --sha "$REVIEW_SHA" \
+            --pr "$REVIEW_PR" \
             --result "${RUNNER_TEMP}/plai-review.json" \
-            --review-rc "${{ steps.plai.outputs.rc }}"
+            --review-rc "$REVIEW_RC"
