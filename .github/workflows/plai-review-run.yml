@@ -4,9 +4,11 @@ name: plaibook review
 # request have passed, then posts one pull request review. Does not call
 # a controller. post_results stays false. The provider is cursor. Sibling
 # repositories must call this file at a full commit SHA because it receives
-# CURSOR_API_KEY. Checkout uses job.workflow_repository and job.workflow_sha,
-# which GitHub sets to this file's repository and commit. Callers do not
-# pass a ref. Values that reach the shell are environment variables.
+# CURSOR_API_KEY. Callers pass source_repository and source_sha. Those
+# inputs must equal job.workflow_repository and job.workflow_sha, which
+# GitHub sets to this file's repository and commit. Checkout uses the
+# inputs after that check. Values that reach the shell are environment
+# variables.
 # PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY post
 # that review as the GitHub App whose slug is plai-review. The job token is contents:read and
 # pull-requests:read, so it cannot write the pull request. Posting uses
@@ -28,6 +30,15 @@ name: plaibook review
 
 on:
   workflow_call:
+    inputs:
+      source_sha:
+        description: 40-character commit of this workflow file. Must match job.workflow_sha.
+        required: true
+        type: string
+      source_repository:
+        description: owner/name that contains this workflow file. Must match job.workflow_repository.
+        required: true
+        type: string
     secrets:
       cursor_api_key:
         required: true
@@ -51,36 +62,54 @@ jobs:
     steps:
       - name: Require this workflow commit
         env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
           WORKFLOW_SHA: ${{ job.workflow_sha }}
           WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
         run: |
           set -euo pipefail
-          sha="${WORKFLOW_SHA:-}"
-          repository="${WORKFLOW_REPOSITORY:-}"
-          if [ "${#sha}" -ne 40 ]; then
-            echo "job.workflow_sha must be the 40-character commit of this workflow file" >&2
+          sha="${SOURCE_SHA:-}"
+          repository="${SOURCE_REPOSITORY:-}"
+          workflow_sha="${WORKFLOW_SHA:-}"
+          workflow_repository="${WORKFLOW_REPOSITORY:-}"
+          if [ "${#sha}" -ne 40 ] || [ "${#workflow_sha}" -ne 40 ]; then
+            echo "source_sha and job.workflow_sha must both be 40-character commits" >&2
             exit 1
           fi
           case "$sha" in
+            *[!0-9a-f]*)
+              echo "source_sha must be a 40-character commit" >&2
+              exit 1
+              ;;
+          esac
+          case "$workflow_sha" in
             *[!0-9a-f]*)
               echo "job.workflow_sha must be a 40-character commit" >&2
               exit 1
               ;;
           esac
+          if [ "$sha" != "$workflow_sha" ]; then
+            echo "source_sha must equal the commit of this workflow file" >&2
+            exit 1
+          fi
           case "$repository" in
-            [A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*)
-              ;;
-            *)
-              echo "job.workflow_repository must be owner/name" >&2
-              exit 1
-              ;;
+            [A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*) ;;
+            *) echo "source_repository must be owner/name" >&2; exit 1 ;;
           esac
+          case "$workflow_repository" in
+            [A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*) ;;
+            *) echo "job.workflow_repository must be owner/name" >&2; exit 1 ;;
+          esac
+          if [ "$repository" != "$workflow_repository" ]; then
+            echo "source_repository must equal the repository of this workflow file" >&2
+            exit 1
+          fi
 
       - name: Check out this workflow commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
         with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_sha }}
           persist-credentials: false
 
       - name: Check out the pull request base
