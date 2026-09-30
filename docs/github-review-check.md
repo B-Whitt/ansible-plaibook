@@ -28,9 +28,9 @@ The GitHub App slug is `plai-review`. The review author is `plai-review[bot]`. G
 
 Re-run the review with a pull-request comment that starts with `/plai-review`, or with `workflow_dispatch` and the pull request number. That posts another review. It does not update the `plaibook review` check on the pull request head. That check is the job started by `pull_request`. Comments from bots, and from users who are not OWNER, MEMBER, or COLLABORATOR, are ignored.
 
-The gate reads check runs for the pull request head SHA when that commit has other check runs. GitHub attaches `pull_request` checks to that head commit in this repository. The merge commit has none. The gate uses the merge commit only when the head has no other check runs and the merge commit does. The review is still published against the head SHA.
+The gate reads check runs on the pull request head and on the merge commit. When both commits have other checks, both must pass. A commit with no other checks is skipped. The review is still published against the head SHA.
 
-The job token is `contents: read` and `pull-requests: read`. It cannot write the pull request. The publish step runs after the agent and posts with the GitHub App installation token. The review step installs OpenShell and uses the default sandbox. `CURSOR_API_KEY` is present in the review step because the Cursor SDK call runs on the controller. `PLAI_GITHUB_APP_ID` and `PLAI_GITHUB_APP_PRIVATE_KEY` are required to post.
+The job token is `contents: read`, `pull-requests: read`, and `checks: read`. `checks: read` is what the gate uses to list check runs on a private repository. The token cannot write the pull request. The publish step runs after the agent and posts with the GitHub App installation token. The review step installs OpenShell and uses the default sandbox. `CURSOR_API_KEY` is present in the review step because the Cursor SDK call runs on the controller. `PLAI_GITHUB_APP_ID` and `PLAI_GITHUB_APP_PRIVATE_KEY` are required to post.
 
 The review runs as cursor. Each repository sets the Actions secret `CURSOR_API_KEY`. If it is missing, the check fails. It does not succeed when no review ran.
 
@@ -44,6 +44,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      checks: read
     uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@<40-character-sha>
     with:
       source_repository: aknochow/ansible-plaibook

@@ -10,8 +10,9 @@ name: plaibook review
 # inputs after that check. Values that reach the shell are environment
 # variables.
 # PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY post
-# that review as the GitHub App whose slug is plai-review. The job token is contents:read and
-# pull-requests:read, so it cannot write the pull request. Posting uses
+# that review as the GitHub App whose slug is plai-review. The job token is contents:read,
+# pull-requests:read, and checks:read. checks:read lets the gate list check runs.
+# The token cannot write the pull request. Posting uses
 # the GitHub App installation token, and only in the publish step, after
 # the agent has finished. That step runs a copy of the publisher taken
 # before the agent starts. The review step installs OpenShell from the
@@ -57,6 +58,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      checks: read
     env:
       SANDBOX_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
     steps:

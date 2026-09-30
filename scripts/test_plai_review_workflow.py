@@ -34,10 +34,11 @@ def test_reusable_workflow_permissions_and_pins():
     assert job["permissions"] == {
         "contents": "read",
         "pull-requests": "read",
+        "checks": "read",
     }
     assert job["runs-on"] == "ubuntu-26.04-arm"
     assert "strategy" not in job
-    assert "checks" not in job["permissions"]
+    assert job["permissions"]["checks"] == "read"
     assert "actions" not in job["permissions"]
     plai_steps = [step for step in job["steps"] if step.get("id") == "plai"]
     assert len(plai_steps) == 1

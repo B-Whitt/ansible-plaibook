@@ -909,12 +909,15 @@ def _cmd_fail(args: argparse.Namespace) -> int:
 def result_for_publish(path: str, review_rc: object) -> dict[str, Any] | None:
     present = bool(path) and os.path.isfile(path) and os.path.getsize(path) > 0
     result = _load_result(path)
+    if review_rc not in (0, "0"):
+        error = f"plai review exited {review_rc}"
+        if isinstance(result, dict):
+            detail = str(result.get("error") or "").strip()
+            if detail:
+                error = f"{error}: {detail}"
+        return {"status": "failed", "error": error, "targets": []}
     if present and result is None:
-        if review_rc not in (0, "0"):
-            return {"status": "failed", "error": f"plai review exited {review_rc}", "targets": []}
         return {"status": "failed", "error": "plai review result is not valid JSON", "targets": []}
-    if review_rc not in (0, "0") and result is None:
-        return {"status": "failed", "error": f"plai review exited {review_rc}", "targets": []}
     return result
 
 

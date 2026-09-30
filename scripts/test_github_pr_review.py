@@ -434,6 +434,30 @@ def test_summary_includes_models_cost_and_tokens():
     assert "Score: 93.3" in body
 
 
+def test_nonzero_review_rc_rejects_a_ready_result(tmp_path):
+    path = tmp_path / "plai-review.json"
+    path.write_text(
+        json.dumps(
+            {
+                "status": "ok",
+                "targets": [{"verdict": "READY_FOR_HUMAN_REVIEW", "score": 100}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = result_for_publish(str(path), 2)
+    assert result is not None
+    assert result["status"] == "failed"
+    assert result["targets"] == []
+    assert "exited 2" in result["error"]
+    assert should_post(result) is False
+    assert check_conclusion(result)[0] == "failure"
+    ready = result_for_publish(str(path), 0)
+    assert ready is not None
+    assert ready["status"] == "ok"
+    assert should_post(ready) is True
+
+
 def test_malformed_result_becomes_a_failure(tmp_path):
     path = tmp_path / "plai-review.json"
     path.write_text("{truncated", encoding="utf-8")
