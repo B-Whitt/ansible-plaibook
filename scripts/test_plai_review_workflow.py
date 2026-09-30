@@ -49,7 +49,9 @@ def test_reusable_workflow_permissions_and_pins():
     assert "sha256sum -c -" in text
     assert "OPENSHELL_VERSION=v0.1.2" in text
     assert "GITHUB_PATH" in text
-    assert "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e" in text
+    digest = "sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e"
+    image = f"ghcr.io/nvidia/openshell-community/sandboxes/base@{digest}"
+    assert image in text
     assert "base:latest" not in text
     assert 'sha="${GITHUB_SHA}"' not in text
     assert "workflow_run" not in text

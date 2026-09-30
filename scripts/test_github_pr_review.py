@@ -423,7 +423,13 @@ def test_conclusion_and_posting():
 def test_resolve_ignores_bots_and_non_pr_runs():
     push = {"workflow_run": {"event": "push"}}
     assert resolve_event("workflow_run", push, "aknochow/ansible-plaibook")["action"] == "skip"
-    pr_run = {"workflow_run": {"event": "pull_request", "head_sha": "abc", "pull_requests": [{"number": 9}]}}
+    pr_run = {
+        "workflow_run": {
+            "event": "pull_request",
+            "head_sha": "abc",
+            "pull_requests": [{"number": 9}],
+        }
+    }
     skipped = resolve_event("workflow_run", pr_run, "aknochow/ansible-plaibook")
     assert skipped["action"] == "skip"
     comment = {
