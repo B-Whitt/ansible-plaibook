@@ -197,127 +197,59 @@
         'trailing_whitespace': _diff_completeness_result.trailing_whitespace | int
       } }}
 
-- name: Check for project-type marker files
-  ansible.builtin.stat:
-    path: "{{ review_repo_path }}/{{ item }}"
+# One SSH session for every marker and diff file. A loop of stat/slurp
+# opens a new session per path, and each session on this gateway costs
+# about 30s. The run on 79fe397 spent 1739s in the diff-file stat loop
+# and 243s stating eight marker files, then lost SSH.
+- name: Exclude skill/eval paths from content-detection I/O
+  ansible.builtin.set_fact:
+    _content_detection_files: "{{ review_diff_files | reject('search', '(^|/)(skills|evals)/') | list }}"
+
+- name: Read marker files and diff-file contents in one command
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', role_path + '/files/read_checkout_files.py') }}"
+      - "{{ review_repo_path }}"
+    stdin: >-
+      {{
+        {
+          'markers': [
+            'go.mod',
+            'PROJECT',
+            'galaxy.yml',
+            'galaxy.yaml',
+            'pyproject.toml',
+            'setup.py',
+            'setup.cfg',
+            'review-checklist.md'
+          ],
+          'files': _content_detection_files
+        } | to_json
+      }}
   delegate_to: "{{ review_delegate_host | default(omit, true) }}"
   ignore_unreachable: true
-  loop:
-    - go.mod
-    - PROJECT
-    - galaxy.yml
-    - galaxy.yaml
-    - pyproject.toml
-    - setup.py
-    - setup.cfg
-    - review-checklist.md
-  loop_control:
-    label: "{{ item }}"
-  register: _marker_file_stats
+  changed_when: false
+  register: _checkout_read
+  timeout: 120
 
 - name: Fail loudly if the sandbox connection was unreachable
   ansible.builtin.include_tasks: fail_if_sandbox_unreachable.yml
   vars:
-    fail_if_unreachable_result_var: _marker_file_stats
+    fail_if_unreachable_result_var: _checkout_read
 
-- name: Build the marker-file existence dict
+- name: Store marker existence, go.mod text, and diff-file contents
   ansible.builtin.set_fact:
-    _marker_file_exists: "{{ dict(_marker_file_stats.results | map(attribute='item') | zip(_marker_file_stats.results | map(attribute='stat.exists'))) }}"
-
-# 1MB bound: slurp has no partial-read option, so truncate after
-# decoding. go.mod is practically never anywhere near 1MB in real use.
-- name: Read go.mod content if it exists
-  ansible.builtin.slurp:
-    path: "{{ review_repo_path }}/go.mod"
-  delegate_to: "{{ review_delegate_host | default(omit, true) }}"
-  ignore_unreachable: true
-  register: _go_mod_raw
-  when: _marker_file_exists['go.mod']
-
-- name: Fail loudly if the sandbox connection was unreachable
-  ansible.builtin.include_tasks: fail_if_sandbox_unreachable.yml
-  vars:
-    fail_if_unreachable_result_var: _go_mod_raw
-
-- name: Set go.mod content fact
-  ansible.builtin.set_fact:
-    _go_mod_content: "{{ ((_go_mod_raw.content | b64decode)[:1048576]) if _marker_file_exists['go.mod'] else none }}"
+    _marker_file_exists: "{{ (_checkout_read.stdout | from_json).markers }}"
+    _go_mod_content: "{{ (_checkout_read.stdout | from_json).go_mod }}"
+    _diff_file_contents: "{{ (_checkout_read.stdout | from_json).files }}"
 
 - name: Detect the project type
   detect_project_type:
     file_exists: "{{ _marker_file_exists }}"
     go_mod_content: "{{ _go_mod_content }}"
   register: _project_type_result
-
-# Pre-filter skill/eval paths: detect_diff_domains.py's own content-
-# match rules already exclude them, so there's no reason to spend I/O
-# stat-ing and slurping files whose content will never be examined.
-- name: Exclude skill/eval paths from content-detection I/O
-  ansible.builtin.set_fact:
-    _content_detection_files: "{{ review_diff_files | reject('search', '(^|/)(skills|evals)/') | list }}"
-
-# Check existence first: a deleted-in-this-diff file exists at the
-# target ref but not in the current (source-ref) checkout, so slurp
-# would fail without this check.
-- name: Check which diff files exist in the current checkout
-  ansible.builtin.stat:
-    path: "{{ review_repo_path }}/{{ item }}"
-  delegate_to: "{{ review_delegate_host | default(omit, true) }}"
-  ignore_unreachable: true
-  loop: "{{ _content_detection_files }}"
-  loop_control:
-    label: "{{ item }}"
-  register: _diff_file_stats
-
-- name: Fail loudly if the sandbox connection was unreachable
-  ansible.builtin.include_tasks: fail_if_sandbox_unreachable.yml
-  vars:
-    fail_if_unreachable_result_var: _diff_file_stats
-
-# item.stat.isreg (not just item.stat.exists) excludes directories and
-# broken symlinks, which slurp would reject or mishandle. item.stat.size
-# skips the slurp entirely for a file already known to exceed the 1MB
-# bound, rather than reading it fully into memory first: a large
-# binary or generated file in the diff must not balloon memory.
-- name: Read the content of diff files that exist, are regular files, and are within the size bound
-  ansible.builtin.slurp:
-    path: "{{ review_repo_path }}/{{ item.item }}"
-  delegate_to: "{{ review_delegate_host | default(omit, true) }}"
-  ignore_unreachable: true
-  loop: "{{ _diff_file_stats.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-  when: item.stat.exists and item.stat.isreg and item.stat.size <= 1048576
-  register: _diff_file_contents_raw
-
-- name: Fail loudly if the sandbox connection was unreachable
-  ansible.builtin.include_tasks: fail_if_sandbox_unreachable.yml
-  vars:
-    fail_if_unreachable_result_var: _diff_file_contents_raw
-
-# rejectattr('skipped', 'defined'), not selectattr('content', 'defined'):
-# a non-skipped looped result has no 'skipped' key at all (not
-# skipped: false), so this correctly keeps exactly the entries that ran.
-- name: Filter out skipped diff-file read results
-  ansible.builtin.set_fact:
-    _diff_file_results_ok: "{{ _diff_file_contents_raw.results | rejectattr('skipped', 'defined') | list }}"
-
-# The truncate below is a belt-and-suspenders backstop; the size guard
-# on the slurp task above already excludes anything over the bound
-# before slurp ever runs.
-- name: Build the diff-file contents dict
-  ansible.builtin.set_fact:
-    _diff_file_contents: >-
-      {{ dict(
-           _diff_file_results_ok
-           | map(attribute='item.item')
-           | zip(
-               _diff_file_results_ok
-               | map(attribute='content')
-               | map('b64decode')
-               | map('truncate', 1048576, True, '')
-             )
-         ) }}
 
 - name: Count total commits to detect a brand-new repo
   ansible.builtin.command:

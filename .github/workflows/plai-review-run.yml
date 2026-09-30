@@ -253,6 +253,9 @@ jobs:
           ANSIBLE_REVIEW_AGENT_FAMILY: cursor
           # OpenShell 0.1 rejects an empty workspace. The CLI default is "default".
           OPENSHELL_WORKSPACE: default
+          # Ansible's log is Python stderr. Without this the step stays blank
+          # until the process exits.
+          PYTHONUNBUFFERED: "1"
         run: |
           set -euo pipefail
           set +e
