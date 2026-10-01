@@ -41,10 +41,12 @@ _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _PASS_CONCLUSIONS = {"success", "skipped", "neutral"}
 _BAD_SUITE = {"failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale"}
 _ALLOWED_ASSOCIATION = {"OWNER", "MEMBER", "COLLABORATOR"}
-# These apps create check runs. A queued suite from one of them can appear
-# before its runs. The cursor app on this repository stays queued with no
-# runs, so waiting on every empty suite would block the review.
-_RUN_PRODUCING_APPS = {"github-actions", "github-advanced-security"}
+# The cursor app on this repository opens a check suite and leaves it
+# queued with zero runs. Waiting on that suite blocks the review forever.
+# Every other empty, non-completed suite waits, including CircleCI and
+# Buildkite. without_own_run already drops this workflow's own run.
+_SUITES_THAT_NEVER_CREATE_RUNS = {"cursor"}
+_REVIEW_APP = "plai-review[bot]"
 
 
 def finding_key(finding: dict[str, Any]) -> str:
@@ -123,9 +125,23 @@ def render_comment(finding: dict[str, Any]) -> str:
     return "\n".join(parts).strip() + "\n"
 
 
+def _github_login(item: dict[str, Any]) -> str:
+    user = item.get("user")
+    if not isinstance(user, dict):
+        return ""
+    return str(user.get("login") or "")
+
+
+def _is_review_app(item: dict[str, Any]) -> bool:
+    """True when the GitHub App that posts this review authored the object."""
+    return _github_login(item) == _REVIEW_APP
+
+
 def plan_comments(findings: list[dict[str, Any]], existing: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_key: dict[str, dict[str, Any]] = {}
     for comment in existing:
+        if not _is_review_app(comment):
+            continue
         match = FINDING_MARKER.search(comment.get("body") or "")
         if match:
             by_key[match.group(1)] = comment
@@ -191,10 +207,11 @@ def gate_state(check_runs: list[dict[str, Any]], check_suites: list[dict[str, An
     """Return waiting, failed, or passed for the non-review checks on one SHA.
 
     ``skipped`` and ``neutral`` do not block. A failed check blocks.
-    In-progress work waits. A queued suite from an app that creates check
-    runs waits even before those runs exist. A completed empty suite does
-    not. No other checks means passed, so a repository without other CI
-    still gets a review.
+    In-progress work waits. An empty suite that is not completed waits,
+    except the cursor app, which stays queued with no runs on this
+    repository. An empty completed suite fails unless its conclusion is
+    success, skipped, or neutral. No other checks means passed, so a
+    repository without other CI still gets a review.
     """
     others = [run for run in check_runs if not _is_review_check(run)]
     review_suites = _review_suite_ids(check_runs)
@@ -204,10 +221,16 @@ def gate_state(check_runs: list[dict[str, Any]], check_suites: list[dict[str, An
         suite_id = suite.get("id")
         runs_in = [run for run in check_runs if (run.get("check_suite") or {}).get("id") == suite_id]
         if not runs_in:
+            if suite_id in review_suites:
+                continue
             app = suite.get("app") or {}
             slug = str(app.get("slug") or "") if isinstance(app, dict) else ""
-            if suite.get("status") != "completed" and slug in _RUN_PRODUCING_APPS:
+            if suite.get("status") != "completed":
+                if slug in _SUITES_THAT_NEVER_CREATE_RUNS:
+                    continue
                 return "waiting"
+            if suite.get("conclusion") not in _PASS_CONCLUSIONS:
+                return "failed"
             continue
         if suite_id in review_suites and all(_is_review_check(run) for run in runs_in):
             continue
@@ -664,9 +687,26 @@ def _desired_review_state(event: str) -> str:
     raise RuntimeError(f"unsupported review event {event}")
 
 
+def _without_run_stats(body: str) -> str:
+    """Drop the cost and token line. Those counts change on every rerun."""
+    kept = [
+        line
+        for line in body.splitlines()
+        if not (" · " in line and ("$" in line or " in / " in line))
+    ]
+    return "\n".join(kept)
+
+
 def review_matches(review: dict[str, Any], body: str, event: str, sha: str) -> bool:
+    """True when this App already posted this verdict on this commit.
+
+    Cost and token counts are not part of the identity. A review written
+    by anyone else is not reused, updated, or retired.
+    """
+    if not _is_review_app(review):
+        return False
     return (
-        review.get("body") == body
+        _without_run_stats(str(review.get("body") or "")) == _without_run_stats(body)
         and review.get("state") == _desired_review_state(event)
         and review.get("commit_id") == sha
     )
@@ -850,6 +890,8 @@ def _retire_absent_findings(
     }
     seen = set(retire)
     for comment in existing:
+        if not _is_review_app(comment):
+            continue
         match = FINDING_MARKER.search(comment.get("body") or "")
         if not match or match.group(1) in markers or comment.get("id") is None:
             continue
@@ -875,6 +917,8 @@ def _retire_replaced_comments(
     canonical_ids = {int(review["id"]) for review in canonical if review.get("id") is not None}
     kept: set[str] = set()
     for comment in existing:
+        if not _is_review_app(comment):
+            continue
         if comment.get("pull_request_review_id") not in canonical_ids:
             continue
         match = FINDING_MARKER.search(comment.get("body") or "")
@@ -882,6 +926,8 @@ def _retire_replaced_comments(
             kept.add(match.group(1))
     stale: list[int] = []
     for comment in existing:
+        if not _is_review_app(comment):
+            continue
         match = FINDING_MARKER.search(comment.get("body") or "")
         if not match or match.group(1) not in kept:
             continue

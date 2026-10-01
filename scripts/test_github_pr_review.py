@@ -136,10 +136,18 @@ def test_gate_waits_for_a_queued_ci_suite_before_its_runs_exist():
     ]
     assert gate_state(runs, suites) == "waiting"
     suites[1]["status"] = "completed"
+    suites[1]["conclusion"] = "success"
     assert gate_state(runs, suites) == "passed"
     suites[1]["status"] = "queued"
+    suites[1]["conclusion"] = None
+    suites[1]["app"] = {"slug": "circleci"}
+    assert gate_state(runs, suites) == "waiting"
     suites[1]["app"] = {"slug": "cursor"}
     assert gate_state(runs, suites) == "passed"
+    suites[1]["status"] = "completed"
+    suites[1]["conclusion"] = "failure"
+    suites[1]["app"] = {"slug": "circleci"}
+    assert gate_state(runs, suites) == "failed"
 
 
 def test_without_own_run_drops_the_current_actions_run():
@@ -413,8 +421,9 @@ def test_rehome_retires_comments_whose_finding_disappeared():
     ]
     kept = finding_key(findings[0])
     existing = [
-        {"id": 9, "body": f"keep\n\n<!-- plaibook-finding:{kept} -->"},
-        {"id": 4, "body": "gone\n\n<!-- plaibook-finding:aaaaaaaaaaaaaaaa -->"},
+        {"id": 9, "user": {"login": "plai-review[bot]"}, "body": f"keep\n\n<!-- plaibook-finding:{kept} -->"},
+        {"id": 4, "user": {"login": "plai-review[bot]"}, "body": "gone\n\n<!-- plaibook-finding:aaaaaaaaaaaaaaaa -->"},
+        {"id": 5, "user": {"login": "someone"}, "body": "gone\n\n<!-- plaibook-finding:bbbbbbbbbbbbbbbb -->"},
     ]
     assert _retire_absent_findings(findings, existing, [9]) == [9, 4]
 
@@ -434,10 +443,12 @@ def test_comment_plan_updates_instead_of_stacking():
     body = render_comment(finding)
     assert "```suggestion\nrun(check(name))\n```" in body
     assert "\nFix:\n" not in body
-    existing = [{"id": 9, "body": body}]
+    existing = [{"id": 9, "user": {"login": "plai-review[bot]"}, "body": body}]
     assert [item["op"] for item in plan_comments([finding], existing)] == ["skip"]
     updated = plan_comments([finding | {"replacement": "checked = run(name)\n"}], existing)
     assert updated[0]["op"] == "update"
+    stranger = [{"id": 9, "user": {"login": "someone"}, "body": body}]
+    assert plan_comments([finding], stranger)[0]["op"] == "create"
     assert "```suggestion\nchecked = run(name)\n```" in updated[0]["body"]
     assert plan_comments([finding | {"evidence_status": "refuted"}], []) == []
     prose = plan_comments([finding | {"replacement": "Add a check."}], [])
@@ -564,9 +575,18 @@ def test_review_event_requests_changes_for_needs_changes():
     assert review_event("READY_FOR_HUMAN_REVIEW") == "COMMENT"
     sha = "a" * 40
     summary = "plaibook review: **NEEDS_CHANGES**"
-    assert review_matches({"body": summary, "state": "COMMENTED", "commit_id": sha}, summary, "COMMENT", sha)
+    bot = {"login": "plai-review[bot]"}
+    assert review_matches(
+        {"body": summary, "state": "COMMENTED", "commit_id": sha, "user": bot}, summary, "COMMENT", sha
+    )
     assert not review_matches(
-        {"body": summary, "state": "COMMENTED", "commit_id": sha}, summary, "REQUEST_CHANGES", sha
+        {"body": summary, "state": "COMMENTED", "commit_id": sha, "user": bot}, summary, "REQUEST_CHANGES", sha
+    )
+    assert not review_matches(
+        {"body": summary, "state": "COMMENTED", "commit_id": sha, "user": {"login": "someone"}},
+        summary,
+        "COMMENT",
+        sha,
     )
 
 
@@ -674,9 +694,26 @@ def test_publish_review_submits_one_changes_requested_review(monkeypatch):
     def fake_request(method, url, payload=None):
         calls.append((method, url, payload))
         if method == "GET" and url.endswith("/comments?per_page=100"):
-            return 200, [{"id": 41, "body": body, "pull_request_review_id": 7, "path": "app.yml", "line": 12}], ""
+            return 200, [
+                {
+                    "id": 41,
+                    "user": {"login": "plai-review[bot]"},
+                    "body": body,
+                    "pull_request_review_id": 7,
+                    "path": "app.yml",
+                    "line": 12,
+                }
+            ], ""
         if method == "GET" and "/reviews?" in url:
-            return 200, [{"id": 7, "body": "old", "state": "COMMENTED", "commit_id": "a" * 40}], ""
+            return 200, [
+                {
+                    "id": 7,
+                    "user": {"login": "plai-review[bot]"},
+                    "body": "old",
+                    "state": "COMMENTED",
+                    "commit_id": "a" * 40,
+                }
+            ], ""
         if method == "POST" and url.endswith("/reviews"):
             return 201, {"id": 99, "state": "CHANGES_REQUESTED"}, ""
         if method == "DELETE":
@@ -702,7 +739,7 @@ def test_publish_review_keeps_a_matching_changes_requested_review(monkeypatch):
     body = render_comment(finding)
     sha = "c" * 40
     result = {"status": "ok", "targets": [{"verdict": "NEEDS_CHANGES", "score": 40, "findings": [finding]}]}
-    existing = [{"id": 41, "body": body, "pull_request_review_id": 8}]
+    existing = [{"id": 41, "user": {"login": "plai-review[bot]"}, "body": body, "pull_request_review_id": 8}]
     review_body = summary_body(result, plan_comments([finding], existing))
     assert "1. **" in review_body
     assert "*See the suggested fix below.*" in review_body
@@ -710,9 +747,19 @@ def test_publish_review_keeps_a_matching_changes_requested_review(monkeypatch):
     def fake_request(method, url, payload=None):
         calls.append((method, url, payload))
         if method == "GET" and url.endswith("/comments?per_page=100"):
-            return 200, [{"id": 41, "body": body, "pull_request_review_id": 8}], ""
+            return 200, [
+                {"id": 41, "user": {"login": "plai-review[bot]"}, "body": body, "pull_request_review_id": 8}
+            ], ""
         if method == "GET" and "/reviews?" in url:
-            return 200, [{"id": 8, "body": review_body, "state": "CHANGES_REQUESTED", "commit_id": sha}], ""
+            return 200, [
+                {
+                    "id": 8,
+                    "user": {"login": "plai-review[bot]"},
+                    "body": review_body,
+                    "state": "CHANGES_REQUESTED",
+                    "commit_id": sha,
+                }
+            ], ""
         raise AssertionError((method, url))
 
     monkeypatch.setattr("github_pr_review._request", fake_request)
@@ -720,6 +767,48 @@ def test_publish_review_keeps_a_matching_changes_requested_review(monkeypatch):
     publish_review("acme/repo", "9", sha, result)
     assert [item[0] for item in calls] == ["GET", "GET"]
     assert "```suggestion" in body
+
+
+def test_publish_review_reuses_a_review_when_only_the_cost_changes(monkeypatch):
+    calls = []
+    finding = _finding("safe = check(name)")
+    body = render_comment(finding)
+    sha = "d" * 40
+    first = {
+        "status": "ok",
+        "agent_family": "cursor",
+        "models": ["gpt-5.6-luna"],
+        "agents_dispatched": 7,
+        "cost_usd": 0.0295,
+        "total_input_tokens": 100,
+        "total_output_tokens": 10,
+        "targets": [{"verdict": "NEEDS_CHANGES", "score": 83.3, "findings": [finding]}],
+    }
+    second = dict(first)
+    second["cost_usd"] = 0.0410
+    second["total_input_tokens"] = 200
+    comment = {"id": 41, "user": {"login": "plai-review[bot]"}, "body": body, "pull_request_review_id": 8}
+    review_body = summary_body(first, plan_comments([finding], [comment]))
+
+    def fake_request(method, url, payload=None):
+        calls.append((method, url, payload))
+        if method == "GET" and url.endswith("/comments?per_page=100"):
+            return 200, [comment], ""
+        if method == "GET" and "/reviews?" in url:
+            return 200, [
+                {
+                    "id": 8,
+                    "user": {"login": "plai-review[bot]"},
+                    "body": review_body,
+                    "state": "CHANGES_REQUESTED",
+                    "commit_id": sha,
+                }
+            ], ""
+        raise AssertionError((method, url))
+
+    monkeypatch.setattr("github_pr_review._request", fake_request)
+    publish_review("acme/repo", "9", sha, second)
+    assert [item[0] for item in calls] == ["GET", "GET"]
 
 
 def test_publish_review_drops_inline_comments_when_lines_are_rejected(monkeypatch):
