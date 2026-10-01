@@ -45,12 +45,16 @@ def test_repair_keeps_the_finding_when_the_replacement_cannot_be_committed():
     multiline["replacement"] = "return name.endswith(suffix)\nreturn False\n"
     refuted = dict(prose)
     refuted["evidence_status"] = "refuted"
-    findings, warnings = repair_suggestions([valid, prose, multiline, refuted])
+    oneline = dict(valid)
+    oneline["start_line"] = 4
+    oneline["replacement"] = "return name.endswith(suffix)\nreturn False\n"
+    findings, warnings = repair_suggestions([valid, prose, multiline, refuted, oneline])
     assert findings[0]["replacement"] == valid["replacement"]
     assert findings[1]["replacement"] == ""
     assert findings[1]["description"] == "missing suffix"
     assert findings[2]["replacement"] == ""
     assert findings[3]["replacement"] == "Add a suffix check."
+    assert findings[4]["replacement"] == oneline["replacement"]
     assert len(warnings) == 2
     assert suggestion_errors(findings[1]) == []
     assert suggestion_errors(findings[2]) == []

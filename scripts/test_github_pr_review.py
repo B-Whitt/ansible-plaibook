@@ -14,6 +14,7 @@ from github_pr_review import (
     _retire_absent_findings,
     check_conclusion,
     combine_gate_states,
+    comment_anchor,
     commits_to_gate,
     fill_pull_request,
     finding_key,
@@ -423,6 +424,36 @@ def test_multiline_replacement_without_start_line_is_rejected():
     body = render_comment(ranged)
     assert "```suggestion" in body
     assert "return False" in body.split("```suggestion", 1)[1]
+
+
+def test_multiline_replacement_of_one_line_stays_a_suggestion():
+    finding = {
+        "file": "plaibook/finding_suggestions.py",
+        "start_line": 113,
+        "line": 113,
+        "severity": "Minor",
+        "lens": "Functionality",
+        "description": "equal start and end",
+        "evidence": "if start",
+        "fix": "Accept start_line equal to line.",
+        "replacement": 'if "\\n" in body:\n    return []\n',
+        "evidence_status": "verified",
+    }
+    assert suggestion_errors(finding) == []
+    assert suggestion_replacement(finding) == 'if "\\n" in body:\n    return []'
+    assert "```suggestion" in render_comment(finding)
+    assert comment_anchor(finding) == {"path": "plaibook/finding_suggestions.py", "line": 113}
+    actions = plan_comments([finding], [])
+    assert actions[0]["op"] == "create"
+    assert actions[0]["line"] == 113
+    assert "start_line" not in actions[0]
+    for bad in (None, 0, 114):
+        rejected = dict(finding)
+        if bad is None:
+            rejected.pop("start_line")
+        else:
+            rejected["start_line"] = bad
+        assert any("start_line" in item for item in suggestion_errors(rejected))
 
 
 def test_rehome_retires_comments_whose_finding_disappeared():

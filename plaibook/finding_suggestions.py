@@ -126,8 +126,17 @@ def suggestion_errors(finding: dict[str, Any]) -> list[str]:
     body = _replacement_body(finding)
     if body is None:
         return [f"{where} replacement is not drop-in source for those lines{suffix}"]
-    if "\n" in body and "start_line" not in comment_anchor(finding):
-        return [f"{where} multi-line replacement needs start_line{suffix}"]
+    # A multi-line body may replace one cited line. comment_anchor omits
+    # start_line when it equals line, which is the single-line GitHub anchor.
+    if "\n" in body:
+        raw_start = finding.get("start_line")
+        try:
+            start_line = int(raw_start)
+            line = int(finding["line"])
+        except (KeyError, TypeError, ValueError):
+            return [f"{where} multi-line replacement needs start_line{suffix}"]
+        if not 1 <= start_line <= line:
+            return [f"{where} multi-line replacement needs start_line{suffix}"]
     return []
 
 
