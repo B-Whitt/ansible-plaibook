@@ -184,7 +184,21 @@ def test_without_own_run_drops_the_current_actions_run():
     assert [item["id"] for item in kept_suites] == [2]
 
 
-def test_resolve_pull_request_uses_the_head_sha():
+def test_resolve_pull_request_target_uses_the_head_sha():
+    event = {
+        "pull_request": {
+            "number": 79,
+            "head": {"sha": "a" * 40, "repo": {"full_name": "aknochow/ansible-plaibook"}},
+        }
+    }
+    resolved = resolve_event("pull_request_target", event, "aknochow/ansible-plaibook")
+    assert resolved["action"] == "review"
+    assert resolved["pr"] == "79"
+    assert resolved["sha"] == "a" * 40
+    assert resolved["trigger"] == "pull_request_target"
+
+
+def test_resolve_skips_pull_request_because_the_workflow_comes_from_the_branch():
     event = {
         "pull_request": {
             "number": 79,
@@ -192,21 +206,31 @@ def test_resolve_pull_request_uses_the_head_sha():
         }
     }
     resolved = resolve_event("pull_request", event, "aknochow/ansible-plaibook")
-    assert resolved["action"] == "review"
-    assert resolved["pr"] == "79"
-    assert resolved["sha"] == "a" * 40
-    assert resolved["trigger"] == "pull_request"
+    assert resolved["action"] == "skip"
+    assert "pull request branch" in resolved["reason"]
 
 
-def test_resolve_skips_a_fork_pull_request():
+def test_resolve_skips_a_fork_pull_request_target():
     event = {
         "pull_request": {
             "number": 79,
             "head": {"sha": "a" * 40, "repo": {"full_name": "contributor/ansible-plaibook"}},
         }
     }
-    resolved = resolve_event("pull_request", event, "aknochow/ansible-plaibook")
+    resolved = resolve_event("pull_request_target", event, "aknochow/ansible-plaibook")
     assert resolved["action"] == "skip"
+
+
+def test_resolve_workflow_dispatch_requires_the_default_branch(monkeypatch):
+    event = {"inputs": {"pr_number": "79"}, "repository": {"default_branch": "main"}}
+    monkeypatch.delenv("GITHUB_REF", raising=False)
+    assert resolve_event("workflow_dispatch", event, "aknochow/ansible-plaibook")["action"] == "skip"
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/cursor/plai-review-gha-1bbb")
+    assert resolve_event("workflow_dispatch", event, "aknochow/ansible-plaibook")["action"] == "skip"
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    resolved = resolve_event("workflow_dispatch", event, "aknochow/ansible-plaibook")
+    assert resolved["action"] == "review"
+    assert resolved["pr"] == "79"
 
 
 def _same_repo_pull(sha: str) -> dict:

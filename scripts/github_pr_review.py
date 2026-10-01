@@ -2,9 +2,11 @@
 """GitHub check that runs after the other checks and posts a plai review.
 
 The check name is ``plaibook review``. A comment that starts with
-``/plai-review``, or ``workflow_dispatch``, runs it again. This script
-does not call a controller. The workflow runs ``plai review`` and passes
-the JSON document in.
+``/plai-review``, or ``workflow_dispatch`` from the default branch, runs
+it again. ``pull_request`` is refused: that event runs the workflow file
+from the pull request. ``pull_request_target`` runs the file from the
+base branch. This script does not call a controller. The workflow runs
+``plai review`` and passes the JSON document in.
 """
 
 from __future__ import annotations
@@ -346,25 +348,44 @@ def _foreign_head(pull: dict[str, Any], repo: str) -> dict[str, str] | None:
     return None
 
 
+def _resolve_target_pull(event_name: str, event: dict[str, Any], repo: str) -> dict[str, str]:
+    pull = event.get("pull_request") or {}
+    head = pull.get("head") or {}
+    foreign = _foreign_head(pull, repo)
+    if foreign:
+        return foreign
+    # Publish and freshness use head.sha. That SHA is the commit under
+    # review. It is not checked out. The gate reads the head when it has
+    # the other check runs, which is where pull_request checks are
+    # attached in this repository.
+    return {
+        "action": "review",
+        "repo": repo,
+        "pr": str(pull.get("number") or ""),
+        "sha": str(head.get("sha") or ""),
+        "trigger": event_name,
+    }
+
+
+def _dispatch_from_default_branch(event: dict[str, Any]) -> bool:
+    ref = os.environ.get("GITHUB_REF") or ""
+    default = str((event.get("repository") or {}).get("default_branch") or "")
+    return bool(default) and ref == f"refs/heads/{default}"
+
+
 def resolve_event(event_name: str, event: dict[str, Any], repo: str) -> dict[str, str]:
+    # pull_request evaluates the workflow file from the pull request branch
+    # and still receives secrets for a same-repository head. Refuse it.
     if event_name == "pull_request":
-        pull = event.get("pull_request") or {}
-        head = pull.get("head") or {}
-        foreign = _foreign_head(pull, repo)
-        if foreign:
-            return foreign
-        # Publish and freshness use head.sha. The gate may read a different
-        # commit: head when it has the other check runs, which is where
-        # pull_request checks are attached in this repository. The merge
-        # commit in GITHUB_SHA has none unless the head has no other runs.
         return {
-            "action": "review",
-            "repo": repo,
-            "pr": str(pull.get("number") or ""),
-            "sha": str(head.get("sha") or ""),
-            "trigger": event_name,
+            "action": "skip",
+            "reason": "pull_request runs workflow code from the pull request branch",
         }
+    if event_name == "pull_request_target":
+        return _resolve_target_pull(event_name, event, repo)
     if event_name == "workflow_dispatch":
+        if not _dispatch_from_default_branch(event):
+            return {"action": "skip", "reason": "workflow_dispatch runs only from the default branch"}
         pr = str((event.get("inputs") or {}).get("pr_number") or "").strip()
         if not pr.isdigit():
             return {"action": "skip", "reason": "workflow_dispatch requires a numeric pr_number"}
