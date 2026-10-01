@@ -34,7 +34,7 @@ The job token is `contents: read`, `pull-requests: read`, and `checks: read`. `c
 
 The review runs as cursor. Each repository sets the Actions secret `CURSOR_API_KEY`. If it is missing, the check fails. It does not succeed when no review ran.
 
-The check is `success` only when the run-scoped result has one target and the verdict is `READY_FOR_HUMAN_REVIEW`. `NEEDS_CHANGES` still posts the review and fails the check.
+The check is `success` when the review ran and was posted. `NEEDS_CHANGES` is still a pull request review with event `REQUEST_CHANGES`, and the job records a warning annotation for that verdict. The job fails when the review did not run or did not post. The verdict is the review, not a failed check.
 
 Callers in other repositories pin the reusable workflow to a full commit SHA. The caller grants read access. The called job does not raise it. The app secrets post the review.
 
@@ -52,7 +52,7 @@ jobs:
       github_app_private_key: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}
 ```
 
-Callers do not pass a repository or a ref. The reusable workflow checks out `aknochow/ansible-plaibook` at commit `56e9e42ed015776c934e4e401af3a39c165f5245`. This repository calls the workflow at commit `277c39ad3e338f16f24a1a27c1e6a208a725677f`. The review job installs that tree with `uv sync --locked`. `GITHUB_SHA` on `pull_request` is the merge commit and is not the tools pin. When the pull request base already contains the OpenShell 0.1 client, plaibook is installed from that base commit. The publisher that receives the GitHub App private key is the copy taken before `plai review` starts.
+Callers do not pass a repository or a ref. The reusable workflow checks out `aknochow/ansible-plaibook` at commit `fa92d8ca532008eeb441cc362c75237abb24da1d`. This repository calls the workflow at commit `0ad97200e7c819d0b846140160456060453f7250`. The review job installs that tree with `uv sync --locked`. `GITHUB_SHA` on `pull_request` is the merge commit and is not the tools pin. When the pull request base already contains the OpenShell 0.1 client, plaibook is installed from that base commit. The publisher that receives the GitHub App private key is the copy taken before `plai review` starts.
 
 Without the GitHub App secrets the publish step fails. The job token cannot post the review.
 
