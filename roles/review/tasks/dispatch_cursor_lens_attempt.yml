@@ -36,8 +36,7 @@
         prompt: >-
           Spawn the {{ cursor_lens_agent_id }} subagent with the Task / Subagent tool.
           You must call the Task / Subagent tool -- {{ cursor_lens_agent_id }} is not
-          itself a tool. Do not call report_findings yourself. Wait for
-          {{ cursor_lens_agent_id }} to finish.
+          itself a tool. Wait for {{ cursor_lens_agent_id }} to finish.
         model: "{{ review_cursor_model }}"
         effort: "{{ review_cursor_effort }}"
         cwd: "{{ review_repo_path }}"

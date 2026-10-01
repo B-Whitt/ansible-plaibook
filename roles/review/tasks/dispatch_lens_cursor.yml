@@ -73,8 +73,7 @@
     prompt: >-
       Spawn the security_lens subagent with the Task / Subagent tool.
       You must call the Task / Subagent tool -- security_lens is not
-      itself a tool. Do not call report_findings yourself. Wait for
-      security_lens to finish.
+      itself a tool. Wait for security_lens to finish.
     model: "{{ review_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"
@@ -96,8 +95,7 @@
     prompt: >-
       Spawn the review_lens subagent with the Task / Subagent tool.
       You must call the Task / Subagent tool -- review_lens is not
-      itself a tool. Do not call report_findings yourself. Wait for
-      review_lens to finish.
+      itself a tool. Wait for review_lens to finish.
     model: "{{ review_cursor_model }}"
     effort: "{{ review_cursor_effort }}"
     cwd: "{{ review_repo_path }}"

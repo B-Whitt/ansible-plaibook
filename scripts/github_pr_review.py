@@ -1082,7 +1082,7 @@ def _cmd_publish(args: argparse.Namespace) -> int:
         if should_post(result) and result is not None:
             if not reviewed_sha_is_current(args.repo, args.pr, args.sha):
                 print("pull request head moved; not publishing this run", file=sys.stderr)
-                return 0
+                return 1
             publish_review(args.repo, args.pr, args.sha, result)
             conclusion, title, summary = check_conclusion(result)
         elif (

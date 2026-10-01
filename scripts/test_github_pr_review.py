@@ -648,7 +648,7 @@ def test_publish_skips_when_the_head_moved(monkeypatch, tmp_path, capsys):
         sha="a" * 40,
         check_id="",
     )
-    assert _cmd_publish(args) == 0
+    assert _cmd_publish(args) == 1
     assert "head moved" in capsys.readouterr().err
 
 
