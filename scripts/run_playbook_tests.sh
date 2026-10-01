@@ -8,6 +8,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 export ANSIBLE_CONFIG="${REPO_ROOT}/ansible.cfg"
+# CI sets this to the job's collection install. A local run uses the
+# cache `plai` already populated, so the playbook tests do not depend
+# on ~/.ansible/collections.
+if [[ -z "${ANSIBLE_COLLECTIONS_PATH:-}" ]]; then
+  _collections="${HOME}/.cache/ansible-plaibook/collections"
+  if [[ -d "${_collections}/ansible_collections" ]]; then
+    export ANSIBLE_COLLECTIONS_PATH="${_collections}"
+  fi
+fi
 
 PLAYBOOKS=(
   "tests/test_checklist_execution.yml"

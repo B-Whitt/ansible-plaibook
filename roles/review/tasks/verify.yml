@@ -180,6 +180,6 @@
     findings_nit: "{{ deduped_findings | selectattr('severity', 'equalto', 'Nit') | list }}"
 
 - name: Note replacements that were not committable suggestions
-  when: suggestion_check.warnings | length > 0
+  when: suggestion_check.suggestion_warnings | default([]) | length > 0
   ansible.builtin.debug:
-    msg: "{{ suggestion_check.warnings }}"
+    msg: "{{ suggestion_check.suggestion_warnings }}"

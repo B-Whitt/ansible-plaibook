@@ -118,7 +118,10 @@ class ActionModule(ActionBase):
             return result
         result["changed"] = False
         result["findings"] = repaired
-        result["warnings"] = warnings
+        # ``warnings`` is reserved. Ansible removes it from the registered
+        # result, so an empty list makes ``suggestion_check.warnings`` fail
+        # the next task's conditional.
+        result["suggestion_warnings"] = warnings
         result["failures"] = warnings
         result["ok"] = True
         return result
