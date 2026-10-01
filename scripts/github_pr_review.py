@@ -166,13 +166,17 @@ def plan_comments(findings: list[dict[str, Any]], existing: list[dict[str, Any]]
 
 
 def _is_review_check(run: dict[str, Any]) -> bool:
-    """True for this workflow's own job, including reusable-workflow names."""
+    """True for this workflow's own jobs, including reusable-workflow names."""
     name = str(run.get("name") or "")
     return (
-        name == CHECK_NAME
+        name == "plai"
+        or name.startswith("plai /")
+        or name.startswith("plai/")
+        or name == CHECK_NAME
         or name.startswith(f"{CHECK_NAME} /")
         or name.startswith(f"{CHECK_NAME}/")
         or name.endswith(f" / {CHECK_NAME}")
+        or name.endswith(" / plai")
     )
 
 

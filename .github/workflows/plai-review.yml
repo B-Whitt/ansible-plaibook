@@ -1,4 +1,4 @@
-name: plaibook review
+name: plai
 
 # Starts on a pull request and waits until the other checks on that
 # commit have passed, then posts the review. The check name is the job
@@ -37,7 +37,7 @@ concurrency:
 
 jobs:
   review:
-    name: plaibook review
+    name: review
     if: >-
       github.event_name == 'workflow_dispatch'
       || (

@@ -85,6 +85,10 @@ def test_gate_ignores_the_in_progress_review_job():
     assert gate_state(runs, suites) == "passed"
     runs[1]["name"] = "CI / plaibook review"
     assert gate_state(runs, suites) == "passed"
+    runs[1]["name"] = "plai / review"
+    assert gate_state(runs, suites) == "passed"
+    runs[1]["name"] = "plai / wait"
+    assert gate_state(runs, suites) == "passed"
 
 
 def test_latest_check_runs_keeps_the_newest_attempt():

@@ -8,7 +8,7 @@ status: stable
 
 # GitHub plaibook review check
 
-The reusable workflow has two jobs. **`plaibook wait`** polls the other checks. **`plaibook review`** starts after that job passes, so its duration is the review itself. GitHub qualifies those names with the caller job. For this repository the checks are **`plaibook review / plaibook wait`** and **`plaibook review / plaibook review`**. Branch protection should require the review check. An external caller must require `<caller job name> / plaibook review`.
+The reusable workflow has two jobs. **`wait`** polls the other checks. **`review`** starts after that job passes, so its duration is the review itself. GitHub shows them as **`plai / wait`** and **`plai / review`**, and adds `(pull_request)` in the checks list. Branch protection should require `plai / review`. An external caller must require the name its own workflow produces, ending in `/ review`.
 
 It runs on the GitHub-hosted runner. It does not call an Automation Controller. `post_results` stays `false`. The workflow posts the pull-request review itself.
 
@@ -56,4 +56,4 @@ Callers do not pass a repository or a ref. The reusable workflow checks out `akn
 
 Without the GitHub App secrets the publish step fails. The job token cannot post the review.
 
-Do not pass that secret to a `uses:` ref of `@main`. This repository calls the workflow at a full commit SHA. This change does not edit branch protection. After it is on the default branch, require the check name `plaibook review / plaibook review`. The GitHub App slug is `plai-review`.
+Do not pass that secret to a `uses:` ref of `@main`. This repository calls the workflow at a full commit SHA. This change does not edit branch protection. After it is on the default branch, require the check name `plai / review`. The GitHub App slug is `plai-review`.

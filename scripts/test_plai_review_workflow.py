@@ -31,8 +31,8 @@ def test_reusable_workflow_permissions_and_pins():
     assert list(document["jobs"]) == ["wait", "review"]
     wait = document["jobs"]["wait"]
     job = document["jobs"]["review"]
-    assert wait["name"] == "plaibook wait"
-    assert job["name"] == "plaibook review"
+    assert wait["name"] == "wait"
+    assert job["name"] == "review"
     assert job["needs"] == "wait"
     assert job["if"] == "needs.wait.outputs.action == 'review' && needs.wait.outputs.state == 'passed'"
     assert "Wait until the other checks on this commit have passed" not in [

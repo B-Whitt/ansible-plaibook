@@ -1,4 +1,4 @@
-name: plaibook review
+name: plai
 
 # Runs plai review on this runner after the other checks on the pull
 # request have passed, then posts one pull request review. Does not call
@@ -41,7 +41,7 @@ permissions: {}
 
 jobs:
   wait:
-    name: plaibook wait
+    name: wait
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 70
     permissions:
@@ -128,7 +128,7 @@ jobs:
           exit 1
 
   review:
-    name: plaibook review
+    name: review
     needs: wait
     if: needs.wait.outputs.action == 'review' && needs.wait.outputs.state == 'passed'
     runs-on: ubuntu-26.04-arm
