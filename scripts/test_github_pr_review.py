@@ -83,15 +83,24 @@ def test_gate_ignores_the_in_progress_review_job():
         {"id": 2, "status": "completed", "conclusion": "success"},
         {"id": 9, "status": "in_progress", "conclusion": None},
     ]
-    assert gate_state(runs, suites) == "passed"
+    assert gate_state(runs, suites) == "waiting"
+    for exact in ("plai", "plai / wait", "plai / review", CHECK_NAME):
+        runs[1]["name"] = exact
+        assert gate_state(runs, suites) == "passed"
+    runs[1]["name"] = "plaibook review / plaibook review"
+    assert gate_state(runs, suites) == "waiting"
     runs[1]["name"] = "CI / plaibook review"
-    assert gate_state(runs, suites) == "passed"
-    runs[1]["name"] = "plai / review"
-    assert gate_state(runs, suites) == "passed"
-    runs[1]["name"] = "plai / wait"
-    assert gate_state(runs, suites) == "passed"
+    assert gate_state(runs, suites) == "waiting"
     runs[1]["name"] = "review / review"
     assert gate_state(runs, suites) == "waiting"
+    runs[1]["name"] = "plai / security"
+    runs[1]["status"] = "completed"
+    runs[1]["conclusion"] = "failure"
+    suites[1]["status"] = "completed"
+    suites[1]["conclusion"] = "failure"
+    assert gate_state(runs, suites) == "failed"
+    runs[1]["name"] = "attacker / plaibook review"
+    assert gate_state(runs, suites) == "failed"
     runs[1]["name"] = "security / review"
     runs[1]["status"] = "completed"
     runs[1]["conclusion"] = "failure"
@@ -366,7 +375,7 @@ def test_other_check_count_ignores_plaibook_review_runs(monkeypatch):
     def fake_get_all(url, key):
         assert key == "check_runs"
         return [
-            {"name": "plaibook review / plaibook review", "id": 1, "started_at": "t", "details_url": ""},
+            {"name": "plai / review", "id": 1, "started_at": "t", "details_url": ""},
             {"name": "Test (Python 3.12)", "id": 2, "started_at": "t", "details_url": ""},
         ]
 

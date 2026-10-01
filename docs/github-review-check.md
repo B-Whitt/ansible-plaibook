@@ -8,7 +8,7 @@ status: stable
 
 # GitHub plaibook review check
 
-The reusable workflow has two jobs. **`wait`** polls the other checks. **`review`** starts after that job passes, so its duration is the review itself. GitHub shows them as **`plai / wait`** and **`plai / review`**. The trigger is `pull_request_target`, so GitHub reads this workflow from the base branch and reports the job against that branch. A pull request cannot replace the file that receives the secrets. Requiring `plai / review` on the pull request head does not see this job. An external caller must require the name its own workflow produces, ending in `/ review`.
+The reusable workflow has two jobs. **`wait`** polls the other checks. **`review`** starts after that job passes, so its duration is the review itself. GitHub shows them as **`plai / wait`** and **`plai / review`**. The trigger is `pull_request_target`, so GitHub reads this workflow from the base branch and reports the job against that branch. A pull request cannot replace the file that receives the secrets. Requiring `plai / review` on the pull request head does not see this job. The gate ignores only the exact names `plai`, `plai / wait`, `plai / review`, and `plaibook review`. An external caller names its job `plai` so GitHub shows those names. A check named `plai / security` or `attacker / plaibook review` still blocks the review.
 
 It runs on the GitHub-hosted runner. It does not call an Automation Controller. `post_results` stays `false`. The workflow posts the pull-request review itself.
 

@@ -182,19 +182,15 @@ def plan_comments(findings: list[dict[str, Any]], existing: list[dict[str, Any]]
     return actions
 
 
+# Exact GitHub check names for this workflow. A prefix or suffix would also
+# match an unrelated job renamed to "plai / security" or
+# "attacker / plaibook review", and the gate would ignore that failure.
+_REVIEW_CHECK_NAMES = frozenset({"plai", "plai / wait", "plai / review", CHECK_NAME})
+
+
 def _is_review_check(run: dict[str, Any]) -> bool:
-    """True for this workflow's own jobs, including reusable-workflow names."""
-    name = str(run.get("name") or "")
-    return (
-        name == "plai"
-        or name.startswith("plai /")
-        or name.startswith("plai/")
-        or name == CHECK_NAME
-        or name.startswith(f"{CHECK_NAME} /")
-        or name.startswith(f"{CHECK_NAME}/")
-        or name.endswith(f" / {CHECK_NAME}")
-        or name.endswith(" / plai")
-    )
+    """True for this workflow's own jobs, and not for a lookalike name."""
+    return str(run.get("name") or "") in _REVIEW_CHECK_NAMES
 
 
 def _review_suite_ids(check_runs: list[dict[str, Any]]) -> set[Any]:
