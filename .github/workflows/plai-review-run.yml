@@ -59,7 +59,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
         with:
           repository: aknochow/ansible-plaibook
-          ref: "68534c417322effecf4d7e9c7424c9d4ca5c7b18"
+          ref: "9da531fbd8b7c2019db96f01763486ad87859b06"
           persist-credentials: false
 
       - name: Resolve the pull request
@@ -144,7 +144,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
         with:
           repository: aknochow/ansible-plaibook
-          ref: "68534c417322effecf4d7e9c7424c9d4ca5c7b18"
+          ref: "9da531fbd8b7c2019db96f01763486ad87859b06"
           persist-credentials: false
 
       - name: Require CURSOR_API_KEY
