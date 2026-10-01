@@ -47,26 +47,36 @@ def test_check_name_and_keyword():
     assert REVIEW_KEYWORD == "/plai-review"
 
 
+_REVIEW_DETAILS = "https://github.com/aknochow/ansible-plaibook/actions/runs/50/job/9"
+_REVIEW_IDS = {"50"}
+
+
 def test_gate_waits_for_in_progress_and_blocks_on_failure():
     sha_runs = [
         {"name": "Test (Python 3.12)", "status": "completed", "conclusion": "success", "check_suite": {"id": 2}},
         {"name": "Analyze Python", "status": "in_progress", "conclusion": None, "check_suite": {"id": 3}},
-        {"name": CHECK_NAME, "status": "completed", "conclusion": "failure", "check_suite": {"id": 1}},
+        {
+            "name": CHECK_NAME,
+            "status": "completed",
+            "conclusion": "failure",
+            "check_suite": {"id": 1},
+            "details_url": _REVIEW_DETAILS,
+        },
     ]
     suites = [
         {"id": 1, "status": "completed", "conclusion": "failure"},
         {"id": 2, "status": "completed", "conclusion": "success"},
         {"id": 3, "status": "in_progress", "conclusion": None},
     ]
-    assert gate_state(sha_runs, suites) == "waiting"
+    assert gate_state(sha_runs, suites, _REVIEW_IDS) == "waiting"
     sha_runs[1]["status"] = "completed"
     sha_runs[1]["conclusion"] = "failure"
     suites[2]["status"] = "completed"
     suites[2]["conclusion"] = "failure"
-    assert gate_state(sha_runs, suites) == "failed"
+    assert gate_state(sha_runs, suites, _REVIEW_IDS) == "failed"
     sha_runs[1]["conclusion"] = "success"
     suites[2]["conclusion"] = "success"
-    assert gate_state(sha_runs, suites) == "passed"
+    assert gate_state(sha_runs, suites, _REVIEW_IDS) == "passed"
 
 
 def test_gate_ignores_the_in_progress_review_job():
@@ -77,36 +87,40 @@ def test_gate_ignores_the_in_progress_review_job():
             "status": "in_progress",
             "conclusion": None,
             "check_suite": {"id": 9},
+            "details_url": _REVIEW_DETAILS,
         },
     ]
     suites = [
         {"id": 2, "status": "completed", "conclusion": "success"},
         {"id": 9, "status": "in_progress", "conclusion": None},
     ]
-    assert gate_state(runs, suites) == "waiting"
+    assert gate_state(runs, suites, _REVIEW_IDS) == "waiting"
     for exact in ("plai", "plai / wait", "plai / review", CHECK_NAME):
         runs[1]["name"] = exact
-        assert gate_state(runs, suites) == "passed"
+        assert gate_state(runs, suites, _REVIEW_IDS) == "passed"
     runs[1]["name"] = "plaibook review / plaibook review"
-    assert gate_state(runs, suites) == "waiting"
+    assert gate_state(runs, suites, _REVIEW_IDS) == "waiting"
     runs[1]["name"] = "CI / plaibook review"
-    assert gate_state(runs, suites) == "waiting"
+    assert gate_state(runs, suites, _REVIEW_IDS) == "waiting"
     runs[1]["name"] = "review / review"
-    assert gate_state(runs, suites) == "waiting"
-    runs[1]["name"] = "plai / security"
+    assert gate_state(runs, suites, _REVIEW_IDS) == "waiting"
+    runs[1]["name"] = "plai / review"
+    runs[1]["details_url"] = "https://github.com/aknochow/ansible-plaibook/actions/runs/99/job/1"
     runs[1]["status"] = "completed"
     runs[1]["conclusion"] = "failure"
     suites[1]["status"] = "completed"
     suites[1]["conclusion"] = "failure"
-    assert gate_state(runs, suites) == "failed"
+    assert gate_state(runs, suites, _REVIEW_IDS) == "failed"
+    runs[1]["name"] = "plai / security"
+    assert gate_state(runs, suites, _REVIEW_IDS) == "failed"
     runs[1]["name"] = "attacker / plaibook review"
-    assert gate_state(runs, suites) == "failed"
+    assert gate_state(runs, suites, _REVIEW_IDS) == "failed"
     runs[1]["name"] = "security / review"
     runs[1]["status"] = "completed"
     runs[1]["conclusion"] = "failure"
     suites[1]["status"] = "completed"
     suites[1]["conclusion"] = "failure"
-    assert gate_state(runs, suites) == "failed"
+    assert gate_state(runs, suites, _REVIEW_IDS) == "failed"
 
 
 def test_latest_check_runs_keeps_the_newest_attempt():
@@ -142,6 +156,40 @@ def test_latest_check_runs_keeps_the_newest_attempt():
         ]
     )
     assert rerun[0]["id"] == 2
+
+
+def test_same_display_name_from_another_workflow_stays_blocking():
+    paths = {
+        "10": ".github/workflows/ci.yml",
+        "11": ".github/workflows/codeql.yml",
+    }
+    runs = [
+        {
+            "name": "CI",
+            "id": 1,
+            "started_at": "2026-10-01T00:00:00Z",
+            "status": "completed",
+            "conclusion": "failure",
+            "check_suite": {"id": 1},
+            "details_url": "https://github.com/aknochow/ansible-plaibook/actions/runs/10/job/1",
+        },
+        {
+            "name": "CI",
+            "id": 2,
+            "started_at": "2026-10-01T00:05:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "check_suite": {"id": 2},
+            "details_url": "https://github.com/aknochow/ansible-plaibook/actions/runs/11/job/2",
+        },
+    ]
+    kept = latest_check_runs(runs, paths)
+    assert sorted(item["id"] for item in kept) == [1, 2]
+    suites = [
+        {"id": 1, "status": "completed", "conclusion": "failure"},
+        {"id": 2, "status": "completed", "conclusion": "success"},
+    ]
+    assert gate_state(kept, suites, set()) == "failed"
 
 
 def test_gate_waits_for_a_queued_ci_suite_before_its_runs_exist():
@@ -373,20 +421,42 @@ def test_omitted_replacement_stays_in_the_summary():
 
 def test_other_check_count_ignores_plaibook_review_runs(monkeypatch):
     def fake_get_all(url, key):
+        if key == "workflow_runs":
+            return [{"id": 50, "path": ".github/workflows/plai-review.yml"}]
         assert key == "check_runs"
         return [
-            {"name": "plai / review", "id": 1, "started_at": "t", "details_url": ""},
+            {
+                "name": "plai / review",
+                "id": 1,
+                "started_at": "t",
+                "details_url": _REVIEW_DETAILS,
+            },
+            {
+                "name": "plai / review",
+                "id": 3,
+                "started_at": "t",
+                "details_url": "https://github.com/aknochow/ansible-plaibook/actions/runs/99/job/3",
+                "check_suite": {"id": 8},
+            },
             {"name": "Test (Python 3.12)", "id": 2, "started_at": "t", "details_url": ""},
         ]
 
     monkeypatch.setattr("github_pr_review._get_all", fake_get_all)
-    assert other_check_count("aknochow/ansible-plaibook", "a" * 40) == 1
+    assert other_check_count("aknochow/ansible-plaibook", "a" * 40) == 2
 
 
 def test_gate_passes_when_no_other_check_exists():
-    runs = [{"name": CHECK_NAME, "status": "completed", "conclusion": "success", "check_suite": {"id": 1}}]
+    runs = [
+        {
+            "name": CHECK_NAME,
+            "status": "completed",
+            "conclusion": "success",
+            "check_suite": {"id": 1},
+            "details_url": _REVIEW_DETAILS,
+        }
+    ]
     suites = [{"id": 1, "status": "completed", "conclusion": "success"}]
-    assert gate_state(runs, suites) == "passed"
+    assert gate_state(runs, suites, _REVIEW_IDS) == "passed"
 
 
 def test_replacement_becomes_a_committable_suggestion():

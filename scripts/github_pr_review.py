@@ -182,26 +182,63 @@ def plan_comments(findings: list[dict[str, Any]], existing: list[dict[str, Any]]
     return actions
 
 
-# Exact GitHub check names for this workflow. A prefix or suffix would also
-# match an unrelated job renamed to "plai / security" or
-# "attacker / plaibook review", and the gate would ignore that failure.
+# Exact GitHub check names for this caller workflow. The name is not enough:
+# another workflow can publish a job with the same name. A run counts only
+# when its Actions run is `.github/workflows/plai-review.yml`.
+_REVIEW_WORKFLOW = ".github/workflows/plai-review.yml"
 _REVIEW_CHECK_NAMES = frozenset({"plai", "plai / wait", "plai / review", CHECK_NAME})
+_ACTIONS_RUN_ID = re.compile(r"/runs/(\d+)(?:/|$)")
 
 
-def _is_review_check(run: dict[str, Any]) -> bool:
-    """True for this workflow's own jobs, and not for a lookalike name."""
-    return str(run.get("name") or "") in _REVIEW_CHECK_NAMES
+def _actions_run_id(details_url: str) -> str:
+    match = _ACTIONS_RUN_ID.search(details_url or "")
+    return match.group(1) if match else ""
 
 
-def _review_suite_ids(check_runs: list[dict[str, Any]]) -> set[Any]:
+def review_run_ids(workflow_runs: list[dict[str, Any]]) -> set[str]:
+    """Actions run ids whose workflow file is this repository's caller."""
+    ids: set[str] = set()
+    for run in workflow_runs:
+        path = str(run.get("path") or "")
+        if not path.endswith(_REVIEW_WORKFLOW):
+            continue
+        run_id = run.get("id")
+        if run_id is not None:
+            ids.add(str(run_id))
+    return ids
+
+
+def workflow_paths(workflow_runs: list[dict[str, Any]]) -> dict[str, str]:
+    """Map an Actions run id to the workflow file that created it."""
+    paths: dict[str, str] = {}
+    for run in workflow_runs:
+        run_id = run.get("id")
+        if run_id is None:
+            continue
+        paths[str(run_id)] = str(run.get("path") or "")
+    return paths
+
+
+def _is_review_check(run: dict[str, Any], review_ids: set[str]) -> bool:
+    """True for a job of this caller workflow, not a same-named job elsewhere."""
+    if str(run.get("name") or "") not in _REVIEW_CHECK_NAMES:
+        return False
+    return _actions_run_id(str(run.get("details_url") or "")) in review_ids
+
+
+def _review_suite_ids(check_runs: list[dict[str, Any]], review_ids: set[str]) -> set[Any]:
     return {
         (run.get("check_suite") or {}).get("id")
         for run in check_runs
-        if _is_review_check(run) and (run.get("check_suite") or {}).get("id") is not None
+        if _is_review_check(run, review_ids) and (run.get("check_suite") or {}).get("id") is not None
     }
 
 
-def gate_state(check_runs: list[dict[str, Any]], check_suites: list[dict[str, Any]]) -> str:
+def gate_state(
+    check_runs: list[dict[str, Any]],
+    check_suites: list[dict[str, Any]],
+    review_ids: set[str] | None = None,
+) -> str:
     """Return waiting, failed, or passed for the non-review checks on one SHA.
 
     ``skipped`` and ``neutral`` do not block. A failed check blocks.
@@ -211,8 +248,9 @@ def gate_state(check_runs: list[dict[str, Any]], check_suites: list[dict[str, An
     success, skipped, or neutral. No other checks means passed, so a
     repository without other CI still gets a review.
     """
-    others = [run for run in check_runs if not _is_review_check(run)]
-    review_suites = _review_suite_ids(check_runs)
+    trusted = review_ids or set()
+    others = [run for run in check_runs if not _is_review_check(run, trusted)]
+    review_suites = _review_suite_ids(check_runs, trusted)
     if any(run.get("status") != "completed" for run in others):
         return "waiting"
     for suite in check_suites:
@@ -230,7 +268,7 @@ def gate_state(check_runs: list[dict[str, Any]], check_suites: list[dict[str, An
             if suite.get("conclusion") not in _PASS_CONCLUSIONS:
                 return "failed"
             continue
-        if suite_id in review_suites and all(_is_review_check(run) for run in runs_in):
+        if suite_id in review_suites and all(_is_review_check(run, trusted) for run in runs_in):
             continue
         if suite.get("status") != "completed":
             return "waiting"
@@ -530,20 +568,36 @@ def _run_sort_key(run: dict[str, Any]) -> tuple[int, str]:
     return (run_id, str(run.get("started_at") or ""))
 
 
-def latest_check_runs(check_runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep the newest attempt for each check name. A rerun supersedes a cancelled one."""
-    latest: dict[str, dict[str, Any]] = {}
-    order: list[str] = []
+def _attempt_key(run: dict[str, Any], paths: dict[str, str]) -> tuple[str, ...]:
+    """Identity of one check. Reruns share a workflow file. Same display names do not."""
+    name = str(run.get("name") or "")
+    actions_id = _actions_run_id(str(run.get("details_url") or ""))
+    path = paths.get(actions_id, "")
+    if path:
+        return (path, name)
+    suite_id = (run.get("check_suite") or {}).get("id")
+    if suite_id is not None:
+        return ("suite", str(suite_id), name)
+    return ("name", name)
+
+
+def latest_check_runs(
+    check_runs: list[dict[str, Any]], workflow_paths_by_run: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """Keep the newest attempt of one check. A different workflow keeps its own run."""
+    paths = workflow_paths_by_run or {}
+    latest: dict[tuple[str, ...], dict[str, Any]] = {}
+    order: list[tuple[str, ...]] = []
     for run in check_runs:
-        name = str(run.get("name") or "")
-        previous = latest.get(name)
+        key = _attempt_key(run, paths)
+        previous = latest.get(key)
         if previous is None:
-            order.append(name)
-            latest[name] = run
+            order.append(key)
+            latest[key] = run
             continue
         if _run_sort_key(run) >= _run_sort_key(previous):
-            latest[name] = run
-    return [latest[name] for name in order]
+            latest[key] = run
+    return [latest[key] for key in order]
 
 
 def without_own_run(
@@ -564,14 +618,20 @@ def without_own_run(
     return runs, suites
 
 
+def _workflow_runs_for_sha(repo: str, sha: str) -> list[dict[str, Any]]:
+    return _get_all(f"{_api(repo)}/actions/runs?head_sha={sha}&per_page=100", "workflow_runs")
+
+
 def other_check_count(repo: str, sha: str, ignore_run_id: str = "") -> int:
     """How many check runs on this commit belong to other workflows."""
     if not _SHA.fullmatch(sha):
         return 0
     runs = _get_all(f"{_api(repo)}/commits/{sha}/check-runs?per_page=100", "check_runs")
     runs, _suites = without_own_run(runs, [], ignore_run_id)
-    others = [run for run in runs if not _is_review_check(run)]
-    return len(latest_check_runs(others))
+    workflow_runs = _workflow_runs_for_sha(repo, sha)
+    trusted = review_run_ids(workflow_runs)
+    others = [run for run in runs if not _is_review_check(run, trusted)]
+    return len(latest_check_runs(others, workflow_paths(workflow_runs)))
 
 
 def commits_to_gate(head_sha: str, head_count: int, merge_sha: str, merge_count: int) -> list[str]:
@@ -642,8 +702,9 @@ def gate(repo: str, sha: str, ignore_run_id: str = "") -> str:
     runs = _get_all(f"{base}/commits/{sha}/check-runs?per_page=100", "check_runs")
     suites = _get_all(f"{base}/commits/{sha}/check-suites?per_page=100", "check_suites")
     runs, suites = without_own_run(runs, suites, ignore_run_id)
-    runs = latest_check_runs(runs)
-    return gate_state(runs, suites)
+    workflow_runs = _workflow_runs_for_sha(repo, sha)
+    runs = latest_check_runs(runs, workflow_paths(workflow_runs))
+    return gate_state(runs, suites, review_run_ids(workflow_runs))
 
 
 def open_check(repo: str, sha: str, pr: str) -> int:
