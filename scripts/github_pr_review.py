@@ -135,11 +135,10 @@ def plan_comments(findings: list[dict[str, Any]], existing: list[dict[str, Any]]
             continue
         if finding.get("evidence_status") == "refuted":
             continue
-        errors = suggestion_errors(finding)
-        if errors:
-            raise RuntimeError("finding is not a GitHub suggestion: " + "; ".join(errors))
         note = finding_note(finding)
-        if not _has_replacement(finding):
+        # A bad replacement is listed in the summary and is not a suggestion.
+        # Raising here would discard a finished review at post time.
+        if suggestion_errors(finding) or not _has_replacement(finding):
             actions.append({"op": "unanchored", "text": note, "note": note, "suggested": False})
             continue
         body = render_comment(finding)

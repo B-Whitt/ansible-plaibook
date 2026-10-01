@@ -440,8 +440,11 @@ def test_comment_plan_updates_instead_of_stacking():
     assert updated[0]["op"] == "update"
     assert "```suggestion\nchecked = run(name)\n```" in updated[0]["body"]
     assert plan_comments([finding | {"evidence_status": "refuted"}], []) == []
-    with pytest.raises(RuntimeError, match="not a GitHub suggestion"):
-        plan_comments([finding | {"replacement": "Add a check."}], [])
+    prose = plan_comments([finding | {"replacement": "Add a check."}], [])
+    assert prose[0]["op"] == "unanchored"
+    assert prose[0]["suggested"] is False
+    assert "```suggestion" not in prose[0]["text"]
+    assert "unchecked name" in prose[0]["text"]
 
 
 def test_summary_includes_models_cost_and_tokens():

@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Assert every posted finding is a GitHub Commit suggestion.
+"""Drop replacements GitHub cannot commit, and keep the findings.
 
-The review agent returns structured fields. This task checks those
-fields. ``scripts/github_pr_review.py`` renders the comment. Neither
-step asks a model to write the GitHub comment.
+The review agent returns structured fields. A bad ``replacement`` is
+cleared so the finding stays in the summary and the play continues.
+``scripts/github_pr_review.py`` renders the comment. Neither step asks
+a model to write the GitHub comment.
 """
 from __future__ import annotations
 
@@ -62,8 +63,39 @@ def suggestion_failures(findings) -> list[str]:
     return failures
 
 
+def repair_suggestions(findings) -> tuple[list, list[str]]:
+    """Clear replacements GitHub cannot commit. Keep every finding.
+
+    A refuted finding is left unchanged. It is not posted. Every other
+    finding with a bad replacement stays in the review with ``replacement``
+    set to an empty string, so the summary still lists it and the play
+    does not fail after the agents have already returned.
+    """
+    if not isinstance(findings, list):
+        raise TypeError("findings must be a list")
+    repaired: list = []
+    warnings: list[str] = []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            repaired.append(finding)
+            warnings.append("finding is not an object")
+            continue
+        if finding.get("evidence_status") == "refuted":
+            repaired.append(finding)
+            continue
+        errors = suggestion_errors(finding)
+        if not errors:
+            repaired.append(finding)
+            continue
+        warnings.extend(errors)
+        cleaned = dict(finding)
+        cleaned["replacement"] = ""
+        repaired.append(cleaned)
+    return repaired, warnings
+
+
 class ActionModule(ActionBase):
-    """Collect suggestion-construction failures. The following assert task fails the run."""
+    """Clear uncommittable replacements and return the findings. The play continues."""
 
     _requires_connection = False
     _VALID_ARGS = frozenset(("findings",))
@@ -78,8 +110,15 @@ class ActionModule(ActionBase):
             result["failed"] = True
             result["msg"] = "assert_finding_suggestions requires a 'findings' argument"
             return result
-        failures = suggestion_failures(findings)
+        try:
+            repaired, warnings = repair_suggestions(findings)
+        except TypeError as exc:
+            result["failed"] = True
+            result["msg"] = str(exc)
+            return result
         result["changed"] = False
-        result["failures"] = failures
-        result["ok"] = not failures
+        result["findings"] = repaired
+        result["warnings"] = warnings
+        result["failures"] = warnings
+        result["ok"] = True
         return result

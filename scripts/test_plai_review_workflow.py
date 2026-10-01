@@ -69,8 +69,11 @@ def test_reusable_workflow_permissions_and_pins():
     assert "OPENSHELL_PROVISION_TIMEOUT" in text
     assert "inputs" not in document["on"]["workflow_call"]
     checkout = next(step for step in job["steps"] if step.get("name") == "Check out this workflow commit")
+    wait_checkout = next(step for step in wait["steps"] if step.get("name") == "Check out this workflow commit")
     assert checkout["with"]["repository"] == "aknochow/ansible-plaibook"
+    assert wait_checkout["with"]["repository"] == "aknochow/ansible-plaibook"
     assert _SHA.fullmatch(checkout["with"]["ref"])
+    assert checkout["with"]["ref"] == wait_checkout["with"]["ref"]
     for step in job["steps"]:
         assert "${{" not in step.get("run", ""), step.get("name")
     publish = [step for step in job["steps"] if step.get("name") == "Post the review"]
