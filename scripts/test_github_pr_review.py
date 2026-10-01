@@ -93,6 +93,12 @@ def test_gate_ignores_the_in_progress_review_job():
     assert gate_state(runs, suites) == "passed"
     runs[1]["name"] = "review / wait"
     assert gate_state(runs, suites) == "passed"
+    runs[1]["name"] = "security / review"
+    runs[1]["status"] = "completed"
+    runs[1]["conclusion"] = "failure"
+    suites[1]["status"] = "completed"
+    suites[1]["conclusion"] = "failure"
+    assert gate_state(runs, suites) == "failed"
 
 
 def test_latest_check_runs_keeps_the_newest_attempt():
@@ -429,7 +435,33 @@ def test_rehome_retires_comments_whose_finding_disappeared():
         {"id": 4, "user": {"login": "plai-review[bot]"}, "body": "gone\n\n<!-- plaibook-finding:aaaaaaaaaaaaaaaa -->"},
         {"id": 5, "user": {"login": "someone"}, "body": "gone\n\n<!-- plaibook-finding:bbbbbbbbbbbbbbbb -->"},
     ]
-    assert _retire_absent_findings(findings, existing, [9]) == [9, 4]
+    actions = [{"suggested": True, "body": existing[0]["body"]}]
+    assert _retire_absent_findings(actions, existing, [9]) == [9, 4]
+
+
+def test_rehome_retires_a_suggestion_that_is_no_longer_committable():
+    finding = {
+        "file": "app.py",
+        "line": 4,
+        "severity": "Major",
+        "lens": "Functionality",
+        "description": "missing suffix",
+        "evidence": "return name",
+        "fix": "Match the suffix.",
+        "replacement": "",
+        "evidence_status": "verified",
+    }
+    key = finding_key(finding)
+    existing = [
+        {
+            "id": 12,
+            "user": {"login": "plai-review[bot]"},
+            "body": f"old\n\n```suggestion\nreturn name.endswith(suffix)\n```\n\n<!-- plaibook-finding:{key} -->",
+        }
+    ]
+    actions = plan_comments([finding], existing)
+    assert actions[0]["op"] == "unanchored"
+    assert _retire_absent_findings(actions, existing, []) == [12]
 
 
 def test_comment_plan_updates_instead_of_stacking():

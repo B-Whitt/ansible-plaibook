@@ -192,8 +192,8 @@ def _is_review_check(run: dict[str, Any]) -> bool:
         or name.startswith(f"{CHECK_NAME}/")
         or name.endswith(f" / {CHECK_NAME}")
         or name.endswith(" / plai")
-        or name.endswith(" / review")
-        or name.endswith(" / wait")
+        or name == "review / review"
+        or name == "review / wait"
     )
 
 
@@ -782,7 +782,7 @@ def publish_review(repo: str, pr: str, sha: str, result: dict[str, Any]) -> list
         return actions
     comments, retire, updates = partition_actions(actions, rehome=rehome)
     if rehome:
-        retire = _retire_absent_findings(findings, existing, retire)
+        retire = _retire_absent_findings(actions, existing, retire)
     _apply_updates(repo, updates)
     _submit_review(repo, pr, sha, body, event, comments, actions, result)
     _retire_comments(repo, retire)
@@ -881,15 +881,27 @@ def _submit_review(
         return
 
 
+def _inline_markers(actions: list[dict[str, Any]]) -> set[str]:
+    """Markers for findings that still post an inline suggestion."""
+    markers: set[str] = set()
+    for action in actions:
+        if not action.get("suggested"):
+            continue
+        match = FINDING_MARKER.search(str(action.get("body") or ""))
+        if match:
+            markers.add(match.group(1))
+    return markers
+
+
 def _retire_absent_findings(
-    findings: list[dict[str, Any]], existing: list[dict[str, Any]], retire: list[int]
+    actions: list[dict[str, Any]], existing: list[dict[str, Any]], retire: list[int]
 ) -> list[int]:
-    """Retire inline comments whose finding is gone from this review."""
-    markers = {
-        finding_key(finding)
-        for finding in findings
-        if isinstance(finding, dict) and finding.get("evidence_status") != "refuted"
-    }
+    """Retire bot comments that are no longer an inline suggestion.
+
+    A finding that stays in the summary without a committable replacement
+    does not keep its old suggestion comment.
+    """
+    markers = _inline_markers(actions)
     seen = set(retire)
     for comment in existing:
         if not _is_review_app(comment):
