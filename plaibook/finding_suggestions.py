@@ -20,6 +20,8 @@ _PROSE_START = re.compile(
 )
 _UNSAFE_LINE = re.compile(r"\b(TODO|FIXME|rest of|unchanged)\b", re.IGNORECASE)
 _SAFE_PATH = re.compile(r"^[A-Za-z0-9_./@+-]+$")
+# A call such as Update(record) is source even when the name is an imperative word.
+_CALL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(")
 # Case-sensitive so "Return the value." stays prose and "return value" stays source.
 _STATEMENT = re.compile(
     r"^(?:return|raise|pass|break|continue|yield|assert|del|global|nonlocal|"
@@ -50,7 +52,7 @@ def _looks_like_prose(body: str) -> bool:
     is not a suggestion.
     """
     lines = [line.strip() for line in body.splitlines() if line.strip()]
-    if any(_STATEMENT.match(line) for line in lines):
+    if any(_STATEMENT.match(line) or _CALL.match(line) for line in lines):
         return False
     first = lines[0] if lines else ""
     if _PROSE_START.match(first):

@@ -72,7 +72,9 @@
     system_instruction: "{{ security_system_prompt }}"
     contents: "Review this diff per your instructions."
     response_schema: "{{ security_findings_schema | to_gemini_schema }}"
-  register: _gemini_security_raw
+  async: 600
+  poll: 0
+  register: _gemini_security_job
 
 - name: "Gemini: show the Review agent's request configuration"
   ansible.builtin.debug:
@@ -101,7 +103,25 @@
     system_instruction: "{{ review_system_prompt }}"
     contents: "Review this diff per your instructions."
     response_schema: "{{ review_findings_schema | to_gemini_schema }}"
-  register: _gemini_review_raw
+  async: 600
+  poll: 0
+  register: _gemini_review_job
+
+- name: "Gemini: wait for both lenses"
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
+  loop:
+    - "{{ _gemini_security_job }}"
+    - "{{ _gemini_review_job }}"
+  register: _gemini_lens_jobs
+  until: _gemini_lens_jobs.finished
+  retries: 120
+  delay: 5
+
+- name: "Gemini: collect both lens results"
+  ansible.builtin.set_fact:
+    _gemini_security_raw: "{{ _gemini_lens_jobs.results[0] }}"
+    _gemini_review_raw: "{{ _gemini_lens_jobs.results[1] }}"
 
 - name: "Gemini: fail loudly if the Security agent produced no structured output"
   ansible.builtin.assert:

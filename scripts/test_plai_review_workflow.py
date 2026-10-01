@@ -28,9 +28,16 @@ def test_reusable_workflow_permissions_and_pins():
     assert document["permissions"] == {}
     assert "workflow_call" in document["on"]
     assert "workflow_run" not in document["on"]
+    assert list(document["jobs"]) == ["wait", "review"]
+    wait = document["jobs"]["wait"]
     job = document["jobs"]["review"]
+    assert wait["name"] == "plaibook wait"
     assert job["name"] == "plaibook review"
-    assert list(document["jobs"]) == ["review"]
+    assert job["needs"] == "wait"
+    assert job["if"] == "needs.wait.outputs.action == 'review' && needs.wait.outputs.state == 'passed'"
+    assert "Wait until the other checks on this commit have passed" not in [
+        step.get("name") for step in job["steps"]
+    ]
     assert job["permissions"] == {
         "contents": "read",
         "pull-requests": "read",

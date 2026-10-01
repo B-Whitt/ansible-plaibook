@@ -33,6 +33,7 @@ from plaibook.finding_suggestions import (  # noqa: E402
 
 CHECK_NAME = "plaibook review"
 REVIEW_KEYWORD = "/plai-review"
+_COMMENT_BATCH = 30
 SUMMARY_MARKER = "<!-- plaibook-review-summary -->"
 FINDING_MARKER = re.compile(r"<!-- plaibook-finding:([0-9a-f]{16}) -->")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -525,19 +526,18 @@ def other_check_count(repo: str, sha: str, ignore_run_id: str = "") -> int:
 
 
 def commits_to_gate(head_sha: str, head_count: int, merge_sha: str, merge_count: int) -> list[str]:
-    """Commits whose other checks must pass before the review runs.
+    """Commits whose checks and suites the gate must read.
 
-    When both the head and the merge commit have other checks, both are
-    required. A single check on the head does not stand in for the merge
-    commit. One side is used only when the other has no other checks.
+    A valid merge SHA is always included, even before it has check runs.
+    A queued suite can exist on that commit with no runs yet. Counts are
+    not used to drop a commit; ``gate`` inspects suites either way.
     """
+    del head_count, merge_count
     commits: list[str] = []
-    if head_count > 0 and _SHA.fullmatch(head_sha):
+    if _SHA.fullmatch(head_sha):
         commits.append(head_sha)
-    if merge_sha and merge_sha != head_sha and merge_count > 0 and _SHA.fullmatch(merge_sha):
+    if merge_sha and merge_sha != head_sha and _SHA.fullmatch(merge_sha):
         commits.append(merge_sha)
-    if not commits and _SHA.fullmatch(head_sha):
-        commits.append(head_sha)
     return commits
 
 
@@ -733,17 +733,9 @@ def publish_review(repo: str, pr: str, sha: str, result: dict[str, Any]) -> list
     if rehome:
         retire = _retire_absent_findings(findings, existing, retire)
     _apply_updates(repo, updates)
-    posted = _post_review(repo, pr, review_payload(sha, body, event, comments))
-    if posted:
-        _retire_comments(repo, retire)
-        return actions
-    fallback = [
-        {"op": "unanchored", "text": action["body"]} if action.get("op") == "create" else action
-        for action in actions
-    ]
-    fallback_body = summary_body(result, fallback)
-    _post_review(repo, pr, {"commit_id": sha, "body": fallback_body, "event": event})
-    return fallback
+    _submit_review(repo, pr, sha, body, event, comments, actions, result)
+    _retire_comments(repo, retire)
+    return actions
 
 
 def _apply_updates(repo: str, actions: list[dict[str, Any]]) -> None:
@@ -758,13 +750,84 @@ def _apply_updates(repo: str, actions: list[dict[str, Any]]) -> None:
             raise RuntimeError(f"unable to update review comment ({status})")
 
 
-def _post_review(repo: str, pr: str, payload: dict[str, Any]) -> bool:
-    status, _payload, _link = _request("POST", f"{_api(repo)}/pulls/{pr}/reviews", payload)
+def _error_text(payload: Any) -> str:
+    if isinstance(payload, dict):
+        parts = [str(payload.get("message") or "")]
+        for err in payload.get("errors") or []:
+            if isinstance(err, dict):
+                parts.append(str(err.get("message") or err.get("code") or ""))
+            else:
+                parts.append(str(err))
+        return " ".join(part for part in parts if part)
+    return str(payload or "")
+
+
+def _comment_rejection(payload: Any) -> str:
+    """Classify a 422 from the review comments. line, limit, or other."""
+    lowered = _error_text(payload).lower()
+    if any(word in lowered for word in ("line", "diff", "position", "path", "thread")):
+        return "line"
+    if "too many" in lowered or "comment limit" in lowered:
+        return "limit"
+    return "other"
+
+
+def _post_review(repo: str, pr: str, payload: dict[str, Any]) -> str:
+    status, body, _link = _request("POST", f"{_api(repo)}/pulls/{pr}/reviews", payload)
     if status in (200, 201):
-        return True
+        return "ok"
     if status == 422 and payload.get("comments"):
-        return False
-    raise RuntimeError(f"unable to post the pull request review ({status})")
+        kind = _comment_rejection(body)
+        if kind in {"line", "limit"}:
+            return kind
+        raise RuntimeError(f"unable to post the pull request review ({status}): {_error_text(body)}")
+    raise RuntimeError(f"unable to post the pull request review ({status}): {_error_text(body)}")
+
+
+def _submit_review(
+    repo: str,
+    pr: str,
+    sha: str,
+    body: str,
+    event: str,
+    comments: list[dict[str, Any]],
+    actions: list[dict[str, Any]],
+    result: dict[str, Any],
+) -> None:
+    """Post the review, splitting inline comments into batches GitHub accepts."""
+    if not comments:
+        outcome = _post_review(repo, pr, review_payload(sha, body, event, []))
+        if outcome != "ok":
+            raise RuntimeError(f"unable to post the pull request review ({outcome})")
+        return
+    pending = list(comments)
+    size = _COMMENT_BATCH
+    first = True
+    while pending:
+        batch = pending[:size]
+        use_event = event if first else "COMMENT"
+        use_body = body if first else "plaibook review suggestions, continued.\n\n" + SUMMARY_MARKER
+        outcome = _post_review(repo, pr, review_payload(sha, use_body, use_event, batch))
+        if outcome == "ok":
+            pending = pending[size:]
+            first = False
+            continue
+        if outcome == "limit":
+            if size <= 1:
+                raise RuntimeError("GitHub rejected a single inline comment as too many comments")
+            size = max(1, size // 2)
+            continue
+        if not first:
+            raise RuntimeError("a continued suggestion batch was rejected for line location")
+        fallback = [
+            {"op": "unanchored", "text": action["body"]} if action.get("op") == "create" else action
+            for action in actions
+        ]
+        fallback_body = summary_body(result, fallback)
+        outcome = _post_review(repo, pr, {"commit_id": sha, "body": fallback_body, "event": event})
+        if outcome != "ok":
+            raise RuntimeError("unable to post the summary after inline comments were rejected")
+        return
 
 
 def _retire_absent_findings(

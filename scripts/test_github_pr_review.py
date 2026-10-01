@@ -257,32 +257,31 @@ def test_fill_pull_request_records_the_merge_commit(monkeypatch):
 
 def test_select_gate_sha_uses_the_only_commit_with_checks():
     head, merge = "a" * 40, "b" * 40
-    assert select_gate_sha(head, 0, merge, 2) == merge
-    assert select_gate_sha(head, 3, merge, 0) == head
     assert select_gate_sha(head, 0, "", 0) == head
-    assert select_gate_sha(head, 0, merge, 0) == head
+    with pytest.raises(RuntimeError, match="together"):
+        select_gate_sha(head, 0, merge, 0)
     with pytest.raises(RuntimeError, match="together"):
         select_gate_sha(head, 1, merge, 9)
 
 
-def test_commits_to_gate_includes_both_when_both_have_checks():
+def test_commits_to_gate_includes_the_merge_sha_before_it_has_runs():
     head, merge = "a" * 40, "b" * 40
-    assert commits_to_gate(head, 1, merge, 9) == [head, merge]
-    assert commits_to_gate(head, 3, merge, 0) == [head]
-    assert commits_to_gate(head, 0, merge, 2) == [merge]
+    assert commits_to_gate(head, 0, merge, 0) == [head, merge]
+    assert commits_to_gate(head, 3, "", 0) == [head]
+    assert commits_to_gate(head, 1, head, 4) == [head]
     assert combine_gate_states(["passed", "failed"]) == "failed"
     assert combine_gate_states(["failed", "waiting"]) == "failed"
     assert combine_gate_states(["passed", "waiting"]) == "waiting"
     assert combine_gate_states(["passed", "passed"]) == "passed"
 
 
-def test_resolve_gate_sha_skips_the_merge_commit_when_it_has_no_runs(monkeypatch):
+def test_resolve_gate_sha_reads_the_merge_commit_before_it_has_runs(monkeypatch):
     def fake_count(repo, sha, ignore_run_id=""):
         return 4 if sha == "a" * 40 else 0
 
     monkeypatch.setattr("github_pr_review.other_check_count", fake_count)
-    chosen = resolve_gate_sha("aknochow/ansible-plaibook", "a" * 40, "b" * 40)
-    assert chosen == "a" * 40
+    with pytest.raises(RuntimeError, match="together"):
+        resolve_gate_sha("aknochow/ansible-plaibook", "a" * 40, "b" * 40)
 
 
 def test_omitted_replacement_stays_in_the_summary():
@@ -361,7 +360,7 @@ def test_replacement_becomes_a_committable_suggestion():
     indented["replacement"] = "    Add a suffix check.\n"
     assert suggestion_replacement(indented) is None
     assert suggestion_errors(indented)
-    for source in ("return value\n", "raise error\n", "pass\n", "import os\n"):
+    for source in ("return value\n", "raise error\n", "pass\n", "import os\n", "Update(record)\n", "Return(value)\n"):
         coded = dict(finding)
         coded["replacement"] = source
         coded["start_line"] = coded["line"]
@@ -740,6 +739,49 @@ def test_publish_review_drops_inline_comments_when_lines_are_rejected(monkeypatc
     assert "```suggestion" in posts[1][2]["body"]
     assert "token = scoped()" in posts[1][2]["body"]
     assert not any(item[0] == "DELETE" for item in calls)
+
+
+def test_publish_review_splits_when_github_rejects_the_comment_count(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, payload=None):
+        calls.append((method, url, payload))
+        if method == "GET" and url.endswith("/comments?per_page=100"):
+            return 200, [], ""
+        if method == "GET" and "/reviews?" in url:
+            return 200, [], ""
+        if method == "POST" and payload and len(payload.get("comments") or []) > 1:
+            return 422, {"message": "Too many comments"}, ""
+        if method == "POST":
+            return 201, {"id": 3}, ""
+        raise AssertionError((method, url, payload))
+
+    monkeypatch.setattr("github_pr_review._request", fake_request)
+    monkeypatch.setattr("github_pr_review._COMMENT_BATCH", 2)
+    findings = [_finding("token = scoped()\n"), _finding("token = other()\n")]
+    result = {"status": "ok", "targets": [{"verdict": "NEEDS_CHANGES", "score": 40, "findings": findings}]}
+    publish_review("acme/repo", "9", "e" * 40, result)
+    posted = [item[2] for item in calls if item[0] == "POST"]
+    assert [len(item.get("comments") or []) for item in posted] == [2, 1, 1]
+    assert posted[0]["event"] == "REQUEST_CHANGES"
+    assert posted[1]["event"] == "REQUEST_CHANGES"
+    assert posted[2]["event"] == "COMMENT"
+
+
+def test_publish_review_fails_when_github_rejects_the_review_for_another_reason(monkeypatch):
+    def fake_request(method, url, payload=None):
+        if method == "GET" and url.endswith("/comments?per_page=100"):
+            return 200, [], ""
+        if method == "GET" and "/reviews?" in url:
+            return 200, [], ""
+        if method == "POST":
+            return 422, {"message": "Validation failed", "errors": [{"message": "bad event"}]}, ""
+        raise AssertionError((method, url))
+
+    monkeypatch.setattr("github_pr_review._request", fake_request)
+    result = {"status": "ok", "targets": [{"verdict": "NEEDS_CHANGES", "score": 40, "findings": [_finding()]}]}
+    with pytest.raises(RuntimeError, match="bad event"):
+        publish_review("acme/repo", "9", "f" * 40, result)
 
 
 def test_conclude_fails_a_run_that_did_not_finish(tmp_path, capsys):

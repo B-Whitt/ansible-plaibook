@@ -8,7 +8,7 @@ status: stable
 
 # GitHub plaibook review check
 
-The check name GitHub reports for this repository is **`plaibook review / plaibook review`**. The caller job and the called job are both named `plaibook review`, and a reusable workflow qualifies the called job with the caller job's name. Branch protection here should require that qualified name. An external caller must require the name produced by its own caller job, `<caller job name> / plaibook review`.
+The reusable workflow has two jobs. **`plaibook wait`** polls the other checks. **`plaibook review`** starts after that job passes, so its duration is the review itself. GitHub qualifies those names with the caller job. For this repository the checks are **`plaibook review / plaibook wait`** and **`plaibook review / plaibook review`**. Branch protection should require the review check. An external caller must require `<caller job name> / plaibook review`.
 
 It runs on the GitHub-hosted runner. It does not call an Automation Controller. `post_results` stays `false`. The workflow posts the pull-request review itself.
 

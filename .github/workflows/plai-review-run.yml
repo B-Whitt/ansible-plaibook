@@ -40,16 +40,20 @@ on:
 permissions: {}
 
 jobs:
-  review:
-    name: plaibook review
+  wait:
+    name: plaibook wait
     runs-on: ubuntu-26.04-arm
-    timeout-minutes: 120
+    timeout-minutes: 70
     permissions:
       contents: read
       pull-requests: read
       checks: read
-    env:
-      SANDBOX_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
+    outputs:
+      action: ${{ steps.target.outputs.action }}
+      repo: ${{ steps.target.outputs.repo }}
+      sha: ${{ steps.target.outputs.sha }}
+      pr: ${{ steps.target.outputs.pr }}
+      state: ${{ steps.gate.outputs.state }}
     steps:
       - name: Check out this workflow commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
@@ -123,9 +127,37 @@ jobs:
           fi
           exit 1
 
+  review:
+    name: plaibook review
+    needs: wait
+    if: needs.wait.outputs.action == 'review' && needs.wait.outputs.state == 'passed'
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    env:
+      SANDBOX_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
+    steps:
+      - name: Check out this workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
+        with:
+          repository: aknochow/ansible-plaibook
+          ref: "56e9e42ed015776c934e4e401af3a39c165f5245"
+          persist-credentials: false
+
+      - name: Check out the pull request base
+        if: github.event.pull_request.base.sha != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-plaibook
+          persist-credentials: false
+
       - name: Require CURSOR_API_KEY
         id: provider
-        if: steps.gate.outputs.state == 'passed'
         env:
           CURSOR_API_KEY: ${{ secrets.cursor_api_key }}
         run: |
@@ -248,8 +280,8 @@ jobs:
           # Ansible's log is Python stderr. Without this the step stays blank
           # until the process exits.
           PYTHONUNBUFFERED: "1"
-          REVIEW_REPO: ${{ steps.target.outputs.repo }}
-          REVIEW_PR: ${{ steps.target.outputs.pr }}
+          REVIEW_REPO: ${{ needs.wait.outputs.repo }}
+          REVIEW_PR: ${{ needs.wait.outputs.pr }}
         run: |
           set -euo pipefail
           case "$REVIEW_REPO" in
@@ -278,9 +310,9 @@ jobs:
         env:
           PLAI_GITHUB_APP_ID: ${{ secrets.github_app_id }}
           PLAI_GITHUB_APP_PRIVATE_KEY: ${{ secrets.github_app_private_key }}
-          REVIEW_REPO: ${{ steps.target.outputs.repo }}
-          REVIEW_SHA: ${{ steps.target.outputs.sha }}
-          REVIEW_PR: ${{ steps.target.outputs.pr }}
+          REVIEW_REPO: ${{ needs.wait.outputs.repo }}
+          REVIEW_SHA: ${{ needs.wait.outputs.sha }}
+          REVIEW_PR: ${{ needs.wait.outputs.pr }}
           REVIEW_RC: ${{ steps.plai.outputs.rc }}
         run: |
           set -euo pipefail

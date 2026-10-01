@@ -23,7 +23,13 @@
           {{ review_structured_output_max_attempts }}
           (agent_family=cursor)
 
+    - name: "Cursor: use the already finished {{ cursor_nonce_lens_label }} agent"
+      when: cursor_lens_preregistered_raw is defined
+      ansible.builtin.set_fact:
+        _cursor_lens_attempt_raw: "{{ cursor_lens_preregistered_raw }}"
+
     - name: "Cursor: dispatch the {{ cursor_nonce_lens_label }} agent"
+      when: cursor_lens_preregistered_raw is not defined
       action:
         module: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
         api_key: "{{ review_cursor_api_key }}"
