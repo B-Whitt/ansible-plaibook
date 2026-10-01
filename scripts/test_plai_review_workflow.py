@@ -124,6 +124,7 @@ def test_caller_does_not_pin_a_floating_secret_ref():
     document = _load(CALLER)
     assert document["permissions"] == {}
     job = document["jobs"]["review"]
+    assert job["name"] == "plai"
     assert job["permissions"] == {
         "contents": "read",
         "pull-requests": "read",

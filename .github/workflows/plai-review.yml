@@ -1,8 +1,8 @@
 name: plai
 
 # Starts on a pull request and waits until the other checks on that
-# commit have passed, then posts the review. The check name is the job
-# name, "plaibook review". Re-run with a pull-request comment that
+# commit have passed, then posts the review. The checks are plai / wait
+# and plai / review. Re-run with a pull-request comment that
 # starts with /plai-review, or workflow_dispatch. Those reruns post
 # another review. They do not update the pull_request job check that
 # branch protection sees. A newer push or comment for the same pull
@@ -37,7 +37,7 @@ concurrency:
 
 jobs:
   review:
-    name: review
+    name: plai
     if: >-
       github.event_name == 'workflow_dispatch'
       || (
