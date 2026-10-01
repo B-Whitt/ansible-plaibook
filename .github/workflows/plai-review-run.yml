@@ -59,7 +59,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
         with:
           repository: aknochow/ansible-plaibook
-          ref: "bbd4c97473e2b6652169d1c93dad0f68e47447d5"
+          ref: "608be15e8dae3d1d5b91a87c6de577eb80041d9d"
           persist-credentials: false
 
       - name: Check out the pull request base
@@ -153,7 +153,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
         with:
           repository: aknochow/ansible-plaibook
-          ref: "bbd4c97473e2b6652169d1c93dad0f68e47447d5"
+          ref: "608be15e8dae3d1d5b91a87c6de577eb80041d9d"
           persist-credentials: false
 
       - name: Check out the pull request base
