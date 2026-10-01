@@ -11,11 +11,12 @@ from github_pr_review import (
     CHECK_NAME,
     REVIEW_KEYWORD,
     _cmd_publish,
+    _retire_absent_findings,
     check_conclusion,
     combine_gate_states,
     commits_to_gate,
-    concrete_replacement,
     fill_pull_request,
+    finding_key,
     gate_state,
     latest_check_runs,
     main,
@@ -106,23 +107,34 @@ def test_latest_check_runs_keeps_the_newest_attempt():
     ]
     kept = latest_check_runs(runs)
     assert [(item["name"], item["id"]) for item in kept] == [("Scorecard analysis", 2), ("CI", 3)]
+    rerun = latest_check_runs(
+        [
+            {
+                "name": "Test",
+                "id": 1,
+                "started_at": "2026-09-28T15:00:00Z",
+                "status": "completed",
+                "conclusion": "success",
+            },
+            {"name": "Test", "id": 2, "started_at": None, "status": "queued", "conclusion": None},
+        ]
+    )
+    assert rerun[0]["id"] == 2
 
 
-def test_gate_does_not_wait_on_an_empty_queued_suite():
+def test_gate_waits_for_a_queued_ci_suite_before_its_runs_exist():
     runs = [
         {"name": "Test (Python 3.12)", "status": "completed", "conclusion": "success", "check_suite": {"id": 2}},
-        {
-            "name": "plaibook review / plaibook review",
-            "status": "in_progress",
-            "conclusion": None,
-            "check_suite": {"id": 9},
-        },
     ]
     suites = [
         {"id": 2, "status": "completed", "conclusion": "success"},
-        {"id": 9, "status": "in_progress", "conclusion": None},
-        {"id": 3, "status": "queued", "conclusion": None},
+        {"id": 3, "status": "queued", "conclusion": None, "app": {"slug": "github-actions"}},
     ]
+    assert gate_state(runs, suites) == "waiting"
+    suites[1]["status"] = "completed"
+    assert gate_state(runs, suites) == "passed"
+    suites[1]["status"] = "queued"
+    suites[1]["app"] = {"slug": "cursor"}
     assert gate_state(runs, suites) == "passed"
 
 
@@ -386,12 +398,22 @@ def test_multiline_replacement_without_start_line_is_rejected():
     assert "return False" in body.split("```suggestion", 1)[1]
 
 
-def test_suggestion_versus_prose():
-    assert concrete_replacement("Use a parameterized query.") is None
-    assert concrete_replacement("safe = check(name)") == "safe = check(name)"
-    fenced = "Replace the call.\n```python\nsafe = check(name)\n```\n"
-    assert concrete_replacement(fenced) == "safe = check(name)"
-    assert concrete_replacement("```\nkeep(...)\n```") is None
+def test_rehome_retires_comments_whose_finding_disappeared():
+    findings = [
+        {
+            "file": "a.py",
+            "line": 1,
+            "severity": "Minor",
+            "description": "still here",
+            "evidence_status": "verified",
+        }
+    ]
+    kept = finding_key(findings[0])
+    existing = [
+        {"id": 9, "body": f"keep\n\n<!-- plaibook-finding:{kept} -->"},
+        {"id": 4, "body": "gone\n\n<!-- plaibook-finding:aaaaaaaaaaaaaaaa -->"},
+    ]
+    assert _retire_absent_findings(findings, existing, [9]) == [9, 4]
 
 
 def test_comment_plan_updates_instead_of_stacking():

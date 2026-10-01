@@ -26,7 +26,6 @@ if str(_REPO_ROOT) not in sys.path:
 
 from plaibook.finding_suggestions import (  # noqa: E402
     _has_replacement,
-    _safe_patch,
     comment_anchor,
     suggestion_errors,
     suggestion_replacement,
@@ -36,39 +35,15 @@ CHECK_NAME = "plaibook review"
 REVIEW_KEYWORD = "/plai-review"
 SUMMARY_MARKER = "<!-- plaibook-review-summary -->"
 FINDING_MARKER = re.compile(r"<!-- plaibook-finding:([0-9a-f]{16}) -->")
-_FENCE = re.compile(r"```[^\n`]*\n(.*?)```", re.DOTALL)
-_PROSE_START = re.compile(
-    r"^(Add|Remove|Replace|Use|Change|Move|Update|Consider|Ensure|Set|Make|"
-    r"Do not|Don't|Avoid|Prefer|Switch|Convert|Introduce|Extract|Refactor|"
-    r"Handle|Check|Validate|Return|Raise|Wrap|Call|Pass|Include|Import|"
-    r"Drop|Delete|Rename|Document|Note|This|The|A|An)\b",
-    re.IGNORECASE,
-)
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _PASS_CONCLUSIONS = {"success", "skipped", "neutral"}
 _BAD_SUITE = {"failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale"}
 _ALLOWED_ASSOCIATION = {"OWNER", "MEMBER", "COLLABORATOR"}
-
-
-def concrete_replacement(fix: str) -> str | None:
-    """Return source that can be a GitHub suggestion, or None for prose."""
-    text = (fix or "").strip()
-    if not text:
-        return None
-    fences = _FENCE.findall(text)
-    if fences:
-        if len(fences) != 1:
-            return None
-        body = fences[0].strip("\n")
-        return body if _safe_patch(body) else None
-    if "\n" in text or _PROSE_START.match(text):
-        return None
-    if text.endswith(".") and " " in text:
-        return None
-    if not re.search(r"[=(){}\[\]<>]|^\s+\S", text):
-        return None
-    return text if _safe_patch(text) else None
+# These apps create check runs. A queued suite from one of them can appear
+# before its runs. The cursor app on this repository stays queued with no
+# runs, so waiting on every empty suite would block the review.
+_RUN_PRODUCING_APPS = {"github-actions", "github-advanced-security"}
 
 
 def finding_key(finding: dict[str, Any]) -> str:
@@ -212,9 +187,10 @@ def gate_state(check_runs: list[dict[str, Any]], check_suites: list[dict[str, An
     """Return waiting, failed, or passed for the non-review checks on one SHA.
 
     ``skipped`` and ``neutral`` do not block. A failed check blocks.
-    In-progress work waits. A suite with no check runs does not: an empty
-    queued suite never becomes a check. No other checks means passed, so a
-    repository without other CI still gets a review.
+    In-progress work waits. A queued suite from an app that creates check
+    runs waits even before those runs exist. A completed empty suite does
+    not. No other checks means passed, so a repository without other CI
+    still gets a review.
     """
     others = [run for run in check_runs if not _is_review_check(run)]
     review_suites = _review_suite_ids(check_runs)
@@ -224,6 +200,10 @@ def gate_state(check_runs: list[dict[str, Any]], check_suites: list[dict[str, An
         suite_id = suite.get("id")
         runs_in = [run for run in check_runs if (run.get("check_suite") or {}).get("id") == suite_id]
         if not runs_in:
+            app = suite.get("app") or {}
+            slug = str(app.get("slug") or "") if isinstance(app, dict) else ""
+            if suite.get("status") != "completed" and slug in _RUN_PRODUCING_APPS:
+                return "waiting"
             continue
         if suite_id in review_suites and all(_is_review_check(run) for run in runs_in):
             continue
@@ -492,12 +472,12 @@ def reviewed_sha_is_current(repo: str, pr: str, sha: str) -> bool:
     return _SHA.fullmatch(current) is not None and current == sha
 
 
-def _run_sort_key(run: dict[str, Any]) -> tuple[str, int]:
+def _run_sort_key(run: dict[str, Any]) -> tuple[int, str]:
     try:
         run_id = int(run.get("id") or 0)
     except (TypeError, ValueError):
         run_id = 0
-    return (str(run.get("started_at") or ""), run_id)
+    return (run_id, str(run.get("started_at") or ""))
 
 
 def latest_check_runs(check_runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -750,6 +730,8 @@ def publish_review(repo: str, pr: str, sha: str, result: dict[str, Any]) -> list
         _retire_replaced_comments(repo, existing, canonical)
         return actions
     comments, retire, updates = partition_actions(actions, rehome=rehome)
+    if rehome:
+        retire = _retire_absent_findings(findings, existing, retire)
     _apply_updates(repo, updates)
     posted = _post_review(repo, pr, review_payload(sha, body, event, comments))
     if posted:
@@ -783,6 +765,28 @@ def _post_review(repo: str, pr: str, payload: dict[str, Any]) -> bool:
     if status == 422 and payload.get("comments"):
         return False
     raise RuntimeError(f"unable to post the pull request review ({status})")
+
+
+def _retire_absent_findings(
+    findings: list[dict[str, Any]], existing: list[dict[str, Any]], retire: list[int]
+) -> list[int]:
+    """Retire inline comments whose finding is gone from this review."""
+    markers = {
+        finding_key(finding)
+        for finding in findings
+        if isinstance(finding, dict) and finding.get("evidence_status") != "refuted"
+    }
+    seen = set(retire)
+    for comment in existing:
+        match = FINDING_MARKER.search(comment.get("body") or "")
+        if not match or match.group(1) in markers or comment.get("id") is None:
+            continue
+        comment_id = int(comment["id"])
+        if comment_id in seen:
+            continue
+        retire.append(comment_id)
+        seen.add(comment_id)
+    return retire
 
 
 def _retire_comments(repo: str, comment_ids: list[int]) -> None:
