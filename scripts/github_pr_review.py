@@ -220,7 +220,7 @@ def gate_state(check_runs: list[dict[str, Any]], check_suites: list[dict[str, An
 
 
 def check_conclusion(result: dict[str, Any] | None) -> tuple[str, str, str]:
-    """Success only when one target finished READY_FOR_HUMAN_REVIEW."""
+    """Success when the review ran and posted. The verdict is the review, not the job."""
     if not isinstance(result, dict) or not result.get("targets"):
         error = ""
         if isinstance(result, dict):
@@ -242,8 +242,14 @@ def check_conclusion(result: dict[str, Any] | None) -> tuple[str, str, str]:
         return ("failure", title, str(result.get("error") or "The review did not finish cleanly."))
     if verdict == "SKIPPED":
         return ("failure", title, str(target.get("skip_reason") or "The review did not run."))
-    if verdict != "READY_FOR_HUMAN_REVIEW":
+    if verdict not in {"READY_FOR_HUMAN_REVIEW", "NEEDS_CHANGES"}:
         return ("failure", title, f"Verdict is {verdict or 'missing'}.")
+    if verdict == "NEEDS_CHANGES":
+        return (
+            "success",
+            title,
+            "Review finished with NEEDS_CHANGES. The pull request review carries that verdict.",
+        )
     return ("success", title, "Review finished with READY_FOR_HUMAN_REVIEW.")
 
 
@@ -1047,16 +1053,20 @@ def _cmd_publish(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     print(f"{CHECK_NAME} {conclusion}: {title}")
+    if title.startswith("NEEDS_CHANGES"):
+        print(f"::warning title=NEEDS_CHANGES::{summary or title}")
     if conclusion != "success" and summary:
         print(summary, file=sys.stderr)
     return 0 if conclusion == "success" else 1
 
 
 def _cmd_conclude(args: argparse.Namespace) -> int:
-    """Exit 0 only for READY_FOR_HUMAN_REVIEW. Does not post a review."""
+    """Exit 0 when the review ran. Does not post a review."""
     result = result_for_publish(args.result, args.review_rc)
     conclusion, title, summary = check_conclusion(result)
     print(f"{CHECK_NAME} {conclusion}: {title}")
+    if title.startswith("NEEDS_CHANGES"):
+        print(f"::warning title=NEEDS_CHANGES::{summary or title}")
     if conclusion != "success" and summary:
         print(summary, file=sys.stderr)
     return 0 if conclusion == "success" else 1

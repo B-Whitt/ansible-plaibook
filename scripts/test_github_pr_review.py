@@ -499,7 +499,8 @@ def test_conclusion_and_posting():
     ready = {"status": "ok", "targets": [{"verdict": "READY_FOR_HUMAN_REVIEW", "score": 96}]}
     assert check_conclusion(ready)[0] == "success"
     needs = {"status": "ok", "targets": [{"verdict": "NEEDS_CHANGES", "score": 40}]}
-    assert check_conclusion(needs)[0] == "failure"
+    assert check_conclusion(needs)[0] == "success"
+    assert "NEEDS_CHANGES" in check_conclusion(needs)[1]
     assert should_post(needs) is True
     skipped = {"status": "ok", "targets": [{"verdict": "SKIPPED", "skip_reason": "ci"}]}
     assert should_post(skipped) is False
