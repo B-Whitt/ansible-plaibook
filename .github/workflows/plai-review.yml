@@ -60,7 +60,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
-    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@be69652eaf25067ce80615dcb35da48395058448
+    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@3384a45f931587b4eb4b33f9c3b337301d0dd865
     secrets:
       cursor_api_key: ${{ secrets.CURSOR_API_KEY }}
       github_app_id: ${{ secrets.PLAI_GITHUB_APP_ID }}
