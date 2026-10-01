@@ -64,11 +64,68 @@
 - name: "Cursor: reset Security named-lens validity for this iteration"
   ansible.builtin.set_fact:
     security_cursor_lens_valid: false
+    review_cursor_lens_valid: false
 
-- name: "Cursor: dispatch the Security agent, attempt 1"
+- name: "Cursor: start the Security agent"
+  action:
+    module: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
+    api_key: "{{ review_cursor_api_key }}"
+    prompt: >-
+      Spawn the security_lens subagent with the Task / Subagent tool.
+      You must call the Task / Subagent tool -- security_lens is not
+      itself a tool. Wait for security_lens to finish.
+    model: "{{ review_cursor_model }}"
+    effort: "{{ review_cursor_effort }}"
+    cwd: "{{ review_repo_path }}"
+    setting_sources: []
+    tools: [mcp, task]
+    agents: "{{ {'security_lens': {'description': 'Security review lens with trusted instructions.', 'prompt': security_system_prompt}} }}"
+    structured_tool:
+      name: report_findings
+      description: Submit the security findings and scores for this diff.
+      input_schema: "{{ security_findings_schema }}"
+  async: 900
+  poll: 0
+  register: _cursor_security_job
+
+- name: "Cursor: start the Review agent"
+  action:
+    module: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
+    api_key: "{{ review_cursor_api_key }}"
+    prompt: >-
+      Spawn the review_lens subagent with the Task / Subagent tool.
+      You must call the Task / Subagent tool -- review_lens is not
+      itself a tool. Wait for review_lens to finish.
+    model: "{{ review_cursor_model }}"
+    effort: "{{ review_cursor_effort }}"
+    cwd: "{{ review_repo_path }}"
+    setting_sources: []
+    tools: [mcp, task]
+    agents: "{{ {'review_lens': {'description': 'Functionality and quality review lens with trusted instructions.', 'prompt': review_system_prompt}} }}"
+    structured_tool:
+      name: report_findings
+      description: Submit the review findings and scores for this diff.
+      input_schema: "{{ review_findings_schema }}"
+  async: 900
+  poll: 0
+  register: _cursor_review_job
+
+- name: "Cursor: wait for both lenses"
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
+  loop:
+    - "{{ _cursor_security_job }}"
+    - "{{ _cursor_review_job }}"
+  register: _cursor_lens_jobs
+  until: _cursor_lens_jobs.finished
+  retries: 180
+  delay: 5
+
+- name: "Cursor: bind the Security agent result"
   ansible.builtin.include_tasks: dispatch_cursor_lens_attempt.yml
   vars:
     cursor_lens_attempt_number: 1
+    cursor_lens_preregistered_raw: "{{ _cursor_lens_jobs.results[0] }}"
     cursor_lens_agent_id: security_lens
     cursor_lens_description: Security review lens with trusted instructions.
     cursor_lens_prompt: "{{ security_system_prompt }}"
@@ -113,14 +170,11 @@
       '--- subagent prompt ---',
       ] + review_system_prompt.split('\n') }}"
 
-- name: "Cursor: reset Review named-lens validity for this iteration"
-  ansible.builtin.set_fact:
-    review_cursor_lens_valid: false
-
-- name: "Cursor: dispatch the Review agent, attempt 1"
+- name: "Cursor: bind the Review agent result"
   ansible.builtin.include_tasks: dispatch_cursor_lens_attempt.yml
   vars:
     cursor_lens_attempt_number: 1
+    cursor_lens_preregistered_raw: "{{ _cursor_lens_jobs.results[1] }}"
     cursor_lens_agent_id: review_lens
     cursor_lens_description: Functionality and quality review lens with trusted instructions.
     cursor_lens_prompt: "{{ review_system_prompt }}"

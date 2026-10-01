@@ -23,15 +23,20 @@
           {{ review_structured_output_max_attempts }}
           (agent_family=cursor)
 
+    - name: "Cursor: use the already finished {{ cursor_nonce_lens_label }} agent"
+      when: cursor_lens_preregistered_raw is defined
+      ansible.builtin.set_fact:
+        _cursor_lens_attempt_raw: "{{ cursor_lens_preregistered_raw }}"
+
     - name: "Cursor: dispatch the {{ cursor_nonce_lens_label }} agent"
+      when: cursor_lens_preregistered_raw is not defined
       action:
         module: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
         api_key: "{{ review_cursor_api_key }}"
         prompt: >-
           Spawn the {{ cursor_lens_agent_id }} subagent with the Task / Subagent tool.
           You must call the Task / Subagent tool -- {{ cursor_lens_agent_id }} is not
-          itself a tool. Do not call report_findings yourself. Wait for
-          {{ cursor_lens_agent_id }} to finish.
+          itself a tool. Wait for {{ cursor_lens_agent_id }} to finish.
         model: "{{ review_cursor_model }}"
         effort: "{{ review_cursor_effort }}"
         cwd: "{{ review_repo_path }}"

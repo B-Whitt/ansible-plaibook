@@ -6,23 +6,33 @@
 # scanning. Registered/synced via `rh-multi-pre-commit update`, not
 # `pre-commit install` (which would overwrite the org-mandated hook
 # dispatcher).
+#
+# `language: system` plus `uv run` uses the lockfile tools. The
+# upstream ansible-lint hook builds its own venv, which fails on
+# Python 3.14. These hooks are the same commands CI runs, so a
+# failure shows up before the GitHub job.
+#
+# scripts/agent-commit.sh sets core.hooksPath=/dev/null. Before
+# pushing, run `uv run ruff check`, `uv run ansible-lint --offline`,
+# and `uv run ./scripts/run_playbook_tests.sh`.
 repos:
   - repo: local
     hooks:
+      - id: ruff
+        name: ruff
+        entry: uv run ruff check
+        language: system
+        types: [python]
+        pass_filenames: false
       - id: ansible-lint
         name: ansible-lint
-        # `language: system` + calling the already-installed binary
-        # directly, NOT the upstream ansible-lint pre-commit hook's
-        # normal repo:/rev: form -- that form makes pre-commit build
-        # its own isolated venv for the hook, which fails on this
-        # machine's default python3 (3.14): the hook's vendored pip
-        # bundles an old pkg_resources that references
-        # pkgutil.ImpImporter, removed in 3.14. Using the system
-        # install sidesteps that entirely and avoids a second,
-        # separately-versioned ansible-lint installation to keep in
-        # sync with the one already verified working (see
-        # .ansible-lint's own header comment for the --offline note).
-        entry: ansible-lint --offline
+        entry: uv run ansible-lint --offline
         language: system
         files: \.(yml|yaml)$
+        pass_filenames: false
+      - id: offline-playbook-tests
+        name: offline playbook tests
+        entry: uv run ./scripts/run_playbook_tests.sh
+        language: system
+        files: \.(py|yml|yaml)$
         pass_filenames: false

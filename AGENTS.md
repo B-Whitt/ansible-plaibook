@@ -126,6 +126,7 @@ uv run pytest                                             # full Python unit sui
 uv run pytest action_plugins/test_foo.py                  # single file
 uv run ./scripts/run_playbook_tests.sh                    # offline Ansible playbook test suite
 uv run ansible-playbook review.yml --syntax-check
+uv run ruff check && uv run ansible-lint --offline        # same lint CI runs; .ansible-lint profile is min, not production
 plai review --commit                                      # fast, cheap, local (same as plaibook review --commit)
 plai review org/repo/N                                    # full GitHub PR review
 # AAP / EE keep ansible-playbook review.yml.
