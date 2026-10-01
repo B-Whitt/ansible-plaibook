@@ -141,7 +141,7 @@ def test_caller_does_not_pin_a_floating_secret_ref():
     assert job["permissions"]["checks"] == "read"
     pinned = (
         "aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml"
-        "@3384a45f931587b4eb4b33f9c3b337301d0dd865"
+        "@5b34e84351bc7854c641cbf23943dc4789f7778f"
     )
     assert job["uses"] == pinned
     assert "with" not in job
@@ -159,7 +159,15 @@ def test_caller_does_not_pin_a_floating_secret_ref():
     assert "actions: write" not in text
     assert "pull-requests: write" not in text
     assert "author_association == 'COLLABORATOR'" in text
-    assert document["on"]["pull_request"]["types"] == ["opened", "synchronize", "reopened"]
+    assert "pull_request" not in document["on"]
+    assert document["on"]["pull_request_target"]["types"] == ["opened", "synchronize", "reopened"]
+    assert "github.event_name == 'pull_request'" not in text
+    assert "github.event_name == 'pull_request_target'" in text
+    assert "github.event.repository.default_branch" in text
+    assert "head.sha" not in text
+    run_text = RUN.read_text(encoding="utf-8")
+    assert "head.sha" not in run_text
+    assert "github.sha" not in run_text
     assert document["concurrency"]["cancel-in-progress"] is True
     assert document["concurrency"]["group"] == (
         "plaibook-review-${{ github.event.pull_request.number || "

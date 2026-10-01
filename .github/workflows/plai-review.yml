@@ -1,24 +1,26 @@
 name: plai
 
-# Starts on a pull request and waits until the other checks on that
-# commit have passed, then posts the review. The checks are plai / wait
-# and plai / review. Re-run with a pull-request comment that
-# starts with /plai-review, or workflow_dispatch. Those reruns post
-# another review. They do not update the pull_request job check that
-# branch protection sees. A newer push or comment for the same pull
-# request cancels the in-flight run.
+# pull_request_target reads this file from the base branch. A pull
+# request cannot replace the workflow that receives CURSOR_API_KEY or
+# the GitHub App private key. pull_request is not a trigger: that event
+# runs the workflow file from the pull request and still injects those
+# secrets for a same-repository head. The job token is read-only.
+# workflow_dispatch runs only when the selected ref is the default
+# branch. issue_comment already runs from the default branch.
+# Re-run with a pull-request comment that starts with /plai-review.
+# A newer push or comment for the same pull request cancels the
+# in-flight run.
 # This file calls the reusable workflow at an immutable commit, not a
-# same-repository path. A path call would run the pull request's copy of
-# that file with CURSOR_API_KEY and the GitHub App private key. The
-# called workflow checks out a fixed commit of this repository. This
-# caller does not pass a ref. The caller grants contents:read,
-# pull-requests:read, and checks:read. The called job
-# keeps that read-only token. Posting uses the GitHub App installation
-# token. PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY post the
-# review as the GitHub App whose slug is plai-review.
+# same-repository path. The called workflow checks out a fixed commit of
+# this repository, never the pull request head. This caller does not
+# pass a ref. The caller grants contents:read, pull-requests:read, and
+# checks:read. The called job keeps that read-only token. Posting uses
+# the GitHub App installation token. PLAI_GITHUB_APP_ID and
+# PLAI_GITHUB_APP_PRIVATE_KEY post the review as the GitHub App whose
+# slug is plai-review.
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
   issue_comment:
     types: [created]
@@ -39,9 +41,12 @@ jobs:
   review:
     name: plai
     if: >-
-      github.event_name == 'workflow_dispatch'
+      (
+        github.event_name == 'workflow_dispatch'
+        && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      )
       || (
-        github.event_name == 'pull_request'
+        github.event_name == 'pull_request_target'
         && github.event.pull_request.head.repo.full_name == github.repository
       )
       || (
@@ -60,7 +65,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
-    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@3384a45f931587b4eb4b33f9c3b337301d0dd865
+    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@5b34e84351bc7854c641cbf23943dc4789f7778f
     secrets:
       cursor_api_key: ${{ secrets.CURSOR_API_KEY }}
       github_app_id: ${{ secrets.PLAI_GITHUB_APP_ID }}

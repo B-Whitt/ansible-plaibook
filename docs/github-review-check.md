@@ -8,7 +8,7 @@ status: stable
 
 # GitHub plaibook review check
 
-The reusable workflow has two jobs. **`wait`** polls the other checks. **`review`** starts after that job passes, so its duration is the review itself. GitHub shows them as **`plai / wait`** and **`plai / review`**, and adds `(pull_request)` in the checks list. Branch protection should require `plai / review`. An external caller must require the name its own workflow produces, ending in `/ review`.
+The reusable workflow has two jobs. **`wait`** polls the other checks. **`review`** starts after that job passes, so its duration is the review itself. GitHub shows them as **`plai / wait`** and **`plai / review`**. The trigger is `pull_request_target`, so GitHub reads this workflow from the base branch and reports the job against that branch. A pull request cannot replace the file that receives the secrets. Requiring `plai / review` on the pull request head does not see this job. An external caller must require the name its own workflow produces, ending in `/ review`.
 
 It runs on the GitHub-hosted runner. It does not call an Automation Controller. `post_results` stays `false`. The workflow posts the pull-request review itself.
 
@@ -26,7 +26,7 @@ The GitHub-hosted runner installs OpenShell v0.1.2 from the installer at commit 
 
 The GitHub App slug is `plai-review`. The review author is `plai-review[bot]`. Grant the app Pull requests write, install it on the repository, and set the Actions secrets `PLAI_GITHUB_APP_ID` and `PLAI_GITHUB_APP_PRIVATE_KEY`. The private key is used only to mint a short-lived installation token for the publish step, after the agent has finished. Checkout and the check gate keep using the read-only `GITHUB_TOKEN`.
 
-Re-run the review with a pull-request comment that starts with `/plai-review`, or with `workflow_dispatch` and the pull request number. That posts another review. It does not update the `plaibook review` check on the pull request head. That check is the job started by `pull_request`. Comments from bots, and from users who are not OWNER, MEMBER, or COLLABORATOR, are ignored.
+Re-run the review with a pull-request comment that starts with `/plai-review`, or with `workflow_dispatch` from the default branch and the pull request number. `workflow_dispatch` from any other ref is ignored. A `pull_request` event does not start a review. Comments from bots, and from users who are not OWNER, MEMBER, or COLLABORATOR, are ignored.
 
 The gate reads check runs on the pull request head and on the merge commit. When both commits have other checks, both must pass. In-progress checks wait. An empty suite that has not completed waits, except the cursor app, which stays queued with no runs on this repository. An empty completed suite fails unless its conclusion is success, skipped, or neutral. A commit with no other checks passes, and the review still runs. The review is published against the head SHA.
 
@@ -52,7 +52,7 @@ jobs:
       github_app_private_key: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}
 ```
 
-Callers do not pass a repository or a ref. The reusable workflow checks out `aknochow/ansible-plaibook` at commit `9da531fbd8b7c2019db96f01763486ad87859b06`. This repository calls the workflow at commit `3384a45f931587b4eb4b33f9c3b337301d0dd865`. The review job installs that tree with `uv sync --locked`. `GITHUB_SHA` on `pull_request` is the merge commit and is not the tools pin. The publisher that receives the GitHub App private key is the copy taken from that pinned revision before `plai review` starts.
+Callers do not pass a repository or a ref. The reusable workflow checks out `aknochow/ansible-plaibook` at commit `9acc6049f9963ef9db26f98fd87685adfacdbc46`. This repository calls the workflow at commit `5b34e84351bc7854c641cbf23943dc4789f7778f`. The review job installs that tree with `uv sync --locked`. `GITHUB_SHA` on `pull_request_target` is the base branch and is not the tools pin. The pull request head is the commit under review. It is not checked out. The publisher that receives the GitHub App private key is the copy taken from that pinned revision before `plai review` starts.
 
 Without the GitHub App secrets the publish step fails. The job token cannot post the review.
 
