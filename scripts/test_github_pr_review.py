@@ -90,9 +90,7 @@ def test_gate_ignores_the_in_progress_review_job():
     runs[1]["name"] = "plai / wait"
     assert gate_state(runs, suites) == "passed"
     runs[1]["name"] = "review / review"
-    assert gate_state(runs, suites) == "passed"
-    runs[1]["name"] = "review / wait"
-    assert gate_state(runs, suites) == "passed"
+    assert gate_state(runs, suites) == "waiting"
     runs[1]["name"] = "security / review"
     runs[1]["status"] = "completed"
     runs[1]["conclusion"] = "failure"
@@ -382,7 +380,15 @@ def test_replacement_becomes_a_committable_suggestion():
     indented["replacement"] = "    Add a suffix check.\n"
     assert suggestion_replacement(indented) is None
     assert suggestion_errors(indented)
-    for source in ("return value\n", "raise error\n", "pass\n", "import os\n", "Update(record)\n", "Return(value)\n"):
+    for source in (
+        "return value\n",
+        "raise error\n",
+        "pass\n",
+        "import os\n",
+        "Update(record)\n",
+        "Return(value)\n",
+        "A = 1\n",
+    ):
         coded = dict(finding)
         coded["replacement"] = source
         coded["start_line"] = coded["line"]

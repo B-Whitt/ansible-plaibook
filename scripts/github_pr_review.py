@@ -192,8 +192,6 @@ def _is_review_check(run: dict[str, Any]) -> bool:
         or name.startswith(f"{CHECK_NAME}/")
         or name.endswith(f" / {CHECK_NAME}")
         or name.endswith(" / plai")
-        or name == "review / review"
-        or name == "review / wait"
     )
 
 

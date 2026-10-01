@@ -62,15 +62,6 @@ jobs:
           ref: "b87c8f704e6015c474eea75a3dc940531cdaccde"
           persist-credentials: false
 
-      - name: Check out the pull request base
-        if: github.event.pull_request.base.sha != ''
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
-        with:
-          repository: ${{ github.repository }}
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: trusted-plaibook
-          persist-credentials: false
-
       - name: Resolve the pull request
         id: target
         env:
@@ -156,15 +147,6 @@ jobs:
           ref: "b87c8f704e6015c474eea75a3dc940531cdaccde"
           persist-credentials: false
 
-      - name: Check out the pull request base
-        if: github.event.pull_request.base.sha != ''
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
-        with:
-          repository: ${{ github.repository }}
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: trusted-plaibook
-          persist-credentials: false
-
       - name: Require CURSOR_API_KEY
         id: provider
         env:
@@ -186,31 +168,18 @@ jobs:
         if: steps.provider.outputs.ready == 'true'
         run: |
           set -euo pipefail
-          tools="$GITHUB_WORKSPACE"
-          sdk="trusted-plaibook/plaibook/openshell_sdk.py"
-          if [ -f "$sdk" ] && grep -q 'openshell>=0.1.2' "$sdk"; then
-            tools="$GITHUB_WORKSPACE/trusted-plaibook"
-            echo "Installing plaibook from the pull request base"
-          else
-            echo "The pull request base does not contain the OpenShell 0.1 client. Installing the pinned workflow revision."
-          fi
           uv python install 3.12
           uv venv "$RUNNER_TEMP/plai-venv"
           # shellcheck disable=SC1091
           source "$RUNNER_TEMP/plai-venv/bin/activate"
-          uv sync --locked --no-dev --project "$tools" --active
+          uv sync --locked --no-dev --project "$GITHUB_WORKSPACE" --active
 
       - name: Snapshot the publisher
         if: steps.provider.outputs.ready == 'true'
         run: |
           set -euo pipefail
           src="$GITHUB_WORKSPACE"
-          if [ -f trusted-plaibook/scripts/github_app_token.py ]; then
-            src="$GITHUB_WORKSPACE/trusted-plaibook"
-            echo "Publisher snapshot is the pull request base"
-          else
-            echo "Publisher snapshot is the pinned workflow revision"
-          fi
+          echo "Publisher snapshot is the pinned workflow revision"
           mkdir -p "$RUNNER_TEMP/publisher/scripts" "$RUNNER_TEMP/publisher/plaibook"
           cp "$src/scripts/github_app_token.py" "$src/scripts/github_pr_review.py" "$RUNNER_TEMP/publisher/scripts/"
           cp "$src/plaibook/__init__.py" "$src/plaibook/finding_suggestions.py" "$RUNNER_TEMP/publisher/plaibook/"
