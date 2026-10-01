@@ -130,7 +130,7 @@ jobs:
   review:
     name: review
     needs: wait
-    if: needs.wait.outputs.action == 'review' && needs.wait.outputs.state == 'passed'
+    if: always() && needs.wait.result != 'cancelled'
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 90
     permissions:
@@ -140,6 +140,15 @@ jobs:
     env:
       SANDBOX_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
     steps:
+      - name: Fail when this run is not a review of passed checks
+        if: >-
+          needs.wait.result != 'success' ||
+          needs.wait.outputs.action != 'review' ||
+          needs.wait.outputs.state != 'passed'
+        run: |
+          echo "plaibook review did not run. The other checks have not passed, or this event is not a review."
+          exit 1
+
       - name: Check out this workflow commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
         with:

@@ -34,7 +34,12 @@ def test_reusable_workflow_permissions_and_pins():
     assert wait["name"] == "wait"
     assert job["name"] == "review"
     assert job["needs"] == "wait"
-    assert job["if"] == "needs.wait.outputs.action == 'review' && needs.wait.outputs.state == 'passed'"
+    assert job["if"] == "always() && needs.wait.result != 'cancelled'"
+    fail = next(
+        step for step in job["steps"] if step.get("name") == "Fail when this run is not a review of passed checks"
+    )
+    assert "exit 1" in fail["run"]
+    assert "needs.wait.outputs.state != 'passed'" in fail["if"]
     assert "Wait until the other checks on this commit have passed" not in [
         step.get("name") for step in job["steps"]
     ]
@@ -153,6 +158,7 @@ def test_caller_does_not_pin_a_floating_secret_ref():
     assert "checks: write" not in text
     assert "actions: write" not in text
     assert "pull-requests: write" not in text
+    assert "author_association == 'COLLABORATOR'" in text
     assert document["on"]["pull_request"]["types"] == ["opened", "synchronize", "reopened"]
     assert document["concurrency"]["cancel-in-progress"] is True
     assert document["concurrency"]["group"] == (

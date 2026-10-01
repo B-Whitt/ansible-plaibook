@@ -50,6 +50,11 @@ jobs:
         && github.event.comment.user.type != 'Bot'
         && !endsWith(github.event.comment.user.login, '[bot]')
         && startsWith(github.event.comment.body, '/plai-review')
+        && (
+          github.event.comment.author_association == 'OWNER'
+          || github.event.comment.author_association == 'MEMBER'
+          || github.event.comment.author_association == 'COLLABORATOR'
+        )
       )
     permissions:
       contents: read
