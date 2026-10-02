@@ -15,12 +15,12 @@ collections:
     version: 742002497fc5320ad149bf10837a5a6c4948a5a3
   - name: https://github.com/aknochow/ansible-claude.git
     type: git
-    # SHA is ansible-claude #27 on main (SDK contract test).
-    version: 344b1aead1852884784e8add4ca4b60d2228472f
+    # SHA is ansible-claude #30 on main (anthropic 1.11.0, claude-agent-sdk 0.2.163).
+    version: 92c3faef91f9f10e9c7d57aafde6e4e03cba9e1e
   - name: https://github.com/aknochow/ansible-gemini.git
     type: git
-    # SHA is ansible-gemini #20 on main (SDK contract test).
-    version: bb0d63997f2addfeaddfe7be7a92ab5cc16d85ba
+    # SHA is ansible-gemini #22 on main (google-genai 2.27.0).
+    version: e5a6a70acf26baa6b877dfb1afad267bdf14c603
   - name: https://github.com/aknochow/ansible-openai.git
     type: git
     # Pin the interface this role calls; moving main can silently change
@@ -28,7 +28,8 @@ collections:
     # Must be an ancestor of ansible-openai origin/main — galaxy clones
     # the default branch, then checks out this SHA. 60a9cc1 had the same
     # tree but is not on current main (history rewrite).
-    version: 01f93077045db2c9293900006ad53150d4a4b5c4
+    # SHA is ansible-openai #25 on main (openai 3.23.0).
+    version: 79c1ab3ce5b3a047ca88e30f23422f9fadbdb401
   - name: https://github.com/aknochow/ansible-cursor.git
     type: git
     # Pin the interface this role calls (effort mapping, structured_tool
