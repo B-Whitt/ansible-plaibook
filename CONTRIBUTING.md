@@ -26,6 +26,8 @@ already manage). After the env is on PATH, the commands are
 ### Running Tests:
 ```bash
 uv run pytest                                      # Python unit test suite (action plugins, modules, filters, scripts)
+uv run ruff check                                  # same ruff CI runs
+uv run ansible-lint --offline                      # profile is min, not production; see .ansible-lint
 uv run ./scripts/run_playbook_tests.sh             # Offline Ansible playbook test suite
 uv run ansible-playbook review.yml --syntax-check  # Playbook syntax check
 ```

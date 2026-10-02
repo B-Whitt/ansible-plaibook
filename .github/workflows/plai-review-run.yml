@@ -1,0 +1,327 @@
+name: plai
+
+# Runs plai review on this runner after the other checks on the pull
+# request have passed, then posts one pull request review. Does not call
+# a controller. post_results stays false. The provider is cursor. Sibling
+# repositories must call this file at a full commit SHA because it receives
+# CURSOR_API_KEY. Checkout is a fixed commit of this repository, written
+# in this file. Callers do not pass a ref. Values that reach the shell
+# are environment variables.
+# PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY post
+# that review as the GitHub App whose slug is plai-review. The job token is contents:read,
+# pull-requests:read, and checks:read. checks:read lets the gate list check runs.
+# The token cannot write the pull request. Posting uses
+# the GitHub App installation token, and only in the publish step, after
+# the agent has finished. That step runs a copy of the publisher taken
+# before the agent starts. The review step installs OpenShell from the
+# pinned v0.1.2 installer, which starts a local gateway. The community
+# sandbox image is pinned by digest. It embeds a policy this gateway
+# cannot activate, so the job sets a global filesystem policy with no
+# network rules, then runs plai review with that image.
+# CURSOR_API_KEY stays in that step because the
+# Cursor SDK call runs on the controller. The job token is read-only and
+# is used to fetch the pull request. Tool execution runs in the sandbox.
+#
+# The workflow job is the pull-request check. This job does not call
+# the Checks API. The runner is ubuntu-26.04-arm. One paired run of this
+# review finished the agent step in 12m40s there and 14m31s on
+# ubuntu-26.04. Both labels are free for this public repository.
+
+on:
+  workflow_call:
+    secrets:
+      cursor_api_key:
+        required: true
+      github_app_id:
+        required: false
+      github_app_private_key:
+        required: false
+
+permissions: {}
+
+jobs:
+  wait:
+    name: wait
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 70
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    outputs:
+      action: ${{ steps.target.outputs.action }}
+      repo: ${{ steps.target.outputs.repo }}
+      sha: ${{ steps.target.outputs.sha }}
+      pr: ${{ steps.target.outputs.pr }}
+      state: ${{ steps.gate.outputs.state }}
+    steps:
+      - name: Check out this workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
+        with:
+          repository: aknochow/ansible-plaibook
+          ref: "d32d8994e0297a95ab7bf9a633472a95401d452c"
+          persist-credentials: false
+
+      - name: Resolve the pull request
+        id: target
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/github_pr_review.py resolve >> "$GITHUB_OUTPUT"
+
+      - name: Wait until the other checks on this commit have passed
+        id: gate
+        if: steps.target.outputs.action == 'review'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ steps.target.outputs.repo }}
+          SHA: ${{ steps.target.outputs.sha }}
+          MERGE: ${{ steps.target.outputs.merge_sha }}
+          IGNORE_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          attempts=100
+          state=waiting
+          for _ in $(seq 1 "$attempts"); do
+            set +e
+            state="$(python3 scripts/github_pr_review.py gate --repo "$REPO" --sha "$SHA" --merge "$MERGE" --ignore-run-id "$IGNORE_RUN_ID")"
+            rc=$?
+            set -e
+            echo "gate ${state}"
+            if [ "$rc" -eq 0 ]; then
+              echo "state=passed" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$rc" -eq 20 ]; then
+              echo "state=failed" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$rc" -ne 10 ]; then
+              echo "gate exited ${rc}" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          echo "state=waiting" >> "$GITHUB_OUTPUT"
+
+      - name: Stop when the other checks have not passed
+        if: >-
+          steps.target.outputs.action == 'review' &&
+          (steps.gate.outputs.state == 'failed' || steps.gate.outputs.state == 'waiting')
+        env:
+          GATE_STATE: ${{ steps.gate.outputs.state }}
+        run: |
+          set -euo pipefail
+          if [ "$GATE_STATE" = "failed" ]; then
+            echo "Other checks failed. plaibook review runs only after they pass. No review ran."
+          else
+            echo "Other checks are still running. plaibook review runs only after they pass."
+          fi
+          exit 1
+
+  review:
+    name: review
+    needs: wait
+    if: always() && needs.wait.result != 'cancelled'
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    env:
+      SANDBOX_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
+    steps:
+      - name: Fail when this run is not a review of passed checks
+        if: >-
+          needs.wait.result != 'success' ||
+          needs.wait.outputs.action != 'review' ||
+          needs.wait.outputs.state != 'passed'
+        run: |
+          echo "plaibook review did not run. The other checks have not passed, or this event is not a review."
+          exit 1
+
+      - name: Check out this workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
+        with:
+          repository: aknochow/ansible-plaibook
+          ref: "d32d8994e0297a95ab7bf9a633472a95401d452c"
+          persist-credentials: false
+
+      - name: Require CURSOR_API_KEY
+        id: provider
+        env:
+          CURSOR_API_KEY: ${{ secrets.cursor_api_key }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CURSOR_API_KEY}" ]; then
+            echo "CURSOR_API_KEY is unset. No review ran."
+            exit 1
+          fi
+          echo "CURSOR_API_KEY is present"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install uv
+        if: steps.provider.outputs.ready == 'true'
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+
+      - name: Install plaibook
+        if: steps.provider.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          uv python install 3.12
+          uv venv "$RUNNER_TEMP/plai-venv"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/plai-venv/bin/activate"
+          uv sync --locked --no-dev --project "$GITHUB_WORKSPACE" --active
+
+      - name: Snapshot the publisher
+        if: steps.provider.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          src="$GITHUB_WORKSPACE"
+          echo "Publisher snapshot is the pinned workflow revision"
+          mkdir -p "$RUNNER_TEMP/publisher/scripts" "$RUNNER_TEMP/publisher/plaibook"
+          cp "$src/scripts/github_app_token.py" "$src/scripts/github_pr_review.py" "$RUNNER_TEMP/publisher/scripts/"
+          cp "$src/plaibook/__init__.py" "$src/plaibook/finding_suggestions.py" "$RUNNER_TEMP/publisher/plaibook/"
+          (
+            cd "$RUNNER_TEMP/publisher"
+            sha256sum scripts/github_app_token.py scripts/github_pr_review.py plaibook/__init__.py plaibook/finding_suggestions.py > checksums.txt
+          )
+
+      - name: Install OpenShell
+        if: steps.provider.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          installer="$RUNNER_TEMP/openshell-install.sh"
+          curl -fsSL "https://raw.githubusercontent.com/NVIDIA/OpenShell/6648bd0c290efbc41ba131ee9831ee45cd431f94/install.sh" -o "$installer"
+          echo "5c98a86a4b811c471b212219cb2a62d458244220ffa71ac8e3baf3700b17b871  $installer" | sha256sum -c -
+          OPENSHELL_VERSION=v0.1.2 sh "$installer"
+          if [ -x "$HOME/.local/bin/openshell" ]; then
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.local/bin:$PATH"
+          fi
+          openshell status
+
+      - name: Replace the image policy and pull the review sandbox
+        if: steps.provider.outputs.ready == 'true'
+        env:
+          OPENSHELL_WORKSPACE: default
+          OPENSHELL_PROVISION_TIMEOUT: "180"
+        run: |
+          set -euo pipefail
+          # The pinned sandbox image embeds /etc/openshell/policy.yaml. On
+          # this gateway that policy stays ConfigurationInvalid until the
+          # 300s repair window expires. A global policy with no network
+          # rules replaces it. Model calls stay on the controller.
+          cat > "$RUNNER_TEMP/plaibook-sandbox-policy.yaml" <<'EOF'
+          version: 1
+          filesystem_policy:
+            include_workdir: true
+            read_only:
+              - /usr
+              - /lib
+              - /bin
+              - /proc
+              - /dev/urandom
+              - /etc
+              - /var/log
+            read_write:
+              - /sandbox
+              - /tmp
+              - /dev/null
+          landlock:
+            compatibility: best_effort
+          EOF
+          openshell policy set --global --yes --policy "$RUNNER_TEMP/plaibook-sandbox-policy.yaml"
+          if ! timeout 300 openshell sandbox create \
+            --name plaibook-image-warm \
+            --from "$SANDBOX_IMAGE" \
+            --detach \
+            --no-tty; then
+            openshell sandbox get plaibook-image-warm || true
+            journalctl --user -u openshell-gateway --no-pager -n 40 || true
+            exit 1
+          fi
+          openshell sandbox delete plaibook-image-warm
+
+      - name: Run plai review
+        id: plai
+        if: steps.provider.outputs.ready == 'true'
+        env:
+          # This job's token cannot write the pull request.
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          CURSOR_API_KEY: ${{ secrets.cursor_api_key }}
+          ANSIBLE_REVIEW_AGENT_FAMILY: cursor
+          # OpenShell 0.1 rejects an empty workspace. The CLI default is "default".
+          OPENSHELL_WORKSPACE: default
+          # Ansible's log is Python stderr. Without this the step stays blank
+          # until the process exits.
+          PYTHONUNBUFFERED: "1"
+          REVIEW_REPO: ${{ needs.wait.outputs.repo }}
+          REVIEW_PR: ${{ needs.wait.outputs.pr }}
+        run: |
+          set -euo pipefail
+          case "$REVIEW_REPO" in
+            [A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*) ;;
+            *) echo "pull request repository is not owner/name" >&2; exit 1 ;;
+          esac
+          case "$REVIEW_PR" in
+            *[!0-9]*|"") echo "pull request number must be digits" >&2; exit 1 ;;
+          esac
+          set +e
+          "$RUNNER_TEMP/plai-venv/bin/plai" review \
+            "$REVIEW_REPO/$REVIEW_PR" \
+            --json \
+            --force \
+            -v \
+            -e review_require_ci_passing=false \
+            -e sandbox_wait_timeout=600 \
+            -e sandbox_image="$SANDBOX_IMAGE" \
+            > "${RUNNER_TEMP}/plai-review.json"
+          rc=$?
+          set -e
+          echo "rc=${rc}" >> "$GITHUB_OUTPUT"
+
+      - name: Post the review
+        if: always() && steps.plai.outputs.rc != ''
+        env:
+          PLAI_GITHUB_APP_ID: ${{ secrets.github_app_id }}
+          PLAI_GITHUB_APP_PRIVATE_KEY: ${{ secrets.github_app_private_key }}
+          REVIEW_REPO: ${{ needs.wait.outputs.repo }}
+          REVIEW_SHA: ${{ needs.wait.outputs.sha }}
+          REVIEW_PR: ${{ needs.wait.outputs.pr }}
+          REVIEW_RC: ${{ steps.plai.outputs.rc }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PLAI_GITHUB_APP_ID}" ] || [ -z "${PLAI_GITHUB_APP_PRIVATE_KEY}" ]; then
+            echo "PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY are required to post. This job token cannot write the pull request." >&2
+            exit 1
+          fi
+          case "$REVIEW_REPO" in
+            [A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*) ;;
+            *) echo "pull request repository is not owner/name" >&2; exit 1 ;;
+          esac
+          case "$REVIEW_SHA" in
+            *[!0-9a-f]*|"") echo "head sha must be hex" >&2; exit 1 ;;
+          esac
+          if [ "${#REVIEW_SHA}" -ne 40 ]; then
+            echo "head sha must be a 40-character commit" >&2
+            exit 1
+          fi
+          case "$REVIEW_PR" in
+            *[!0-9]*|"") echo "pull request number must be digits" >&2; exit 1 ;;
+          esac
+          case "$REVIEW_RC" in
+            *[!0-9]*|"") echo "review exit code must be digits" >&2; exit 1 ;;
+          esac
+          cd "$RUNNER_TEMP/publisher"
+          sha256sum -c checksums.txt
+          token="$(python3 scripts/github_app_token.py --repo "$REVIEW_REPO")"
+          echo "::add-mask::${token}"
+          GITHUB_TOKEN="${token}" python3 scripts/github_pr_review.py publish \
+            --repo "$REVIEW_REPO" \
+            --sha "$REVIEW_SHA" \
+            --pr "$REVIEW_PR" \
+            --result "${RUNNER_TEMP}/plai-review.json" \
+            --review-rc "$REVIEW_RC"

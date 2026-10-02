@@ -508,18 +508,18 @@ wheels = [
 
 [[package]]
 name = "cursor-sdk"
-version = "1.0.31"
+version = "1.0.35"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/82/ca/60a7ea6a8b08a430a499797261487cf9114fbbfb652e10379a1f98dde463/cursor_sdk-1.0.31.tar.gz", hash = "sha256:fcdd279852d0b3eea4e4c4562dcd1c7d18360f507d2830bd2de79b6d855276a5", size = 1177, upload-time = "2026-09-03T21:04:04.352Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/48/466b50ea3f240870f4f2eb0053f0c2de2ddd5cd3262edaa394a8cb59b0b4/cursor_sdk-1.0.35.tar.gz", hash = "sha256:499a9f7ccd094db45f6d4e1b791d4aaa2f04ee1cc9e4e002b91ad445509c36e5", size = 1176, upload-time = "2026-10-01T01:17:14.086Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/99/18/1ea7bd9823dde860a44c68a0e920d07a415e5f73c4c3693cc8f22a081220/cursor_sdk-1.0.31-py3-none-macosx_11_0_arm64.whl", hash = "sha256:0b7b1e8fb677fe400c9d63518ff08465a7527cd23f20a3d857bf9454ab99c411", size = 49516626, upload-time = "2026-09-03T21:03:49.927Z" },
-    { url = "https://files.pythonhosted.org/packages/ca/21/df0f17f3bd3d956897756e5bf4dbed355ad9261d0b7efa3d1af703912fee/cursor_sdk-1.0.31-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:22cb11230491cd989eb7015cb3778f09ba1e6a974661ddace5bee1e68f85ee8b", size = 51027071, upload-time = "2026-09-03T21:03:52.837Z" },
-    { url = "https://files.pythonhosted.org/packages/28/96/de1b8b0275c792d9a472b8e61fe12e0d9bcd3f49551658361f43d8d381ac/cursor_sdk-1.0.31-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:ae97e49570887953922eb6b3b84cb02c2d13e795fe4b3968f25e23ab569cf21f", size = 58623238, upload-time = "2026-09-03T21:03:55.741Z" },
-    { url = "https://files.pythonhosted.org/packages/e9/f1/25188d01c7bd0b42edee594225353176f90747047c1508bc315c0d2a3706/cursor_sdk-1.0.31-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:e9b87cd80fe428b1a2ee88b4a08aac6297179a33f809d650f0383901fb60a766", size = 59314084, upload-time = "2026-09-03T21:03:58.675Z" },
-    { url = "https://files.pythonhosted.org/packages/de/60/e36b7d68ae702781fac63fef564fc9d643495b114fb959e442d449e537cf/cursor_sdk-1.0.31-py3-none-win_amd64.whl", hash = "sha256:12d87c639ac1bdb50958028e81f295f856e8e9a4d784977ea0e07d196716410e", size = 45610437, upload-time = "2026-09-03T21:04:01.878Z" },
+    { url = "https://files.pythonhosted.org/packages/40/87/fdd9731eead90399e51a051a7268eda6359796e26332a2109ed0c8e5bcf1/cursor_sdk-1.0.35-py3-none-macosx_11_0_arm64.whl", hash = "sha256:49eb52220fcfae1aba4bed8d1b397d9ae793662fe7345fce4403de4a992d8986", size = 49042354, upload-time = "2026-10-01T01:17:00.132Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/2c/5634c523160430bdf3880f23530933713fb37ffca5c4f60269ebecc85369/cursor_sdk-1.0.35-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:68f0f605bb438ca39cb17bd17de71d23b39c121e8ceef4fcfff69d7d26f71ff1", size = 50554035, upload-time = "2026-10-01T01:17:03.437Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/26/8c708d9d3e096499c0a1993eadf7750bd0a7173e7299f7876e787bd226f2/cursor_sdk-1.0.35-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:dbab9b6dce790651518aea8dcf0345975f5b81ba255d150a53b6260547c318aa", size = 58154214, upload-time = "2026-10-01T01:17:06.277Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/bc/a45dfc01512984eac9d680d943c5b0b0347543552aa89773d0f8ab62b6a0/cursor_sdk-1.0.35-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:8c85394f3cc163777c1a97baee84b56a7f386c51552173833887dd1f2ead4370", size = 58850566, upload-time = "2026-10-01T01:17:09.255Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/2d/13855b1c4154511001f7388ee3c29cfbbcf03fcf176156173fa2d2ab33d4/cursor_sdk-1.0.35-py3-none-win_amd64.whl", hash = "sha256:de906e1b02aa41dd661b54806b2ed72ca1ef8cc38742a3a2279cf1547b85bf13", size = 45133895, upload-time = "2026-10-01T01:17:12.026Z" },
 ]
 
 [[package]]
@@ -550,6 +550,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/0a/a0/50c2c0ce5e74d7721bbb1b19a26ebd339aac5878553a6e35308c2f31f935/filelock-3.32.5.tar.gz", hash = "sha256:f6a6a28f743f9b95ce19db5abe0f376f75eb56517dff21e1a4751e2657d3e83d", size = 222838, upload-time = "2026-08-31T18:56:34.729Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/36/d2/b70a31e13d04456d28493f31d2aa087e99eeb2767ef0293b2625727ccb8c/filelock-3.32.5-py3-none-any.whl", hash = "sha256:142cd9fa77a872c5e78c62329a0d15278fadc686eb89e760017968961a4fd6b2", size = 100003, upload-time = "2026-08-31T18:56:33.078Z" },
+]
+
+[[package]]
+name = "googleapis-common-protos"
+version = "1.75.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8d/2b/6ce81972d5c8cab9705fddce3153be63222d9e12fd96f8baba5038a744dd/googleapis_common_protos-1.75.5.tar.gz", hash = "sha256:c7a866fc34ed29a3b10af627a4b9b1dc2433313ca6e959f0ae4feb132047ed72", size = 156513, upload-time = "2026-09-29T19:26:14.863Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/b9/6b29500a1c581ff4d77fd83c6568d068bee06f1b139fb6eb0a4f2d4bce8a/googleapis_common_protos-1.75.5-py3-none-any.whl", hash = "sha256:d7285525c23039db98f2463e6d5a4f9b958b94d497f03a844ece3259c4e72d5d", size = 307737, upload-time = "2026-09-29T19:25:48.735Z" },
 ]
 
 [[package]]
@@ -814,16 +826,17 @@ wheels = [
 
 [[package]]
 name = "openshell"
-version = "0.0.116"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cloudpickle" },
+    { name = "googleapis-common-protos" },
     { name = "grpcio" },
     { name = "httpx" },
     { name = "protobuf" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4d/53/f20551c4ae45e072215832362b73951abd17473ca20d56d8b7c0c7d58fdd/openshell-0.0.116-py3-none-any.whl", hash = "sha256:5a31eb4e38d7b5d746956404145b7335557f9060ac7a987c65ea5af4d708b3fc", size = 110131, upload-time = "2026-08-28T09:10:50.719Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/0d/9f0c2e133bd4bfc96b9e261b870d58230d7d98fc6c51ae8f7f71f8520157/openshell-0.1.2-py3-none-any.whl", hash = "sha256:8c409da4f176d42418d92366fe201f47cceef2c0fa432bfbce2bf938649d59cf", size = 150901, upload-time = "2026-09-28T03:58:28.39Z" },
 ]
 
 [[package]]
@@ -877,7 +890,7 @@ requires-dist = [
     { name = "cursor-sdk", specifier = ">=1.0.31,<2.0.0" },
     { name = "cursor-sdk", marker = "extra == 'cursor'", specifier = ">=1.0.31,<2.0.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
-    { name = "openshell", marker = "python_full_version >= '3.11'", specifier = ">=0.0.116,<0.0.120" },
+    { name = "openshell", marker = "python_full_version >= '3.11'", specifier = ">=0.1.2,<0.2" },
     { name = "packaging", specifier = ">=21.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0,<10.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0,<8.0.0" },
