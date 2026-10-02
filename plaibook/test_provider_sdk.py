@@ -106,10 +106,14 @@ def test_installs_when_importable_but_wrong_version(monkeypatch):
 
 
 def test_in_range_sdk_does_not_pip_install(monkeypatch):
+    from plaibook.pip_hashed import pinned_versions
+
+    pin = pinned_versions("cursor-requirements.txt")["cursor-sdk"]
     recorded = []
     monkeypatch.setattr("plaibook.provider_sdk._module_present", lambda *_a: True)
+
     def version(_py, dist):
-        return "1.0.32" if dist == "cursor-sdk" else None
+        return pin if dist == "cursor-sdk" else None
 
     monkeypatch.setattr("plaibook.provider_sdk._dist_version", version)
     monkeypatch.setattr("plaibook.provider_sdk.subprocess.run", lambda *a, **k: recorded.append(a))
