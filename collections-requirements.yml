@@ -15,10 +15,12 @@ collections:
     version: 742002497fc5320ad149bf10837a5a6c4948a5a3
   - name: https://github.com/aknochow/ansible-claude.git
     type: git
-    version: 4b59640b7728b0604f0fd450d3cc9afe276e6c6a
+    # SHA is ansible-claude #27 on main (SDK contract test).
+    version: 344b1aead1852884784e8add4ca4b60d2228472f
   - name: https://github.com/aknochow/ansible-gemini.git
     type: git
-    version: a9d43afa3d3d5db0aac10672ef0edced4c00bec7
+    # SHA is ansible-gemini #20 on main (SDK contract test).
+    version: bb0d63997f2addfeaddfe7be7a92ab5cc16d85ba
   - name: https://github.com/aknochow/ansible-openai.git
     type: git
     # Pin the interface this role calls; moving main can silently change
@@ -26,7 +28,7 @@ collections:
     # Must be an ancestor of ansible-openai origin/main — galaxy clones
     # the default branch, then checks out this SHA. 60a9cc1 had the same
     # tree but is not on current main (history rewrite).
-    version: 2a45ada8cf145149f6b63a769410cbf541c1384e
+    version: 01f93077045db2c9293900006ad53150d4a4b5c4
   - name: https://github.com/aknochow/ansible-cursor.git
     type: git
     # Pin the interface this role calls (effort mapping, structured_tool
