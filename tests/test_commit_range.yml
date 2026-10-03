@@ -231,6 +231,25 @@
               - review_artifact_id == tip_short
               - review_short_sha == tip_short
 
+        - name: Build range context without running the review engine
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: resolve_target_commit.yml
+          vars:
+            repo_path: "{{ test_repo_dir.path }}"
+            commit_sha: "{{ base_sha }}..{{ tip_sha }}"
+            review_skip_engine: true
+
+        - name: Assert the range context covers the commits after the base
+          ansible.builtin.assert:
+            that:
+              - "'Add mid' in review_context"
+              - "'Add tip' in review_context"
+              - "'Add base' not in review_context"
+              - "'mid.txt' in review_context"
+              - "'tip.txt' in review_context"
+              - "'base.txt' not in review_context"
+
       always:
         - name: Remove the temporary repository
           ansible.builtin.file:

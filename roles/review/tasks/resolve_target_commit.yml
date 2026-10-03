@@ -27,42 +27,35 @@
       ansible.builtin.set_fact:
         review_branch: "{{ _resolved_branch.stdout | trim }}"
 
-    - name: Get the commit messages in a range
-      when: review_commit_range | bool
+    # One command per register. A skipped task still writes its
+    # register, so a when/when-not pair on the same variable leaves
+    # the skipped result (no stdout) for the template.
+    - name: Choose the commit-message and diff-stat commands
+      ansible.builtin.set_fact:
+        _commit_log_argv: >-
+          {{
+            ['git', 'log', '--reverse', '--format=%B', review_target_ref ~ '..' ~ review_source_ref]
+            if (review_commit_range | bool)
+            else ['git', 'log', '-1', '--format=%B', review_source_ref]
+          }}
+        _commit_stat_argv: >-
+          {{
+            ['git', 'diff', '--stat', review_target_ref, review_source_ref, '--']
+            if (review_commit_range | bool)
+            else ['git', 'show', '--stat', '--format=', review_source_ref]
+          }}
+
+    - name: Get the commit message
       ansible.builtin.command:
-        argv:
-          - git
-          - log
-          - --reverse
-          - --format=%B
-          - "{{ review_target_ref }}..{{ review_source_ref }}"
+        argv: "{{ _commit_log_argv }}"
         chdir: "{{ repo_path }}"
       changed_when: false
       register: _commit_message
       timeout: 30
 
-    - name: Get the single commit message
-      when: not (review_commit_range | bool)
+    - name: Get the file stat summary
       ansible.builtin.command:
-        argv: [git, log, "-1", "--format=%B", "{{ review_source_ref }}"]
-        chdir: "{{ repo_path }}"
-      changed_when: false
-      register: _commit_message
-      timeout: 30
-
-    - name: Get the range's file stat summary
-      when: review_commit_range | bool
-      ansible.builtin.command:
-        argv: [git, diff, --stat, "{{ review_target_ref }}", "{{ review_source_ref }}", --]
-        chdir: "{{ repo_path }}"
-      changed_when: false
-      register: _commit_stat
-      timeout: 30
-
-    - name: Get the single commit's file stat summary
-      when: not (review_commit_range | bool)
-      ansible.builtin.command:
-        argv: [git, show, --stat, --format=, "{{ review_source_ref }}"]
+        argv: "{{ _commit_stat_argv }}"
         chdir: "{{ repo_path }}"
       changed_when: false
       register: _commit_stat
@@ -73,4 +66,5 @@
         review_context: "{{ lookup('template', role_path + '/templates/commit_context.j2') }}"
 
     - name: Run the review engine
+      when: not (review_skip_engine | default(false) | bool)
       ansible.builtin.include_tasks: run_review_engine.yml
