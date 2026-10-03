@@ -1,3 +1,3 @@
-# Collection range: google-genai>=1.0.0
+# Collection lock: google-genai 2.27.0 (ansible-gemini #22).
 # Compile: scripts/compile-hashed-sdks.sh
-google-genai>=1.0.0
+google-genai==2.27.0
