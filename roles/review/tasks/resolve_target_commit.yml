@@ -7,10 +7,38 @@
 - name: Resolve the commit ref or two-dot range
   ansible.builtin.include_tasks: resolve_commit_refs.yml
 
+# The debug line is not the result. Quiet `plai review` discards
+# playbook stdout once last_run.<id>.json exists, and an empty
+# pipeline_findings_reports makes format_pretty print `status: ok`.
+# Persist the same sentence on the target so the CLI can show it.
+- name: Record an empty commit range as the review result
+  when: review_range_empty | default(false) | bool
+  vars:
+    _empty_range_reason: "Commit range {{ commit_sha }} is empty; nothing to review."
+    _empty_range_tip_short: "{{ _range_short_shas.results[1].stdout | trim }}"
+  ansible.builtin.set_fact:
+    review_verdict: NOTHING_TO_REVIEW
+    review_short_sha: "{{ _empty_range_tip_short }}"
+    review_org_repo: "{{ repo_path | basename }}"
+    review_number: "{{ _empty_range_tip_short }}"
+    review_skip_reason: "{{ _empty_range_reason }}"
+    pipeline_findings_reports: >-
+      {{ (pipeline_findings_reports | default([])) + [{
+        'target': commit_sha | string,
+        'report': _empty_range_reason,
+        'verdict': 'NOTHING_TO_REVIEW',
+        'summary_path': '',
+        'findings_path': '',
+        'summary_run_scoped_path': '',
+        'findings_run_scoped_path': '',
+        'range_empty': true,
+        'skip_reason': _empty_range_reason
+      }] }}
+
 - name: Report an empty commit range
   when: review_range_empty | default(false) | bool
   ansible.builtin.debug:
-    msg: "Commit range {{ commit_sha }} is empty; nothing to review."
+    msg: "{{ review_skip_reason }}"
 
 - name: Build commit context and run the review
   when: not (review_range_empty | default(false) | bool)

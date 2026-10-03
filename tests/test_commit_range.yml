@@ -164,6 +164,31 @@
               - review_commit_range | bool
               - review_range_empty | bool
 
+        - name: Start from an empty findings list
+          ansible.builtin.set_fact:
+            pipeline_findings_reports: []
+
+        - name: Record the empty range without running the review engine
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: resolve_target_commit.yml
+          vars:
+            repo_path: "{{ test_repo_dir.path }}"
+            commit_sha: "{{ tip_sha }}..{{ tip_sha }}"
+            review_skip_engine: true
+
+        - name: Assert the empty range is a review result, not an empty success
+          ansible.builtin.assert:
+            that:
+              - pipeline_findings_reports | length == 1
+              - pipeline_findings_reports[0].verdict == 'NOTHING_TO_REVIEW'
+              - pipeline_findings_reports[0].range_empty | bool
+              - "'score' not in pipeline_findings_reports[0]"
+              - "'nothing to review' in pipeline_findings_reports[0].skip_reason"
+              - tip_sha in pipeline_findings_reports[0].skip_reason
+              - pipeline_findings_reports[0].report == pipeline_findings_reports[0].skip_reason
+              - review_verdict == 'NOTHING_TO_REVIEW'
+
         - name: Reject a range whose base is not an ancestor of the tip
           block:
             - name: Resolve TIP..BASE
