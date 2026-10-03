@@ -112,6 +112,9 @@ class WaitSpinner:
         self._started = time.monotonic()
         self.stream.write(_HIDE_CURSOR)
         self.stream.flush()
+        # Paint before the thread starts. On a busy runner the thread can
+        # be scheduled after the caller has already stopped the spinner.
+        self._paint(0)
         self._thread = threading.Thread(target=self._run, name="plaibook-spinner", daemon=True)
         self._thread.start()
         return self
@@ -144,23 +147,25 @@ class WaitSpinner:
                 pass
         return self._detail or "setup"
 
+    def _paint(self, i: int) -> None:
+        frame = _FRAMES[i % len(_FRAMES)]
+        now = time.monotonic()
+        elapsed = format_elapsed(now - self._started)
+        detail = self._read_detail() or "setup"
+        if _use_color():
+            r, g, b = spinner_rgb(now - self._started)
+            glyph = f"\033[38;2;{r};{g};{b}m{frame}{_RESET}"
+            line1 = f"{glyph} {self.label}  {_DIM}{elapsed}{_RESET}"
+            line2 = f"  {_DIM}{detail}{_RESET}"
+        else:
+            line1 = f"{frame} {self.label}  {elapsed}"
+            line2 = f"  {detail}"
+        self.stream.write(_CLEAR_LINE + line1 + "\n" + _CLEAR_LINE + line2 + _UP1)
+        self.stream.flush()
+        self._painted_two_lines = True
+
     def _run(self) -> None:
-        color = _use_color()
-        i = 0
+        i = 1
         while not self._stop.wait(0.08):
-            frame = _FRAMES[i % len(_FRAMES)]
-            now = time.monotonic()
-            elapsed = format_elapsed(now - self._started)
-            detail = self._read_detail() or "setup"
-            if color:
-                r, g, b = spinner_rgb(now - self._started)
-                glyph = f"\033[38;2;{r};{g};{b}m{frame}{_RESET}"
-                line1 = f"{glyph} {self.label}  {_DIM}{elapsed}{_RESET}"
-                line2 = f"  {_DIM}{detail}{_RESET}"
-            else:
-                line1 = f"{frame} {self.label}  {elapsed}"
-                line2 = f"  {detail}"
-            self.stream.write(_CLEAR_LINE + line1 + "\n" + _CLEAR_LINE + line2 + _UP1)
-            self.stream.flush()
-            self._painted_two_lines = True
+            self._paint(i)
             i += 1

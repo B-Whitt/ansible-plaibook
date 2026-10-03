@@ -37,7 +37,9 @@
         name: security_review_findings
         strict: true
         schema: "{{ security_findings_schema }}"
-  register: _openai_security_raw
+  async: 600
+  poll: 0
+  register: _openai_security_job
 
 - name: "OpenAI: show the Review agent's request configuration"
   ansible.builtin.debug:
@@ -71,7 +73,25 @@
         name: code_review_findings
         strict: true
         schema: "{{ review_findings_schema }}"
-  register: _openai_review_raw
+  async: 600
+  poll: 0
+  register: _openai_review_job
+
+- name: "OpenAI: wait for both lenses"
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
+  loop:
+    - "{{ _openai_security_job }}"
+    - "{{ _openai_review_job }}"
+  register: _openai_lens_jobs
+  until: _openai_lens_jobs.finished
+  retries: 120
+  delay: 5
+
+- name: "OpenAI: collect both lens results"
+  ansible.builtin.set_fact:
+    _openai_security_raw: "{{ _openai_lens_jobs.results[0] }}"
+    _openai_review_raw: "{{ _openai_lens_jobs.results[1] }}"
 
 - name: "OpenAI: fail loudly if the Security agent produced no structured output"
   ansible.builtin.assert:

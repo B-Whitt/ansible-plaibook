@@ -31,7 +31,14 @@ _finding_item:
       type: string
       enum: [HIGH, MEDIUM, LOW]
     fix: { type: string }
-  required: [lens, file, line, severity, description, evidence, confidence, fix]
+    # Exact new source for start_line..line when the fix is one contiguous
+    # edit. Use an empty string when the fix is not a single drop-in.
+    # start_line is the first replaced line. Set it equal to line for a
+    # one-line replacement or when replacement is empty. Both fields are
+    # required because OpenAI strict schemas reject optional properties.
+    replacement: { type: string }
+    start_line: { type: integer }
+  required: [lens, file, line, severity, description, evidence, confidence, fix, replacement, start_line]
 
 # scores declared before findings: a model's malformed-JSON failure
 # rate on this schema is measurably higher when the array property

@@ -9,13 +9,18 @@
 collections:
   - name: https://github.com/aknochow/ansible-openshell.git
     type: git
-    version: f2df487af9d08d314235394e281b71cfdcdb5134
+    # exec() on openshell 0.1 requires workspace. This SHA is
+    # cursor/openshell-exec-workspace-41b9; plaibook fetches the commit
+    # directly, so it does not have to be on main yet.
+    version: 742002497fc5320ad149bf10837a5a6c4948a5a3
   - name: https://github.com/aknochow/ansible-claude.git
     type: git
-    version: 4b59640b7728b0604f0fd450d3cc9afe276e6c6a
+    # SHA is ansible-claude #30 on main (anthropic 1.11.0, claude-agent-sdk 0.2.163).
+    version: 92c3faef91f9f10e9c7d57aafde6e4e03cba9e1e
   - name: https://github.com/aknochow/ansible-gemini.git
     type: git
-    version: a9d43afa3d3d5db0aac10672ef0edced4c00bec7
+    # SHA is ansible-gemini #22 on main (google-genai 2.27.0).
+    version: e5a6a70acf26baa6b877dfb1afad267bdf14c603
   - name: https://github.com/aknochow/ansible-openai.git
     type: git
     # Pin the interface this role calls; moving main can silently change
@@ -23,15 +28,16 @@ collections:
     # Must be an ancestor of ansible-openai origin/main — galaxy clones
     # the default branch, then checks out this SHA. 60a9cc1 had the same
     # tree but is not on current main (history rewrite).
-    version: 2a45ada8cf145149f6b63a769410cbf541c1384e
+    # SHA is ansible-openai #25 on main (openai 3.23.0).
+    version: 79c1ab3ce5b3a047ca88e30f23422f9fadbdb401
   - name: https://github.com/aknochow/ansible-cursor.git
     type: git
     # Pin the interface this role calls (effort mapping, structured_tool
     # / mcp coupling, playbook-owned sidecar, structured_tool_calls with
     # parent vs nested caller, WaitLiveRun-after-drain flake fix). Moving
     # main can silently change module arguments. SHA is ansible-cursor
-    # #22 on main (WaitLiveRun drain + child-tool scoping).
-    version: 9aa1141661ea1a015e8bc1be692dd2b00e10f22a
+    # #26 on main (cursor-sdk 1.0.35 contract; includes #22).
+    version: de54465e89d2cd214a333bf5b98eb942181b1b98
   # GitHub clones, not Galaxy FQCNs. version is the commit SHA of a
   # release tag (tags move). First-run install uses git + ansible-galaxy
   # install --no-deps and never calls galaxy.ansible.com (Python OpenSSL

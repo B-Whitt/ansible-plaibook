@@ -1,8 +1,11 @@
 ---
-# profile: min ensures all blocking rules (syntax-check, jinja, yaml,
-# key-order, command-instead-of-module, etc.) are strictly enforced,
-# while warn_list entries (such as var-naming and name[missing]) do not
-# fail CI until their naming conventions are fully refactored.
+# profile: min is ansible-lint's lowest profile. It only requires that
+# Ansible can load the content (internal-error, load-failure,
+# parser-error, syntax-check). jinja, yaml, key-order, fqcn, and the
+# rest are not in this profile. `production` is the profile Ansible
+# Automation Platform uses for validated content; this repository does
+# not enable it. warn_list entries below belong to the `basic` profile
+# and do not run while profile stays `min`.
 #
 # --offline is required when running ansible-lint by hand: without it,
 # dependency resolution hangs on a network call. CI config needs the
