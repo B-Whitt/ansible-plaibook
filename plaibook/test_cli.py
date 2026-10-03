@@ -1158,12 +1158,12 @@ def test_spinner_lines_fit_a_narrow_terminal():
     assert visible_width(tiny2) <= 1
 
 
-def test_spinner_uses_ansible_cyan():
-    from plaibook.wait import _ANSIBLE_CYAN, _color_line
+def test_spinner_uses_ansible_teal():
+    from plaibook.wait import _ANSIBLE_TEAL, _color_line
 
     colored = _color_line("⠋ review  0s", "⠋", "0s")
-    assert colored.startswith(_ANSIBLE_CYAN)
-    assert "38;2;" not in colored
+    assert colored.startswith(_ANSIBLE_TEAL)
+    assert "38;2;91;189;191" in colored
 
 
 def test_wait_spinner_writes_frames_on_tty(monkeypatch):
@@ -1216,7 +1216,7 @@ def test_wait_spinner_strips_controls_from_label(monkeypatch):
     assert "Reviewing org/repo#1" in text
 
 
-def test_wait_spinner_uses_ansible_cyan_when_color_enabled(monkeypatch):
+def test_wait_spinner_uses_ansible_teal_when_color_enabled(monkeypatch):
     import time
 
     from plaibook.wait import WaitSpinner
@@ -1242,8 +1242,7 @@ def test_wait_spinner_uses_ansible_cyan_when_color_enabled(monkeypatch):
     with WaitSpinner("Reviewing org/repo#1", stream=stream):
         time.sleep(0.2)
     text = "".join(stream.buf)
-    assert "\033[0;36m" in text
-    assert "38;2;" not in text
+    assert "\033[38;2;91;189;191m" in text
 
 
 def test_wait_spinner_keeps_last_stage_when_progress_file_is_empty(tmp_path):

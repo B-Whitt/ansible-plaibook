@@ -22,8 +22,8 @@ _CLEAR_LINE = "\r\033[2K"
 _UP1 = "\033[1A"
 _DIM = "\033[2m"
 _RESET = "\033[0m"
-# ansible.constants.COLOR_CODES["cyan"] — the teal Ansible uses for skips and diffs.
-_ANSIBLE_CYAN = "\033[0;36m"
+# Ansible mark teal, #5BBDBF.
+_ANSIBLE_TEAL = "\033[38;2;91;189;191m"
 _ANSI_CSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
 
@@ -112,7 +112,7 @@ def spinner_lines(frame: str, label: str, elapsed: str, detail: str, columns: in
 def _color_line(plain: str, frame: str, elapsed: str) -> str:
     text = plain
     if frame and text.startswith(frame):
-        text = f"{_ANSIBLE_CYAN}{frame}{_RESET}{text[len(frame):]}"
+        text = f"{_ANSIBLE_TEAL}{frame}{_RESET}{text[len(frame):]}"
     if elapsed and text.endswith(elapsed):
         text = f"{text[:-len(elapsed)]}{_DIM}{elapsed}{_RESET}"
     return text
