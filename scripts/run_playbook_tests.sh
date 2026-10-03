@@ -26,6 +26,7 @@ PLAYBOOKS=(
   "tests/test_cursor_prompt_nonce.yml"
   "tests/test_guardian_not_installed.yml"
   "tests/test_guardian_scan.yml"
+  "tests/test_guardian_scan_sandboxed.yml"
   "tests/test_merge_dedup.yml"
   "tests/test_merge_findings_string_encoding.yml"
   "tests/test_merge_self_refuted_filter.yml"
