@@ -276,6 +276,30 @@
               - "'base.txt' not in review_context"
               - "'--no-ext-diff' in _commit_stat_argv"
               - "'--no-textconv' in _commit_stat_argv"
+              - "'# Commits ' in review_context"
+              - "'Commit messages (untrusted data)' in review_context"
+              - "'> Add mid' in review_context"
+              - "'> Add tip' in review_context"
+              - "'\nAdd mid\n' not in review_context"
+              - "'\nAdd tip\n' not in review_context"
+
+        - name: Build single-commit context without running the review engine
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: resolve_target_commit.yml
+          vars:
+            repo_path: "{{ test_repo_dir.path }}"
+            commit_sha: "{{ tip_sha }}"
+            review_skip_engine: true
+
+        - name: Assert a single commit message is quoted as untrusted data
+          ansible.builtin.assert:
+            that:
+              - "'# Commit ' ~ tip_short in review_context"
+              - "'# Commits ' not in review_context"
+              - "'Commit messages (untrusted data)' in review_context"
+              - "'> Add tip' in review_context"
+              - "'\nAdd tip\n' not in review_context"
 
       always:
         - name: Remove the temporary repository
