@@ -1126,16 +1126,44 @@ def test_format_elapsed_and_spinner_gate(monkeypatch):
     assert spinner_enabled(tty) is False
 
 
-def test_spinner_rgb_walks_the_hue_circle():
-    from plaibook.wait import hsv_to_rgb, spinner_rgb
+def test_terminal_columns_keeps_a_narrow_width(monkeypatch):
+    from plaibook.wait import terminal_columns
 
-    assert hsv_to_rgb(0.0) == (255, 0, 0)
-    assert hsv_to_rgb(1.0 / 3.0) == (0, 255, 0)
-    assert hsv_to_rgb(2.0 / 3.0) == (0, 0, 255)
-    blue = spinner_rgb(0.0)
-    later = spinner_rgb(1.5)
-    assert blue == (0, 0, 255)
-    assert later != blue
+    class Size:
+        columns = 10
+        lines = 24
+
+    monkeypatch.setattr("plaibook.wait.os.get_terminal_size", lambda fd: Size())
+
+    class Stream:
+        def fileno(self) -> int:
+            return 1
+
+    assert terminal_columns(Stream()) == 10
+
+
+def test_spinner_lines_fit_a_narrow_terminal():
+    from plaibook.wait import spinner_lines, visible_width
+
+    label = "Reviewing https://gitlab.example.com/org/repo/-/merge_requests/285"
+    line1, line2 = spinner_lines("⠋", label, "0s", "checkout", 10)
+    assert visible_width(line1) <= 9
+    assert visible_width(line2) <= 9
+    assert line1.endswith("0s")
+    assert "…" in line1
+    assert label not in line1
+
+    tiny1, tiny2 = spinner_lines("⠋", label, "0s", "checkout", 2)
+    assert visible_width(tiny1) <= 1
+    assert visible_width(tiny2) <= 1
+
+
+def test_spinner_uses_ansible_cyan():
+    from plaibook.wait import _ANSIBLE_CYAN, _color_line
+
+    colored = _color_line("⠋ review  0s", "⠋", "0s")
+    assert colored.startswith(_ANSIBLE_CYAN)
+    assert "38;2;" not in colored
 
 
 def test_wait_spinner_writes_frames_on_tty(monkeypatch):
@@ -1188,7 +1216,7 @@ def test_wait_spinner_strips_controls_from_label(monkeypatch):
     assert "Reviewing org/repo#1" in text
 
 
-def test_wait_spinner_truecolor_when_color_enabled(monkeypatch):
+def test_wait_spinner_uses_ansible_cyan_when_color_enabled(monkeypatch):
     import time
 
     from plaibook.wait import WaitSpinner
@@ -1214,7 +1242,8 @@ def test_wait_spinner_truecolor_when_color_enabled(monkeypatch):
     with WaitSpinner("Reviewing org/repo#1", stream=stream):
         time.sleep(0.2)
     text = "".join(stream.buf)
-    assert "38;2;" in text
+    assert "\033[0;36m" in text
+    assert "38;2;" not in text
 
 
 def test_wait_spinner_keeps_last_stage_when_progress_file_is_empty(tmp_path):

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import os
+import re
+import shutil
 import sys
 import threading
 import time
@@ -20,6 +22,9 @@ _CLEAR_LINE = "\r\033[2K"
 _UP1 = "\033[1A"
 _DIM = "\033[2m"
 _RESET = "\033[0m"
+# ansible.constants.COLOR_CODES["cyan"] — the teal Ansible uses for skips and diffs.
+_ANSIBLE_CYAN = "\033[0;36m"
+_ANSI_CSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
 
 def spinner_enabled(stream: TextIO | None = None) -> bool:
@@ -46,38 +51,71 @@ def format_elapsed(seconds: float) -> str:
     return f"{secs}s"
 
 
-def hsv_to_rgb(h: float, s: float = 1.0, v: float = 1.0) -> tuple[int, int, int]:
-    """h in [0, 1); full-saturation RGB for the spinner glyph."""
-    h = h % 1.0
-    i = int(h * 6.0)
-    f = h * 6.0 - i
-    p = v * (1.0 - s)
-    q = v * (1.0 - f * s)
-    t = v * (1.0 - (1.0 - f) * s)
-    i = i % 6
-    if i == 0:
-        r, g, b = v, t, p
-    elif i == 1:
-        r, g, b = q, v, p
-    elif i == 2:
-        r, g, b = p, v, t
-    elif i == 3:
-        r, g, b = p, q, v
-    elif i == 4:
-        r, g, b = t, p, v
-    else:
-        r, g, b = v, p, q
-    return int(r * 255), int(g * 255), int(b * 255)
-
-
-# HSV hue of pure blue; the spinner starts here and walks the circle.
-_HUE_START_BLUE = 2.0 / 3.0
 _MAX_WAIT_TEXT = 200
 
 
-def spinner_rgb(elapsed: float) -> tuple[int, int, int]:
-    """Walk the hue circle about once every 3 seconds, starting on blue."""
-    return hsv_to_rgb((_HUE_START_BLUE + elapsed * 0.33) % 1.0, 1.0, 1.0)
+def terminal_columns(stream: TextIO | None = None) -> int:
+    """Visible columns. A wrapped line makes \\033[1A land on the wrong row."""
+    fileno = getattr(stream, "fileno", None)
+    if callable(fileno):
+        try:
+            columns = os.get_terminal_size(fileno()).columns
+            if columns > 0:
+                return columns
+        except (OSError, ValueError, AttributeError):
+            pass
+    try:
+        columns = shutil.get_terminal_size(fallback=(80, 24)).columns
+    except OSError:
+        columns = 80
+    return columns if columns > 0 else 80
+
+
+def visible_width(text: str) -> int:
+    return len(_ANSI_CSI_RE.sub("", text or ""))
+
+
+def clip_plain(text: str, width: int) -> str:
+    """Truncate a single-width-character string to *width* columns."""
+    if width <= 0:
+        return ""
+    raw = text or ""
+    if len(raw) <= width:
+        return raw
+    if width == 1:
+        return "…"
+    return raw[: width - 1] + "…"
+
+
+def spinner_lines(frame: str, label: str, elapsed: str, detail: str, columns: int) -> tuple[str, str]:
+    """Two plain lines that stay within the terminal, including a 1-column screen."""
+    if columns <= 0:
+        return "", ""
+    budget = columns if columns == 1 else columns - 1
+    if budget >= 3:
+        line2 = "  " + clip_plain(detail, budget - 2)
+    else:
+        line2 = clip_plain(detail, budget)
+
+    elapsed = elapsed or ""
+    if len(elapsed) >= budget:
+        return clip_plain(elapsed, budget), line2
+    room = budget - len(elapsed)
+    chrome = 4  # frame, space, two spaces before the elapsed time
+    if room >= chrome:
+        shown = clip_plain(label, room - chrome)
+        return f"{frame} {shown}  {elapsed}", line2
+    gap = " " * (room - 1)
+    return f"{frame}{gap}{elapsed}", line2
+
+
+def _color_line(plain: str, frame: str, elapsed: str) -> str:
+    text = plain
+    if frame and text.startswith(frame):
+        text = f"{_ANSIBLE_CYAN}{frame}{_RESET}{text[len(frame):]}"
+    if elapsed and text.endswith(elapsed):
+        text = f"{text[:-len(elapsed)]}{_DIM}{elapsed}{_RESET}"
+    return text
 
 
 def _safe_wait_text(text: str) -> str:
@@ -152,14 +190,12 @@ class WaitSpinner:
         now = time.monotonic()
         elapsed = format_elapsed(now - self._started)
         detail = self._read_detail() or "setup"
+        plain1, plain2 = spinner_lines(frame, self.label, elapsed, detail, terminal_columns(self.stream))
         if _use_color():
-            r, g, b = spinner_rgb(now - self._started)
-            glyph = f"\033[38;2;{r};{g};{b}m{frame}{_RESET}"
-            line1 = f"{glyph} {self.label}  {_DIM}{elapsed}{_RESET}"
-            line2 = f"  {_DIM}{detail}{_RESET}"
+            line1 = _color_line(plain1, frame, elapsed)
+            line2 = f"{_DIM}{plain2}{_RESET}" if plain2 else ""
         else:
-            line1 = f"{frame} {self.label}  {elapsed}"
-            line2 = f"  {detail}"
+            line1, line2 = plain1, plain2
         self.stream.write(_CLEAR_LINE + line1 + "\n" + _CLEAR_LINE + line2 + _UP1)
         self.stream.flush()
         self._painted_two_lines = True
