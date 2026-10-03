@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from plaibook.cli import (
+    _progress_line,
     _validate_review_args,
     ansible_verbosity,
     build_parser,
@@ -127,6 +128,16 @@ def test_extra_vars_commit_and_pr_and_notes():
         "repo_path": "/tmp/repo",
         "commit_sha": "abc1234",
     }
+    ranged = extra_vars_from_args(
+        _args(commit=True, commit_sha="abc1234..def5678"),
+        "runId0123456789",
+    )
+    assert ranged["review_type"] == "commit"
+    assert ranged["commit_sha"] == "abc1234..def5678"
+    assert "Reviewing commits abc1234..def5678" in _progress_line(
+        _args(commit=True, commit_sha="abc1234..def5678", repo_path="repo")
+    )
+    assert "Reviewing commit HEAD" in _progress_line(_args(commit=True))
     pr = extra_vars_from_args(
         _args(target="org/repo/123", review_extra_notes="Note: intentional", post=True),
         "runId0123456789",

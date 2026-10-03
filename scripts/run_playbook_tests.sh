@@ -20,6 +20,7 @@ fi
 
 PLAYBOOKS=(
   "tests/test_checklist_execution.yml"
+  "tests/test_commit_range.yml"
   "tests/test_cursor_named_lens_retry.yml"
   "tests/test_cursor_lens_attempt_usage.yml"
   "tests/test_cursor_prompt_nonce.yml"
