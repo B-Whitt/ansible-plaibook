@@ -22,8 +22,9 @@ _CLEAR_LINE = "\r\033[2K"
 _UP1 = "\033[1A"
 _DIM = "\033[2m"
 _RESET = "\033[0m"
-# Ansible mark teal, #5BBDBF.
+# Ansible mark teal, #5BBDBF, and the darker alternate #3F8B93.
 _ANSIBLE_TEAL = "\033[38;2;91;189;191m"
+_ANSIBLE_TEAL_DEEP = "\033[38;2;63;139;147m"
 _ANSI_CSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
 
@@ -107,6 +108,21 @@ def spinner_lines(frame: str, label: str, elapsed: str, detail: str, columns: in
         return f"{frame} {shown}  {elapsed}", line2
     gap = " " * (room - 1)
     return f"{frame}{gap}{elapsed}", line2
+
+
+def pulse_status(text: str, step: int) -> str:
+    """Dim the status line and walk #3F8B93 through its letters."""
+    if not text:
+        return ""
+    letters = [i for i, ch in enumerate(text) if not ch.isspace()]
+    hot = letters[step % len(letters)] if letters else None
+    parts: list[str] = []
+    for i, ch in enumerate(text):
+        if i == hot:
+            parts.append(f"{_ANSIBLE_TEAL_DEEP}{ch}{_RESET}")
+        else:
+            parts.append(f"{_DIM}{ch}{_RESET}")
+    return "".join(parts)
 
 
 def _color_line(plain: str, frame: str, elapsed: str) -> str:
@@ -193,7 +209,7 @@ class WaitSpinner:
         plain1, plain2 = spinner_lines(frame, self.label, elapsed, detail, terminal_columns(self.stream))
         if _use_color():
             line1 = _color_line(plain1, frame, elapsed)
-            line2 = f"{_DIM}{plain2}{_RESET}" if plain2 else ""
+            line2 = pulse_status(plain2, i)
         else:
             line1, line2 = plain1, plain2
         self.stream.write(_CLEAR_LINE + line1 + "\n" + _CLEAR_LINE + line2 + _UP1)

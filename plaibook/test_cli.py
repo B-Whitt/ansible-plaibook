@@ -1166,6 +1166,19 @@ def test_spinner_uses_ansible_teal():
     assert "38;2;91;189;191" in colored
 
 
+def test_status_pulse_walks_the_darker_teal():
+    from plaibook.wait import _ANSIBLE_TEAL_DEEP, pulse_status, visible_width
+
+    text = "  setup"
+    first = pulse_status(text, 0)
+    second = pulse_status(text, 1)
+    assert visible_width(first) == len(text)
+    assert visible_width(second) == len(text)
+    assert f"{_ANSIBLE_TEAL_DEEP}s" in first
+    assert f"{_ANSIBLE_TEAL_DEEP}e" in second
+    assert f"{_ANSIBLE_TEAL_DEEP}s" not in second
+
+
 def test_wait_spinner_writes_frames_on_tty(monkeypatch):
     import time
 
@@ -1243,6 +1256,7 @@ def test_wait_spinner_uses_ansible_teal_when_color_enabled(monkeypatch):
         time.sleep(0.2)
     text = "".join(stream.buf)
     assert "\033[38;2;91;189;191m" in text
+    assert "\033[38;2;63;139;147m" in text
 
 
 def test_wait_spinner_keeps_last_stage_when_progress_file_is_empty(tmp_path):
