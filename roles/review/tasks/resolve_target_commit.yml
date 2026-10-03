@@ -40,9 +40,9 @@
           }}
         _commit_stat_argv: >-
           {{
-            ['git', 'diff', '--stat', review_target_ref, review_source_ref, '--']
+            ['git', 'diff', '--stat', '--no-ext-diff', '--no-textconv', review_target_ref, review_source_ref, '--']
             if (review_commit_range | bool)
-            else ['git', 'show', '--stat', '--format=', review_source_ref]
+            else ['git', 'show', '--stat', '--format=', '--no-ext-diff', '--no-textconv', review_source_ref]
           }}
 
     - name: Get the commit message

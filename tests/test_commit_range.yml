@@ -249,6 +249,8 @@
               - "'mid.txt' in review_context"
               - "'tip.txt' in review_context"
               - "'base.txt' not in review_context"
+              - "'--no-ext-diff' in _commit_stat_argv"
+              - "'--no-textconv' in _commit_stat_argv"
 
       always:
         - name: Remove the temporary repository
