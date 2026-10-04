@@ -59,7 +59,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
         with:
           repository: aknochow/ansible-plaibook
-          ref: "d32d8994e0297a95ab7bf9a633472a95401d452c"
+          # Playbook tree `uv sync` installs. Not the caller pin and not
+          # the pull request head. Move this to a commit that contains the
+          # review code, then point plai-review.yml at the commit that
+          # contains this line.
+          ref: "64980a779521a483eaead8bfa5d9a5d923e1409a"
           persist-credentials: false
 
       - name: Resolve the pull request
@@ -144,7 +148,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
         with:
           repository: aknochow/ansible-plaibook
-          ref: "d32d8994e0297a95ab7bf9a633472a95401d452c"
+          # Playbook tree `uv sync` installs. Not the caller pin and not
+          # the pull request head. Move this to a commit that contains the
+          # review code, then point plai-review.yml at the commit that
+          # contains this line.
+          ref: "64980a779521a483eaead8bfa5d9a5d923e1409a"
           persist-credentials: false
 
       - name: Require CURSOR_API_KEY
