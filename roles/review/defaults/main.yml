@@ -341,7 +341,8 @@ review_debug_dump_prompts: false
 # Writes a second copy of the findings report into the checkout itself
 # for CI consumption, see persist.yml's header comment. Defaults on
 # since it's a plain additive file write with no effect on the
-# reviewer-history path.
+# reviewer-history path. Sandboxed runs skip it: the guest copy does
+# not survive teardown, and writing it is two SSH sessions.
 review_write_artifact: true
 
 # Pattern: code-review_<repo-branch>_job<N>.md. review_branch already
