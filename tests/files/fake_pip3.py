@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import zipfile
 from pathlib import Path
 
 
@@ -36,6 +37,11 @@ def main() -> None:
         return
     if command == "install":
         target = Path(_opt(args, "--target"))
+        target.mkdir(parents=True, exist_ok=True)
+        for wheel in Path(os.environ["FAKE_WHEEL_SRC"]).glob("*.whl"):
+            if zipfile.is_zipfile(wheel):
+                with zipfile.ZipFile(wheel) as archive:
+                    archive.extractall(target)
         bindir = target / "bin"
         bindir.mkdir(parents=True, exist_ok=True)
         exe = bindir / "ai-guardian"
