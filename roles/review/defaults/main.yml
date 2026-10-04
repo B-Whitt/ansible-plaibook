@@ -525,8 +525,14 @@ review_guardian_max_scan_chars: 200000
 # actually needing a real hang.
 review_guardian_scan_timeout_seconds: 30
 
-# Version + hash pinning for guardian_scan.yml's own self-install-when-
-# missing step (sandboxed reviews only) lives in
+# One delegated briefing command now runs every git diff, the commit
+# count, and the checkout reads. 180s covers one SSH session plus that
+# work. Each git subprocess inside the helper still dies at 30s.
+review_briefing_snapshot_timeout_seconds: 180
+
+# Version + hash pinning for guardian_scan.yml's controller-side
+# self-install, used whenever the default binary is not already on
+# PATH, lives in
 # roles/review/files/guardian-ai-guardian-requirements.txt and
 # guardian-requests-requirements.txt, not as separate default vars
 # here: a version-only var and a hash recorded elsewhere can drift out

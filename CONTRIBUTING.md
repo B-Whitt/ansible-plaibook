@@ -115,13 +115,15 @@ automatically. Verify these yourself before pushing:
 
 - **Credentials, tokens, API keys**: covered by `ai-guardian`'s
   `secret_scanning` (gitleaks + built-in patterns), which runs as part
-  of every review (`roles/review/tasks/guardian_scan.yml`) **when the
-  binary is installed**. Unsandboxed reviews (`use_sandbox=false`) do
-  not self-install; a missing binary is reported as
-  `ai-guardian not installed` and the scan is skipped — treat that as
-  "not scanned," not "nothing found." If you have `ai-guardian`
-  installed locally, `ai-guardian scan --diff` before pushing catches
-  most of this category automatically.
+  of every review (`roles/review/tasks/guardian_scan.yml`). The scan
+  runs on the controller. If `ai-guardian` is not already on `PATH`,
+  the review installs the pinned wheels into
+  `~/.cache/ansible-plaibook/ai-guardian` and reuses that prefix only
+  when its pin, ownership, and wheel hashes still match. A failed
+  install is reported as `ai-guardian install failed`. A test that
+  overrides `review_guardian_binary` does not install; a missing
+  binary is then `ai-guardian not installed`. Treat either skip as
+  "not scanned," not "nothing found."
 - **Internal hostnames, project IDs, tool/service names**: **NOT**
   covered by `ai-guardian`. A hostname or GCP project ID isn't a
   "secret" in gitleaks' pattern sense, so it won't fire that scan even

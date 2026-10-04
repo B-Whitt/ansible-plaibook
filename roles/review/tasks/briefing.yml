@@ -125,7 +125,7 @@
   ignore_unreachable: true
   changed_when: false
   register: _briefing_snapshot_result
-  timeout: 120
+  timeout: "{{ review_briefing_snapshot_timeout_seconds }}"
 
 - name: Fail loudly if the sandbox connection was unreachable
   ansible.builtin.include_tasks: fail_if_sandbox_unreachable.yml

@@ -39,6 +39,7 @@ def _git(repo: Path, *args: str) -> str:
         check=True,
         capture_output=True,
         env=env,
+        timeout=30,
     )
     return completed.stdout.decode()
 
@@ -108,6 +109,18 @@ def test_snapshot_matches_git_and_skips_skill_bodies(tmp_path: Path):
     assert result["markers"] == read["markers"]
     assert result["go_mod"] == read["go_mod"]
     assert result["files"] == read["files"]
+
+
+def test_rejects_a_request_without_a_marker_list(tmp_path: Path):
+    completed = subprocess.run(
+        [sys.executable, str(SNAPSHOT), str(tmp_path), "HEAD", "HEAD"],
+        input="{}",
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    assert completed.returncode != 0
+    assert "markers must be a list of strings" in completed.stderr
 
 
 def test_rejects_a_ref_that_looks_like_a_git_option(tmp_path: Path):

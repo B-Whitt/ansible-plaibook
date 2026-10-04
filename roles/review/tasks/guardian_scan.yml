@@ -152,23 +152,43 @@
     # Only the default binary name is installed. A test that sets
     # review_guardian_binary to a name that is never installed must
     # stay on the not-installed path and must not call pip.
-    - name: Install ai-guardian into a controller virtualenv when it is missing
+    - name: Install ai-guardian into a controller prefix when it is missing
       when:
         - _guardian_scan_executable | length == 0
         - review_guardian_binary == 'ai-guardian'
       block:
-        - name: Choose the controller prefix for ai-guardian
+        - name: Choose the controller prefix and the pinned requirements
           ansible.builtin.set_fact:
-            _guardian_prefix: "{{ lookup('env', 'HOME') }}/.cache/ansible-plaibook/ai-guardian"
+            _guardian_prefix: "{{ review_guardian_prefix | default(lookup('env', 'HOME') ~ '/.cache/ansible-plaibook/ai-guardian', true) }}"
+            _guardian_req_files:
+              - "{{ review_guardian_ai_requirements | default(role_path ~ '/files/guardian-ai-guardian-requirements.txt', true) }}"
+              - "{{ review_guardian_requests_requirements | default(role_path ~ '/files/guardian-requests-requirements.txt', true) }}"
+            _guardian_install_failed: false
 
-        - name: See whether that prefix already has the binary
-          ansible.builtin.stat:
-            path: "{{ _guardian_prefix }}/bin/ai-guardian"
-          register: _guardian_venv_binary
+        - name: Decide whether the cached prefix is still the pinned install
+          ansible.builtin.command:
+            argv: "{{ [ansible_python_interpreter | default('python3'), '-c', lookup('ansible.builtin.file', role_path ~ '/files/guardian_prefix.py'), 'status', _guardian_prefix] + _guardian_req_files }}"
+          register: _guardian_cache_status
+          changed_when: false
 
-        - name: Build the controller prefix from the pinned wheels
-          when: not (_guardian_venv_binary.stat.exists | bool)
+        - name: Read the cache decision
+          ansible.builtin.set_fact:
+            _guardian_cache_action: "{{ (_guardian_cache_status.stdout | from_json).action }}"
+
+        - name: Reuse the verified controller prefix
+          when: _guardian_cache_action == 'reuse'
+          ansible.builtin.set_fact:
+            _guardian_scan_executable: "{{ _guardian_prefix }}/bin/ai-guardian"
+            _guardian_pythonpath: "{{ _guardian_prefix }}"
+
+        - name: Rebuild the controller prefix from the pinned wheels
+          when: _guardian_cache_action == 'rebuild'
           block:
+
+            - name: Remove a prefix that failed verification
+              ansible.builtin.file:
+                path: "{{ _guardian_prefix }}"
+                state: absent
 
             - name: Create a temp wheelhouse directory on the controller
               ansible.builtin.tempfile:
@@ -179,11 +199,9 @@
             - name: Copy the pinned requirements-with-hashes files into the wheelhouse
               ansible.builtin.copy:
                 src: "{{ item }}"
-                dest: "{{ _guardian_wheelhouse_dir.path }}/{{ item }}"
+                dest: "{{ _guardian_wheelhouse_dir.path }}/{{ item | basename }}"
                 mode: "0644"
-              loop:
-                - guardian-ai-guardian-requirements.txt
-                - guardian-requests-requirements.txt
+              loop: "{{ _guardian_req_files }}"
 
             # --platform any --implementation py --abi none --only-binary=:all:
             # forces pip to select the universal "py3-none-any" wheel for
@@ -218,13 +236,10 @@
             # transitive chain -- is the only runtime dependency
             # secret_scanning.py's SDK layer actually imports.
             # --require-hashes -r <file>, not a bare package specifier: pip
-            # verifies every downloaded wheel's sha256 against the pinned
-            # hash in guardian-ai-guardian-requirements.txt before saving
-            # it, rejecting a tampered or substituted artifact even from an
-            # otherwise-trusted index. Caught by this task's own MR review
-            # (escalated to Critical on a second pass) -- version pinning
-            # alone (the prior state) doesn't protect against a compromised
-            # release published under an already-pinned version/index.
+            # checks each downloaded wheel's sha256 against the hash recorded
+            # in the requirements file before saving it. A substituted file
+            # published under an already-pinned version is rejected. Version
+            # pinning by itself does not do that.
             # --no-deps still required even in hash-checking mode: without
             # it, pip additionally demands hashes for ai-guardian's own full
             # dependency tree (bandit, tree-sitter grammars, etc. --
@@ -233,7 +248,7 @@
             - name: Download the ai-guardian wheel (no deps -- its own heavy ML extras aren't needed)
               ansible.builtin.command:
                 argv:
-                  - pip3
+                  - "{{ review_guardian_pip | default('pip3', true) }}"
                   - download
                   - --require-hashes
                   - --no-deps
@@ -247,16 +262,17 @@
                   - none
                   - "--only-binary=:all:"
                   - -r
-                  - "{{ _guardian_wheelhouse_dir.path }}/guardian-ai-guardian-requirements.txt"
+                  - "{{ _guardian_req_files[0] }}"
                   - -d
                   - "{{ _guardian_wheelhouse_dir.path }}"
               changed_when: true
               timeout: "{{ review_guardian_pip_timeout_seconds }}"
+              environment: "{{ review_guardian_pip_environment | default({}, true) }}"
 
             - name: Download requests and its transitive deps for ai-guardian
               ansible.builtin.command:
                 argv:
-                  - pip3
+                  - "{{ review_guardian_pip | default('pip3', true) }}"
                   - download
                   - --require-hashes
                   - --platform
@@ -269,16 +285,17 @@
                   - none
                   - "--only-binary=:all:"
                   - -r
-                  - "{{ _guardian_wheelhouse_dir.path }}/guardian-requests-requirements.txt"
+                  - "{{ _guardian_req_files[1] }}"
                   - -d
                   - "{{ _guardian_wheelhouse_dir.path }}"
               changed_when: true
               timeout: "{{ review_guardian_pip_timeout_seconds }}"
+              environment: "{{ review_guardian_pip_environment | default({}, true) }}"
 
             - name: Install ai-guardian from the wheelhouse into the controller prefix
               ansible.builtin.command:
                 argv:
-                  - pip3
+                  - "{{ review_guardian_pip | default('pip3', true) }}"
                   - install
                   - --target
                   - "{{ _guardian_prefix }}"
@@ -289,16 +306,17 @@
                   - --find-links
                   - "{{ _guardian_wheelhouse_dir.path }}"
                   - -r
-                  - "{{ _guardian_wheelhouse_dir.path }}/guardian-ai-guardian-requirements.txt"
+                  - "{{ _guardian_req_files[0] }}"
               register: _guardian_install_result
               changed_when: true
               failed_when: _guardian_install_result.rc != 0
               timeout: "{{ review_guardian_pip_timeout_seconds }}"
+              environment: "{{ review_guardian_pip_environment | default({}, true) }}"
 
             - name: Install requests and its transitive deps into the controller prefix
               ansible.builtin.command:
                 argv:
-                  - pip3
+                  - "{{ review_guardian_pip | default('pip3', true) }}"
                   - install
                   - --target
                   - "{{ _guardian_prefix }}"
@@ -308,11 +326,38 @@
                   - --find-links
                   - "{{ _guardian_wheelhouse_dir.path }}"
                   - -r
-                  - "{{ _guardian_wheelhouse_dir.path }}/guardian-requests-requirements.txt"
+                  - "{{ _guardian_req_files[1] }}"
               register: _guardian_install_requests_result
               changed_when: true
               failed_when: _guardian_install_requests_result.rc != 0
               timeout: "{{ review_guardian_pip_timeout_seconds }}"
+              environment: "{{ review_guardian_pip_environment | default({}, true) }}"
+
+            - name: Keep only the wheels whose hashes match the pinned requirements
+              ansible.builtin.command:
+                argv: "{{ [ansible_python_interpreter | default('python3'), '-c', lookup('ansible.builtin.file', role_path ~ '/files/guardian_prefix.py'), 'accept-wheels', _guardian_prefix, _guardian_wheelhouse_dir.path] + _guardian_req_files }}"
+              changed_when: true
+
+            - name: Restrict the prefix to its owner
+              ansible.builtin.file:
+                path: "{{ _guardian_prefix }}"
+                state: directory
+                mode: "0700"
+
+            - name: Reject a symlink or a binary owned by someone else
+              ansible.builtin.command:
+                argv:
+                  - "{{ ansible_python_interpreter | default('python3') }}"
+                  - -c
+                  - "{{ lookup('ansible.builtin.file', role_path ~ '/files/guardian_prefix.py') }}"
+                  - binary-ok
+                  - "{{ _guardian_prefix }}"
+              changed_when: false
+
+            - name: Record the requirements pin next to the prefix
+              ansible.builtin.command:
+                argv: "{{ [ansible_python_interpreter | default('python3'), '-c', lookup('ansible.builtin.file', role_path ~ '/files/guardian_prefix.py'), 'write-pin', _guardian_prefix] + _guardian_req_files }}"
+              changed_when: true
           always:
             - name: Clean up the controller-side wheelhouse
               ansible.builtin.file:
@@ -320,14 +365,21 @@
                 state: absent
               when: _guardian_wheelhouse_dir is defined
 
-        - name: Use the controller prefix binary
+        # Kept outside the rebuild block. That block's parent when checks
+        # _guardian_scan_executable is empty, and Ansible re-checks a block
+        # when before every task, so setting the executable inside the block
+        # skips the wheelhouse cleanup.
+        - name: Use the rebuilt controller prefix binary
+          when: _guardian_cache_action == 'rebuild'
           ansible.builtin.set_fact:
             _guardian_scan_executable: "{{ _guardian_prefix }}/bin/ai-guardian"
             _guardian_pythonpath: "{{ _guardian_prefix }}"
+
       rescue:
-        - name: Record that the controller install did not produce a binary
+        - name: Record that the controller install failed
           ansible.builtin.set_fact:
             _guardian_scan_executable: ""
+            _guardian_install_failed: true
 
     - name: Record whether ai-guardian is actually installed
       ansible.builtin.set_fact:
@@ -337,7 +389,7 @@
       when: not (_guardian_binary_present | bool)
       ansible.builtin.set_fact:
         guardian_scan_available: false
-        guardian_scan_skip_reason: "ai-guardian not installed"
+        guardian_scan_skip_reason: "{{ 'ai-guardian install failed' if (_guardian_install_failed | default(false) | bool) else 'ai-guardian not installed' }}"
         guardian_findings: []
         guardian_blocking_findings: []
 

@@ -35,6 +35,7 @@ import subprocess
 import sys
 
 _MAX_BYTES = 1048576
+_GIT_TIMEOUT_SECONDS = 30
 _SKIP_CONTENT = re.compile(r"(^|/)(skills|evals)/")
 
 
@@ -63,13 +64,18 @@ def _git(repo: str, args: list[str]) -> subprocess.CompletedProcess[bytes]:
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
     env["GIT_PAGER"] = "cat"
-    return subprocess.run(
-        ["git", *args],
-        cwd=repo,
-        check=False,
-        capture_output=True,
-        env=env,
-    )
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=repo,
+            check=False,
+            capture_output=True,
+            env=env,
+            timeout=_GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        sys.stderr.write(f"git {' '.join(args)} exceeded {_GIT_TIMEOUT_SECONDS}s\n")
+        sys.exit(1)
 
 
 def _text(proc: subprocess.CompletedProcess[bytes]) -> str:
@@ -134,6 +140,10 @@ def main() -> None:
     target = _ref(sys.argv[2])
     source = _ref(sys.argv[3])
     request = json.load(sys.stdin)
+    markers = request.get("markers")
+    if not isinstance(markers, list) or any(not isinstance(item, str) for item in markers):
+        sys.stderr.write("snapshot request markers must be a list of strings\n")
+        sys.exit(2)
     diff_args = [target, source, "--"]
     diff = _require(_git(repo, ["diff", *diff_args]))
     name_only = _lines(_require(_git(repo, ["diff", "--name-only", *diff_args])))
@@ -141,7 +151,7 @@ def main() -> None:
     deleted = _lines(_require(_git(repo, ["diff", "--diff-filter=D", "--name-only", *diff_args])))
     count = _git(repo, ["rev-list", "--count", "HEAD"])
     content_files = [path for path in name_only if not _SKIP_CONTENT.search(path)]
-    tree = _read_tree(repo, request.get("markers") or [], content_files)
+    tree = _read_tree(repo, markers, content_files)
     payload = {
         "diff": diff,
         "name_only": name_only,

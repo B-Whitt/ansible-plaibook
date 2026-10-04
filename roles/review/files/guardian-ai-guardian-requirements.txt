@@ -1,5 +1,6 @@
-# Pinned version + hash for guardian_scan.yml's self-install-when-missing
-# step (sandboxed reviews only). --no-deps at download/install time,
+# Pinned version + hash for guardian_scan.yml's controller-side
+# self-install when ai-guardian is not already on PATH. --no-deps at
+# download/install time,
 # always -- ai-guardian's own heavier extras (tree-sitter grammars,
 # tokenizers, bandit, etc.) are not needed for the toml-patterns-backed
 # secret scanning this task actually relies on; see guardian_scan.yml's
