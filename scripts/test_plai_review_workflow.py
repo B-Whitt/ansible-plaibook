@@ -77,7 +77,7 @@ def test_reusable_workflow_permissions_and_pins():
     wait_checkout = next(step for step in wait["steps"] if step.get("name") == "Check out this workflow commit")
     assert checkout["with"]["repository"] == "aknochow/ansible-plaibook"
     assert wait_checkout["with"]["repository"] == "aknochow/ansible-plaibook"
-    assert checkout["with"]["ref"] == "d32d8994e0297a95ab7bf9a633472a95401d452c"
+    assert checkout["with"]["ref"] == "64980a779521a483eaead8bfa5d9a5d923e1409a"
     assert checkout["with"]["ref"] == wait_checkout["with"]["ref"]
     for step in job["steps"]:
         assert "${{" not in step.get("run", ""), step.get("name")
@@ -141,7 +141,7 @@ def test_caller_does_not_pin_a_floating_secret_ref():
     assert job["permissions"]["checks"] == "read"
     pinned = (
         "aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml"
-        "@95b8332ba5b4d9c06c37e759fcb93fadf9dd83fa"
+        "@c078a72dcb6167a74631ed4ebd43d5bd3d14b613"
     )
     assert job["uses"] == pinned
     assert "with" not in job
