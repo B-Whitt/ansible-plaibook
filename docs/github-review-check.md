@@ -32,7 +32,7 @@ The gate reads check runs on the pull request head and on the merge commit. When
 
 The job token is `contents: read`, `pull-requests: read`, and `checks: read`. `checks: read` is what the gate uses to list check runs on a private repository. The token cannot write the pull request. The publish step runs after the agent and posts with the GitHub App installation token. The review step installs OpenShell and uses the default sandbox. `CURSOR_API_KEY` is present in the review step because the Cursor SDK call runs on the controller. `PLAI_GITHUB_APP_ID` and `PLAI_GITHUB_APP_PRIVATE_KEY` are required to post.
 
-The review runs as cursor. Each repository sets the Actions secret `CURSOR_API_KEY`. If it is missing, the check fails. It does not succeed when no review ran.
+The review runs as cursor. `CURSOR_API_KEY`, `PLAI_GITHUB_APP_ID`, and `PLAI_GITHUB_APP_PRIVATE_KEY` are secrets on the `plaibook-review` environment. That environment's deployment branches are `main` only. The caller job sets `environment: plaibook-review`. `pull_request_target` runs as `main`, so the review receives the keys. A workflow file on any other branch does not. These names must not also be repository secrets. A same-repository `pull_request` workflow can read repository secrets. If `CURSOR_API_KEY` is missing from the environment, the check fails. It does not succeed when no review ran.
 
 The check is `success` when the review ran and was posted. `NEEDS_CHANGES` is still a pull request review with event `REQUEST_CHANGES`, and the job records a warning annotation for that verdict. The job fails when the review did not run or did not post. The verdict is the review, not a failed check.
 
@@ -45,6 +45,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+    environment: plaibook-review
     uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@<40-character-sha>
     secrets:
       cursor_api_key: ${{ secrets.CURSOR_API_KEY }}

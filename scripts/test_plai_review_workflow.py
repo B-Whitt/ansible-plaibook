@@ -139,6 +139,7 @@ def test_caller_does_not_pin_a_floating_secret_ref():
         "checks": "read",
     }
     assert job["permissions"]["checks"] == "read"
+    assert job["environment"] == "plaibook-review"
     pinned = (
         "aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml"
         "@c078a72dcb6167a74631ed4ebd43d5bd3d14b613"
