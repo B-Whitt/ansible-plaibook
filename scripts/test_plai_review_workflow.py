@@ -147,7 +147,7 @@ def test_caller_does_not_pin_a_floating_secret_ref():
     )
     assert job["uses"] == pinned
     assert "with" not in job
-    assert "secrets" not in job
+    assert job["secrets"] == "inherit"
     assert "source_sha" not in text
     assert "job.workflow_sha" not in text
     assert "uses: ./." not in text

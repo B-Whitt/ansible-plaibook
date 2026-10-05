@@ -78,3 +78,6 @@ jobs:
       pull-requests: read
       checks: read
     uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@54321c968b63c1033fe0981084a0d2b54d356a3e
+    # The called job's environment secrets stay empty unless the caller
+    # inherits them. Repository copies of these names are gone.
+    secrets: inherit
