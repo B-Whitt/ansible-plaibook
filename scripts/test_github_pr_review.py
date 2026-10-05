@@ -305,7 +305,13 @@ def test_fill_pull_request_skips_a_fork(monkeypatch):
 
     monkeypatch.setattr("github_pr_review._request", fake_request)
     resolved = fill_pull_request(
-        {"action": "review", "repo": "aknochow/ansible-plaibook", "pr": "79", "sha": "", "trigger": "pull_request_target"}
+        {
+            "action": "review",
+            "repo": "aknochow/ansible-plaibook",
+            "pr": "79",
+            "sha": "",
+            "trigger": "pull_request_target",
+        }
     )
     assert resolved["action"] == "skip"
 

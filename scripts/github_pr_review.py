@@ -391,7 +391,8 @@ def _maintainer_fork_comment(resolved: dict[str, str], pull: dict[str, Any]) -> 
     already limited to OWNER, MEMBER, and COLLABORATOR. The pull request
     author must be one of those too, so an outside fork still skips.
     """
-    return resolved.get("trigger") == "issue_comment" and str(pull.get("author_association") or "") in _ALLOWED_ASSOCIATION
+    association = str(pull.get("author_association") or "")
+    return resolved.get("trigger") == "issue_comment" and association in _ALLOWED_ASSOCIATION
 
 
 def _resolve_target_pull(event_name: str, event: dict[str, Any], repo: str) -> dict[str, str]:
