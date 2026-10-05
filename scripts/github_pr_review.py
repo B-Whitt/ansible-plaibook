@@ -3,7 +3,9 @@
 
 The check name is ``plaibook review``. A comment that starts with
 ``/plai-review``, or ``workflow_dispatch`` from the default branch, runs
-it again. ``pull_request`` is refused: that event runs the workflow file
+it again. A fork is reviewed only from that comment, and only when the
+pull request author is OWNER, MEMBER, or COLLABORATOR.
+``pull_request`` is refused: that event runs the workflow file
 from the pull request. ``pull_request_target`` runs the file from the
 base branch. This script does not call a controller. The workflow runs
 ``plai review`` and passes the JSON document in.
@@ -382,6 +384,16 @@ def _foreign_head(pull: dict[str, Any], repo: str) -> dict[str, str] | None:
     return None
 
 
+def _maintainer_fork_comment(resolved: dict[str, str], pull: dict[str, Any]) -> bool:
+    """A /plai-review comment may review a fork opened by a maintainer.
+
+    pull_request_target stays same-repository. The comment author is
+    already limited to OWNER, MEMBER, and COLLABORATOR. The pull request
+    author must be one of those too, so an outside fork still skips.
+    """
+    return resolved.get("trigger") == "issue_comment" and str(pull.get("author_association") or "") in _ALLOWED_ASSOCIATION
+
+
 def _resolve_target_pull(event_name: str, event: dict[str, Any], repo: str) -> dict[str, str]:
     pull = event.get("pull_request") or {}
     head = pull.get("head") or {}
@@ -528,7 +540,7 @@ def fill_pull_request(resolved: dict[str, str]) -> dict[str, str]:
         if status != 200 or not isinstance(payload, dict):
             raise RuntimeError(f"unable to read pull request {pr}")
         foreign = _foreign_head(payload, repo)
-        if foreign:
+        if foreign and not _maintainer_fork_comment(resolved, payload):
             return foreign
         merge_sha = _merge_sha(payload)
         if not _SHA.fullmatch(sha):
@@ -542,7 +554,7 @@ def fill_pull_request(resolved: dict[str, str]) -> dict[str, str]:
         if not chosen:
             return {"action": "skip", "reason": "no pull request for this SHA"}
         foreign = _foreign_head(chosen[0], repo)
-        if foreign:
+        if foreign and not _maintainer_fork_comment(resolved, chosen[0]):
             return foreign
         merge_sha = _merge_sha(chosen[0])
         pr = str(chosen[0].get("number") or "")
