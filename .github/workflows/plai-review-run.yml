@@ -21,6 +21,13 @@ name: plai
 # CURSOR_API_KEY stays in that step because the
 # Cursor SDK call runs on the controller. The job token is read-only and
 # is used to fetch the pull request. Tool execution runs in the sandbox.
+# The review job sets environment plaibook-review. A caller job cannot:
+# GitHub rejects environment on a job that uses a reusable workflow.
+# Deployment branches for that environment are main only.
+# pull_request_target evaluates the rule against the default branch.
+# A pull_request workflow evaluates it against refs/pull/N/merge.
+# Steps read the environment secret names and fall back to the
+# workflow_call secrets while those repository copies still exist.
 #
 # The workflow job is the pull-request check. This job does not call
 # the Checks API. The runner is ubuntu-26.04-arm. One paired run of this
@@ -132,6 +139,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+    environment: plaibook-review
     env:
       SANDBOX_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
     steps:
@@ -158,7 +166,7 @@ jobs:
       - name: Require CURSOR_API_KEY
         id: provider
         env:
-          CURSOR_API_KEY: ${{ secrets.cursor_api_key }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY || secrets.cursor_api_key }}
         run: |
           set -euo pipefail
           if [ -z "${CURSOR_API_KEY}" ]; then
@@ -259,7 +267,7 @@ jobs:
           # This job's token cannot write the pull request.
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
-          CURSOR_API_KEY: ${{ secrets.cursor_api_key }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY || secrets.cursor_api_key }}
           ANSIBLE_REVIEW_AGENT_FAMILY: cursor
           # OpenShell 0.1 rejects an empty workspace. The CLI default is "default".
           OPENSHELL_WORKSPACE: default
@@ -294,8 +302,8 @@ jobs:
       - name: Post the review
         if: always() && steps.plai.outputs.rc != ''
         env:
-          PLAI_GITHUB_APP_ID: ${{ secrets.github_app_id }}
-          PLAI_GITHUB_APP_PRIVATE_KEY: ${{ secrets.github_app_private_key }}
+          PLAI_GITHUB_APP_ID: ${{ secrets.PLAI_GITHUB_APP_ID || secrets.github_app_id }}
+          PLAI_GITHUB_APP_PRIVATE_KEY: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY || secrets.github_app_private_key }}
           REVIEW_REPO: ${{ needs.wait.outputs.repo }}
           REVIEW_SHA: ${{ needs.wait.outputs.sha }}
           REVIEW_PR: ${{ needs.wait.outputs.pr }}
