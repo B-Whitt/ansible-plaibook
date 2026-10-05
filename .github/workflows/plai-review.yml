@@ -24,7 +24,9 @@ name: plai
 # review job sets the environment. Deployment branches are main only.
 # pull_request_target evaluates that rule against the default branch.
 # A pull_request workflow evaluates it against refs/pull/N/merge.
-# These names must not also exist as repository secrets.
+# This caller does not forward secrets. The called job reads the
+# environment names itself. These names must not also exist as
+# repository secrets.
 
 on:
   pull_request_target:
@@ -72,8 +74,4 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
-    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@2fa3f806764bf374a5e472c42f8f444db26d153b
-    secrets:
-      cursor_api_key: ${{ secrets.CURSOR_API_KEY }}
-      github_app_id: ${{ secrets.PLAI_GITHUB_APP_ID }}
-      github_app_private_key: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}
+    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@ece90ac807c72cde9deb165e5e5516be72de2cd2
