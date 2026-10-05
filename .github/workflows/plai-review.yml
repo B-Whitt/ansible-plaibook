@@ -18,6 +18,15 @@ name: plai
 # the GitHub App installation token. PLAI_GITHUB_APP_ID and
 # PLAI_GITHUB_APP_PRIVATE_KEY post the review as the GitHub App whose
 # slug is plai-review.
+# CURSOR_API_KEY, PLAI_GITHUB_APP_ID, and PLAI_GITHUB_APP_PRIVATE_KEY
+# are environment secrets on plaibook-review. GitHub rejects environment
+# on this caller job because it uses a reusable workflow. The called
+# review job sets the environment. Deployment branches are main only.
+# pull_request_target evaluates that rule against the default branch.
+# A pull_request workflow evaluates it against refs/pull/N/merge.
+# This caller does not forward secrets. The called job reads the
+# environment names itself. These names must not also exist as
+# repository secrets.
 
 on:
   pull_request_target:
@@ -65,8 +74,4 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
-    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@c078a72dcb6167a74631ed4ebd43d5bd3d14b613
-    secrets:
-      cursor_api_key: ${{ secrets.CURSOR_API_KEY }}
-      github_app_id: ${{ secrets.PLAI_GITHUB_APP_ID }}
-      github_app_private_key: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}
+    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@ece90ac807c72cde9deb165e5e5516be72de2cd2

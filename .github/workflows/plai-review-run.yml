@@ -3,8 +3,8 @@ name: plai
 # Runs plai review on this runner after the other checks on the pull
 # request have passed, then posts one pull request review. Does not call
 # a controller. post_results stays false. The provider is cursor. Sibling
-# repositories must call this file at a full commit SHA because it receives
-# CURSOR_API_KEY. Checkout is a fixed commit of this repository, written
+# repositories must call this file at a full commit SHA. Checkout is a
+# fixed commit of this repository, written
 # in this file. Callers do not pass a ref. Values that reach the shell
 # are environment variables.
 # PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY post
@@ -21,6 +21,13 @@ name: plai
 # CURSOR_API_KEY stays in that step because the
 # Cursor SDK call runs on the controller. The job token is read-only and
 # is used to fetch the pull request. Tool execution runs in the sandbox.
+# The review job sets environment plaibook-review. A caller job cannot:
+# GitHub rejects environment on a job that uses a reusable workflow.
+# Deployment branches for that environment are main only.
+# pull_request_target evaluates the rule against the default branch.
+# A pull_request workflow evaluates it against refs/pull/N/merge.
+# Steps read only those environment secret names. This workflow does
+# not accept caller-supplied secrets.
 #
 # The workflow job is the pull-request check. This job does not call
 # the Checks API. The runner is ubuntu-26.04-arm. One paired run of this
@@ -28,14 +35,7 @@ name: plai
 # ubuntu-26.04. Both labels are free for this public repository.
 
 on:
-  workflow_call:
-    secrets:
-      cursor_api_key:
-        required: true
-      github_app_id:
-        required: false
-      github_app_private_key:
-        required: false
+  workflow_call: {}
 
 permissions: {}
 
@@ -132,6 +132,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+    environment: plaibook-review
     env:
       SANDBOX_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
     steps:
@@ -158,7 +159,7 @@ jobs:
       - name: Require CURSOR_API_KEY
         id: provider
         env:
-          CURSOR_API_KEY: ${{ secrets.cursor_api_key }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
         run: |
           set -euo pipefail
           if [ -z "${CURSOR_API_KEY}" ]; then
@@ -259,7 +260,7 @@ jobs:
           # This job's token cannot write the pull request.
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
-          CURSOR_API_KEY: ${{ secrets.cursor_api_key }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           ANSIBLE_REVIEW_AGENT_FAMILY: cursor
           # OpenShell 0.1 rejects an empty workspace. The CLI default is "default".
           OPENSHELL_WORKSPACE: default
@@ -294,8 +295,8 @@ jobs:
       - name: Post the review
         if: always() && steps.plai.outputs.rc != ''
         env:
-          PLAI_GITHUB_APP_ID: ${{ secrets.github_app_id }}
-          PLAI_GITHUB_APP_PRIVATE_KEY: ${{ secrets.github_app_private_key }}
+          PLAI_GITHUB_APP_ID: ${{ secrets.PLAI_GITHUB_APP_ID }}
+          PLAI_GITHUB_APP_PRIVATE_KEY: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}
           REVIEW_REPO: ${{ needs.wait.outputs.repo }}
           REVIEW_SHA: ${{ needs.wait.outputs.sha }}
           REVIEW_PR: ${{ needs.wait.outputs.pr }}
