@@ -56,7 +56,7 @@ def test_reusable_workflow_permissions_and_pins():
     assert "actions" not in job["permissions"]
     plai_steps = [step for step in job["steps"] if step.get("id") == "plai"]
     assert len(plai_steps) == 1
-    assert plai_steps[0]["env"]["CURSOR_API_KEY"] == "${{ secrets.CURSOR_API_KEY || secrets.cursor_api_key }}"
+    assert plai_steps[0]["env"]["CURSOR_API_KEY"] == "${{ secrets.CURSOR_API_KEY }}"
     assert "PLAI_GITHUB_APP_PRIVATE_KEY" not in plai_steps[0].get("env", {})
     assert "--no-sandbox" not in plai_steps[0]["run"]
     assert "sandbox_wait_timeout=600" in plai_steps[0]["run"]
@@ -85,16 +85,12 @@ def test_reusable_workflow_permissions_and_pins():
         assert "${{" not in step.get("run", ""), step.get("name")
     publish = [step for step in job["steps"] if step.get("name") == "Post the review"]
     assert len(publish) == 1
-    assert publish[0]["env"]["PLAI_GITHUB_APP_ID"] == "${{ secrets.PLAI_GITHUB_APP_ID || secrets.github_app_id }}"
-    assert publish[0]["env"]["PLAI_GITHUB_APP_PRIVATE_KEY"] == (
-        "${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY || secrets.github_app_private_key }}"
-    )
+    assert publish[0]["env"]["PLAI_GITHUB_APP_ID"] == "${{ secrets.PLAI_GITHUB_APP_ID }}"
+    assert publish[0]["env"]["PLAI_GITHUB_APP_PRIVATE_KEY"] == "${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}"
     assert "github.token" not in yaml.dump(publish[0])
-    secrets = document["on"]["workflow_call"]["secrets"]
-    assert "cursor_api_key" in secrets
-    assert secrets["cursor_api_key"]["required"] is True
-    assert secrets["github_app_id"]["required"] is False
-    assert secrets["github_app_private_key"]["required"] is False
+    assert "secrets" not in document["on"]["workflow_call"]
+    assert "cursor_api_key" not in text
+    assert "github_app_private_key" not in text
     uses = [step["uses"].split()[0] for step in job["steps"] if "uses" in step]
     for item in uses:
         action, _, sha = item.partition("@")
