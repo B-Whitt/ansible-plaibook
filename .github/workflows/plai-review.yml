@@ -77,7 +77,11 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
-    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@84a263ecca5e68eb4d20ba84f2ef612c24ceea9a
-    # The called job's environment secrets stay empty unless the caller
-    # inherits them. Repository copies of these names are gone.
-    secrets: inherit
+    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@c9529f8ed2c18d983218171f70e438f77b657921
+    # Only these three environment names. The rest of the repository
+    # and organization secrets stay on the caller. The called job's
+    # plaibook-review environment supplies the values.
+    secrets:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      PLAI_GITHUB_APP_ID: ${{ secrets.PLAI_GITHUB_APP_ID }}
+      PLAI_GITHUB_APP_PRIVATE_KEY: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}

@@ -32,7 +32,7 @@ The gate reads check runs on the pull request head and on the merge commit. When
 
 The job token is `contents: read`, `pull-requests: read`, and `checks: read`. `checks: read` is what the gate uses to list check runs on a private repository. The token cannot write the pull request. The publish step runs after the agent and posts with the GitHub App installation token. The review step installs OpenShell and uses the default sandbox. `CURSOR_API_KEY` is present in the review step because the Cursor SDK call runs on the controller. `PLAI_GITHUB_APP_ID` and `PLAI_GITHUB_APP_PRIVATE_KEY` are required to post.
 
-The review runs as cursor. `CURSOR_API_KEY`, `PLAI_GITHUB_APP_ID`, and `PLAI_GITHUB_APP_PRIVATE_KEY` are secrets on the `plaibook-review` environment. That environment's deployment branches are `main` only. The called review job sets `environment: plaibook-review` with `deployment: false`, so the branch rule and secrets apply and no deployment record is written. A caller job cannot: GitHub rejects `environment` next to `uses`. `pull_request_target` evaluates the deployment rule against the default branch, so the review receives the keys. A `pull_request` workflow is evaluated against `refs/pull/N/merge` and does not. The caller passes `secrets: inherit` so the called job can read those environment names. A caller job cannot set `environment` next to `uses`, and without inherit the environment values arrive empty. These names must not also be repository secrets. A same-repository `pull_request` workflow can read repository secrets. If `CURSOR_API_KEY` is missing, the check fails. It does not succeed when no review ran.
+The review runs as cursor. `CURSOR_API_KEY`, `PLAI_GITHUB_APP_ID`, and `PLAI_GITHUB_APP_PRIVATE_KEY` are secrets on the `plaibook-review` environment. That environment's deployment branches are `main` only. The called review job sets `environment: plaibook-review` with `deployment: false`, so the branch rule and secrets apply and no deployment record is written. A caller job cannot: GitHub rejects `environment` next to `uses`. `pull_request_target` evaluates the deployment rule against the default branch, so the review receives the keys. A `pull_request` workflow is evaluated against `refs/pull/N/merge` and does not. The caller passes only `CURSOR_API_KEY`, `PLAI_GITHUB_APP_ID`, and `PLAI_GITHUB_APP_PRIVATE_KEY`. It does not inherit the rest of the repository or organization secrets. These names must not also be repository secrets. A same-repository `pull_request` workflow can read repository secrets. If `CURSOR_API_KEY` is missing, the check fails. It does not succeed when no review ran.
 
 The check is `success` when the review ran and was posted. `NEEDS_CHANGES` is still a pull request review with event `REQUEST_CHANGES`, and the job records a warning annotation for that verdict. The job fails when the review did not run or did not post. The verdict is the review, not a failed check.
 
@@ -46,10 +46,13 @@ jobs:
       pull-requests: read
       checks: read
     uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@<40-character-sha>
-    secrets: inherit
+    secrets:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      PLAI_GITHUB_APP_ID: ${{ secrets.PLAI_GITHUB_APP_ID }}
+      PLAI_GITHUB_APP_PRIVATE_KEY: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}
 ```
 
-Callers do not pass a repository or a ref. The reusable workflow checks out `aknochow/ansible-plaibook` at commit `fa91f72b0f0ad11363ed7f37f66dfc2c689434bf`. This repository calls the workflow at commit `84a263ecca5e68eb4d20ba84f2ef612c24ceea9a`. The called review job is the one that sets `environment: plaibook-review`. This repository's caller uses `secrets: inherit`. The review job installs that tree with `uv sync --locked`. `GITHUB_SHA` on `pull_request_target` is the base branch and is not the tools pin. The pull request head is the commit under review. It is not checked out. The publisher that receives the GitHub App private key is the copy taken from that pinned revision before `plai review` starts.
+Callers do not pass a repository or a ref. The reusable workflow checks out `aknochow/ansible-plaibook` at commit `fa91f72b0f0ad11363ed7f37f66dfc2c689434bf`. This repository calls the workflow at commit `c9529f8ed2c18d983218171f70e438f77b657921`. The called review job is the one that sets `environment: plaibook-review`. The caller passes only the three environment secret names. The review job installs that tree with `uv sync --locked`. `GITHUB_SHA` on `pull_request_target` is the base branch and is not the tools pin. The pull request head is the commit under review. It is not checked out. The publisher that receives the GitHub App private key is the copy taken from that pinned revision before `plai review` starts.
 
 Without the GitHub App secrets the publish step fails. The job token cannot post the review.
 
