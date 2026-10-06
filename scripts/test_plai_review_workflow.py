@@ -88,7 +88,14 @@ def test_reusable_workflow_permissions_and_pins():
     assert publish[0]["env"]["PLAI_GITHUB_APP_ID"] == "${{ secrets.PLAI_GITHUB_APP_ID }}"
     assert publish[0]["env"]["PLAI_GITHUB_APP_PRIVATE_KEY"] == "${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}"
     assert "github.token" not in yaml.dump(publish[0])
-    assert "secrets" not in document["on"]["workflow_call"]
+    secrets = document["on"]["workflow_call"]["secrets"]
+    assert set(secrets) == {
+        "CURSOR_API_KEY",
+        "PLAI_GITHUB_APP_ID",
+        "PLAI_GITHUB_APP_PRIVATE_KEY",
+    }
+    assert all(item["required"] is True for item in secrets.values())
+    assert "inherit" not in text
     assert "cursor_api_key" not in text
     assert "github_app_private_key" not in text
     uses = [step["uses"].split()[0] for step in job["steps"] if "uses" in step]

@@ -26,8 +26,8 @@ name: plai
 # Deployment branches for that environment are main only.
 # pull_request_target evaluates the rule against the default branch.
 # A pull_request workflow evaluates it against refs/pull/N/merge.
-# Steps read only those environment secret names. This workflow does
-# not accept caller-supplied secrets.
+# Steps read only those three environment secret names. Callers pass
+# those names and nothing else.
 #
 # The workflow job is the pull-request check. This job does not call
 # the Checks API. The runner is ubuntu-26.04-arm. One paired run of this
@@ -35,7 +35,14 @@ name: plai
 # ubuntu-26.04. Both labels are free for this public repository.
 
 on:
-  workflow_call: {}
+  workflow_call:
+    secrets:
+      CURSOR_API_KEY:
+        required: true
+      PLAI_GITHUB_APP_ID:
+        required: true
+      PLAI_GITHUB_APP_PRIVATE_KEY:
+        required: true
 
 permissions: {}
 
