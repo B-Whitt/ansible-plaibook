@@ -49,7 +49,7 @@ def test_reusable_workflow_permissions_and_pins():
         "checks": "read",
     }
     assert job["runs-on"] == "ubuntu-26.04-arm"
-    assert job["environment"] == "plaibook-review"
+    assert job["environment"] == {"name": "plaibook-review", "deployment": False}
     assert "environment" not in wait
     assert "strategy" not in job
     assert job["permissions"]["checks"] == "read"

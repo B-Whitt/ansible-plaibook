@@ -132,7 +132,11 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
-    environment: plaibook-review
+    # Secrets and the main-only branch rule, without a deployment record.
+    # deployment: false still applies that branch policy.
+    environment:
+      name: plaibook-review
+      deployment: false
     env:
       SANDBOX_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
     steps:
