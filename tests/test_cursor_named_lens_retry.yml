@@ -14,6 +14,8 @@
 #       is not billed as a lens call
 #   (9) fail_json miss after a stale cursor_lens_fail_var records this
 #       attempt's module error, not the previous attempt's text
+#   (10) a finished async result passed as cursor_lens_preregistered_raw
+#       still binds. The skipped live dispatch must not register over it.
 #
 # (7), (8), and (9) require tests/library/cursor_agent_stub.py on ANSIBLE_LIBRARY
 # and CURSOR_AGENT_STUB_FILE (scripts/run_playbook_tests.sh sets both).
@@ -509,3 +511,67 @@
               valid={{ security_cursor_lens_valid | default('') }}
               fail={{ security_cursor_lens_last_fail | default('') }}
             success_msg: "Retry miss recorded this attempt's error, not a stale fail_msg."
+
+    - name: Finished async result must survive the skipped live dispatch
+      block:
+        - name: Reset preregistered bind flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Bind the already finished Security lens
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_preregistered_raw:
+              finished: true
+              status: finished
+              resolved_model: gpt-5.6-luna
+              usage_normalized:
+                input_tokens: 30
+                output_tokens: 4
+                cache_write_tokens: 0
+                cache_read_tokens: 0
+                thinking_tokens: 0
+                total_tokens: 34
+              structured_tool_calls:
+                - name: report_findings
+                  caller: nested
+                  agent_id:
+                  args: "{{ _nested_lens_args }}"
+                - name: report_findings
+                  caller: parent
+                  agent_id: parent-1
+                  args: "{{ _parent_fabricated_args }}"
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+
+        - name: Confirm the finished result bound and was billed
+          ansible.builtin.assert:
+            that:
+              - security_cursor_lens_valid | bool
+              - _cursor_security_lens.findings[0].file == "lens.py"
+              - _cursor_security_raw.structured_tool_calls | length == 2
+              - pipeline_agent_calls | length == 1
+              - pipeline_agent_calls[0].usage.input_tokens | int == 30
+            fail_msg: >-
+              A finished async result must bind. The skipped dispatch
+              registered over it.
+              valid={{ security_cursor_lens_valid | default('') }}
+              raw_skipped={{ _cursor_security_raw.skipped | default(false) }}
+              calls={{ pipeline_agent_calls | default([]) }}
+            success_msg: "Finished async result bound; the skipped dispatch did not replace it."

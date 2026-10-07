@@ -28,6 +28,9 @@
       ansible.builtin.set_fact:
         _cursor_lens_attempt_raw: "{{ cursor_lens_preregistered_raw }}"
 
+    # register outranks set_fact. A skipped dispatch still registers, so
+    # this name must not be _cursor_lens_attempt_raw or the finished
+    # async result is replaced by the skip.
     - name: "Cursor: dispatch the {{ cursor_nonce_lens_label }} agent"
       when: cursor_lens_preregistered_raw is not defined
       action:
@@ -47,7 +50,12 @@
           name: report_findings
           description: "{{ cursor_lens_tool_description }}"
           input_schema: "{{ cursor_lens_schema }}"
-      register: _cursor_lens_attempt_raw
+      register: _cursor_lens_dispatch_raw
+
+    - name: "Cursor: keep the live {{ cursor_nonce_lens_label }} dispatch"
+      when: cursor_lens_preregistered_raw is not defined
+      ansible.builtin.set_fact:
+        _cursor_lens_attempt_raw: "{{ _cursor_lens_dispatch_raw }}"
 
     # Remember the module payload, then bill unless the return is
     # parent-only. A miss used to abort the play here, which skipped
