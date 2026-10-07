@@ -67,8 +67,8 @@
     review_cursor_lens_valid: false
 
 - name: "Cursor: start the Security agent"
-  action:
-    module: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
+  action: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
+  args:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
       Spawn the security_lens subagent with the Task / Subagent tool.
@@ -89,8 +89,8 @@
   register: _cursor_security_job
 
 - name: "Cursor: start the Review agent"
-  action:
-    module: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
+  action: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
+  args:
     api_key: "{{ review_cursor_api_key }}"
     prompt: >-
       Spawn the review_lens subagent with the Task / Subagent tool.

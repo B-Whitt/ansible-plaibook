@@ -39,8 +39,8 @@
     # async result is replaced by the skip.
     - name: "Cursor: dispatch the {{ cursor_nonce_lens_label }} agent"
       when: _cursor_lens_needs_dispatch | bool
-      action:
-        module: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
+      action: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
+      args:
         api_key: "{{ review_cursor_api_key }}"
         prompt: >-
           Spawn the {{ cursor_lens_agent_id }} subagent with the Task / Subagent tool.
