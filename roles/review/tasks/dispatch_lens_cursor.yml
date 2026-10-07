@@ -110,6 +110,10 @@
   poll: 0
   register: _cursor_review_job
 
+# A failed async job is still a result. Failing this loop used to abort
+# the play with "One or more items failed" and drop the sibling lens
+# that had already finished. Bind and the retry below handle a job that
+# failed to start (for example Cursor's database is locked).
 - name: "Cursor: wait for both lenses"
   ansible.builtin.async_status:
     jid: "{{ item.ansible_job_id }}"
@@ -117,9 +121,12 @@
     - "{{ _cursor_security_job }}"
     - "{{ _cursor_review_job }}"
   register: _cursor_lens_jobs
-  until: _cursor_lens_jobs.finished
+  until: >-
+    (_cursor_lens_jobs.finished | default(false) | bool) or
+    (_cursor_lens_jobs.failed | default(false) | bool)
   retries: 180
   delay: 5
+  failed_when: false
 
 - name: "Cursor: bind the Security agent result"
   ansible.builtin.include_tasks: dispatch_cursor_lens_attempt.yml

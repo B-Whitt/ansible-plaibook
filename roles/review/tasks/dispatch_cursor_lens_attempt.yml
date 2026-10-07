@@ -23,8 +23,14 @@
           {{ review_structured_output_max_attempts }}
           (agent_family=cursor)
 
+    # A job that failed to start is not a finished lens. Dispatch again
+    # now that its sibling is done and the local Cursor database is free.
+    - name: "Cursor: decide whether {{ cursor_nonce_lens_label }} still needs an agent"
+      ansible.builtin.set_fact:
+        _cursor_lens_needs_dispatch: "{{ cursor_lens_preregistered_raw is not defined or (cursor_lens_preregistered_raw.failed | default(false) | bool) }}"
+
     - name: "Cursor: use the already finished {{ cursor_nonce_lens_label }} agent"
-      when: cursor_lens_preregistered_raw is defined
+      when: not (_cursor_lens_needs_dispatch | bool)
       ansible.builtin.set_fact:
         _cursor_lens_attempt_raw: "{{ cursor_lens_preregistered_raw }}"
 
@@ -32,7 +38,7 @@
     # this name must not be _cursor_lens_attempt_raw or the finished
     # async result is replaced by the skip.
     - name: "Cursor: dispatch the {{ cursor_nonce_lens_label }} agent"
-      when: cursor_lens_preregistered_raw is not defined
+      when: _cursor_lens_needs_dispatch | bool
       action:
         module: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
         api_key: "{{ review_cursor_api_key }}"
@@ -53,7 +59,7 @@
       register: _cursor_lens_dispatch_raw
 
     - name: "Cursor: keep the live {{ cursor_nonce_lens_label }} dispatch"
-      when: cursor_lens_preregistered_raw is not defined
+      when: _cursor_lens_needs_dispatch | bool
       ansible.builtin.set_fact:
         _cursor_lens_attempt_raw: "{{ _cursor_lens_dispatch_raw }}"
 
