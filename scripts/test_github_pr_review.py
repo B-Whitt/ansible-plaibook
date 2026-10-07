@@ -298,7 +298,47 @@ def test_fill_pull_request_skips_a_fork(monkeypatch):
     def fake_request(method, url, payload=None):
         assert method == "GET"
         assert url.endswith("/pulls/79")
-        return 200, {"head": {"sha": "a" * 40, "repo": {"full_name": "contributor/ansible-plaibook"}}}, ""
+        return 200, {
+            "author_association": "COLLABORATOR",
+            "head": {"sha": "a" * 40, "repo": {"full_name": "contributor/ansible-plaibook"}},
+        }, ""
+
+    monkeypatch.setattr("github_pr_review._request", fake_request)
+    resolved = fill_pull_request(
+        {
+            "action": "review",
+            "repo": "aknochow/ansible-plaibook",
+            "pr": "79",
+            "sha": "",
+            "trigger": "pull_request_target",
+        }
+    )
+    assert resolved["action"] == "skip"
+
+
+def test_fill_pull_request_reviews_a_maintainer_fork_from_a_comment(monkeypatch):
+    sha = "a" * 40
+
+    def fake_request(method, url, payload=None):
+        return 200, {
+            "author_association": "COLLABORATOR",
+            "head": {"sha": sha, "repo": {"full_name": "contributor/ansible-plaibook"}},
+        }, ""
+
+    monkeypatch.setattr("github_pr_review._request", fake_request)
+    resolved = fill_pull_request(
+        {"action": "review", "repo": "aknochow/ansible-plaibook", "pr": "79", "sha": "", "trigger": "issue_comment"}
+    )
+    assert resolved["action"] == "review"
+    assert resolved["sha"] == sha
+
+
+def test_fill_pull_request_skips_an_outside_fork_comment(monkeypatch):
+    def fake_request(method, url, payload=None):
+        return 200, {
+            "author_association": "CONTRIBUTOR",
+            "head": {"sha": "a" * 40, "repo": {"full_name": "contributor/ansible-plaibook"}},
+        }, ""
 
     monkeypatch.setattr("github_pr_review._request", fake_request)
     resolved = fill_pull_request(

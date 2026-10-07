@@ -49,7 +49,7 @@ def test_reusable_workflow_permissions_and_pins():
         "checks": "read",
     }
     assert job["runs-on"] == "ubuntu-26.04-arm"
-    assert job["environment"] == "plaibook-review"
+    assert job["environment"] == {"name": "plaibook-review", "deployment": False}
     assert "environment" not in wait
     assert "strategy" not in job
     assert job["permissions"]["checks"] == "read"
@@ -79,7 +79,7 @@ def test_reusable_workflow_permissions_and_pins():
     wait_checkout = next(step for step in wait["steps"] if step.get("name") == "Check out this workflow commit")
     assert checkout["with"]["repository"] == "aknochow/ansible-plaibook"
     assert wait_checkout["with"]["repository"] == "aknochow/ansible-plaibook"
-    assert checkout["with"]["ref"] == "64980a779521a483eaead8bfa5d9a5d923e1409a"
+    assert checkout["with"]["ref"] == "fa91f72b0f0ad11363ed7f37f66dfc2c689434bf"
     assert checkout["with"]["ref"] == wait_checkout["with"]["ref"]
     for step in job["steps"]:
         assert "${{" not in step.get("run", ""), step.get("name")
@@ -88,7 +88,14 @@ def test_reusable_workflow_permissions_and_pins():
     assert publish[0]["env"]["PLAI_GITHUB_APP_ID"] == "${{ secrets.PLAI_GITHUB_APP_ID }}"
     assert publish[0]["env"]["PLAI_GITHUB_APP_PRIVATE_KEY"] == "${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}"
     assert "github.token" not in yaml.dump(publish[0])
-    assert "secrets" not in document["on"]["workflow_call"]
+    secrets = document["on"]["workflow_call"]["secrets"]
+    assert set(secrets) == {
+        "CURSOR_API_KEY",
+        "PLAI_GITHUB_APP_ID",
+        "PLAI_GITHUB_APP_PRIVATE_KEY",
+    }
+    assert all(item["required"] is True for item in secrets.values())
+    assert "inherit" not in text
     assert "cursor_api_key" not in text
     assert "github_app_private_key" not in text
     uses = [step["uses"].split()[0] for step in job["steps"] if "uses" in step]
@@ -143,16 +150,19 @@ def test_caller_does_not_pin_a_floating_secret_ref():
     assert "environment" not in job
     pinned = (
         "aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml"
-        "@ece90ac807c72cde9deb165e5e5516be72de2cd2"
+        "@c9529f8ed2c18d983218171f70e438f77b657921"
     )
     assert job["uses"] == pinned
     assert "with" not in job
-    assert "secrets" not in job
+    assert job["secrets"] == {
+        "CURSOR_API_KEY": "${{ secrets.CURSOR_API_KEY }}",
+        "PLAI_GITHUB_APP_ID": "${{ secrets.PLAI_GITHUB_APP_ID }}",
+        "PLAI_GITHUB_APP_PRIVATE_KEY": "${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}",
+    }
+    assert "inherit" not in text
     assert "source_sha" not in text
     assert "job.workflow_sha" not in text
     assert "uses: ./." not in text
-    assert "secrets.CURSOR_API_KEY" not in text
-    assert "secrets.PLAI_GITHUB_APP" not in text
     assert "@main" not in text
     assert "CURSOR_API_KEY" in text
     assert "PLAIBOOK_PROVIDER_TOKEN" not in text

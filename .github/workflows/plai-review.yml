@@ -4,7 +4,10 @@ name: plai
 # request cannot replace the workflow that receives CURSOR_API_KEY or
 # the GitHub App private key. pull_request is not a trigger: that event
 # runs the workflow file from the pull request and still injects those
-# secrets for a same-repository head. The job token is read-only.
+# secrets for a same-repository head. pull_request_target reviews only
+# a head in this repository. A fork is reviewed from a /plai-review
+# comment when the pull request author is OWNER, MEMBER, or
+# COLLABORATOR. The job token is read-only.
 # workflow_dispatch runs only when the selected ref is the default
 # branch. issue_comment already runs from the default branch.
 # Re-run with a pull-request comment that starts with /plai-review.
@@ -74,4 +77,11 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
-    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@ece90ac807c72cde9deb165e5e5516be72de2cd2
+    uses: aknochow/ansible-plaibook/.github/workflows/plai-review-run.yml@c9529f8ed2c18d983218171f70e438f77b657921
+    # Only these three environment names. The rest of the repository
+    # and organization secrets stay on the caller. The called job's
+    # plaibook-review environment supplies the values.
+    secrets:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      PLAI_GITHUB_APP_ID: ${{ secrets.PLAI_GITHUB_APP_ID }}
+      PLAI_GITHUB_APP_PRIVATE_KEY: ${{ secrets.PLAI_GITHUB_APP_PRIVATE_KEY }}
