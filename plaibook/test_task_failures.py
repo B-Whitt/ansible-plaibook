@@ -3,6 +3,7 @@
 
 import os
 import stat
+import time
 
 from plaibook.task_failures import (
     allowed_task_failures_path,
@@ -96,6 +97,14 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert 'curl -u alice:***' in attached
     assert "--user bob:***" in attached
     assert "--user=carol:***" in attached
+    flags = clean_failure_message(
+        'run --token cli-secret --password "alpha beta" --api-key key-secret'
+    )
+    for leaked in ("cli-secret", "alpha", "beta", "key-secret"):
+        assert leaked not in flags, leaked
+    assert "--token ***" in flags
+    assert "--password ***" in flags
+    assert "--api-key ***" in flags
 
 
 def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):
@@ -241,3 +250,14 @@ def test_oversized_failure_log_is_truncated_and_kept(tmp_path, monkeypatch):
     discard_empty_task_failure_log(path)
     assert os.path.exists(path)
     assert os.path.isdir(parent)
+
+
+def test_fifo_log_open_returns_without_blocking(tmp_path):
+    _parent, path = create_task_failures_log(directory=str(tmp_path))
+    os.unlink(path)
+    os.mkfifo(path, 0o600)
+    os.chmod(path, 0o600)
+    started = time.monotonic()
+    assert write_task_failures(path, "planned failure") is False
+    assert read_task_failures_log(path) == ""
+    assert time.monotonic() - started < 2

@@ -294,6 +294,61 @@ def secret_value_is_placeholder(finding: dict) -> bool:
     return all(_one(text) for text in texts)
 
 
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes"}
+    return bool(value)
+
+
+def apply_guardian_judgments(findings: Any, judgments: Any) -> dict:
+    """Drop blocking hits a later agent judged to be false positives.
+
+    ``judgments`` items are ``{index, valid_secret, reason}``. A missing
+    judgment keeps the hit. Prefix-backed tokens and git-userinfo URLs
+    stay blocking even when the agent says the hit is not a secret.
+    """
+    decided: dict[int, dict] = {}
+    if isinstance(judgments, list):
+        for item in judgments:
+            if not isinstance(item, dict) or "index" not in item:
+                continue
+            try:
+                decided[int(item["index"])] = item
+            except (TypeError, ValueError):
+                continue
+    kept: list = []
+    notes: list[dict] = []
+    if not isinstance(findings, list):
+        return {"kept": [], "notes": []}
+    for index, finding in enumerate(findings):
+        if not isinstance(finding, dict):
+            continue
+        decision = decided.get(index)
+        valid = True if decision is None else _as_bool(decision.get("valid_secret"))
+        locked = finding_has_prefix_token(finding) or guardian_secret_type(finding) == "credentials-in-git-url"
+        if locked:
+            valid = True
+        reason = ""
+        if isinstance(decision, dict):
+            reason = str(decision.get("reason") or "")
+        elif locked:
+            reason = "prefix-backed token or git userinfo stays blocking"
+        else:
+            reason = "no agent judgment; kept"
+        notes.append(
+            {
+                "index": index,
+                "rule_id": str(finding.get("rule_id") or ""),
+                "valid_secret": valid,
+                "kept": valid,
+                "reason": reason,
+            }
+        )
+        if valid:
+            kept.append(finding)
+    return {"kept": kept, "notes": notes}
+
+
 def blocking_guardian_findings(
     findings: Any,
     rule_ids: Any,
@@ -337,4 +392,5 @@ class FilterModule:
             "secret_value_is_placeholder": secret_value_is_placeholder,
             "finding_has_prefix_token": finding_has_prefix_token,
             "blocking_guardian_findings": blocking_guardian_findings,
+            "apply_guardian_judgments": apply_guardian_judgments,
         }

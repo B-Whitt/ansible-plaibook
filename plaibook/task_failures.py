@@ -59,6 +59,12 @@ _DASH_USER_QUOTED = re.compile(
 _DASH_USER = re.compile(
     rf"(?i)((?:-u|--user)(?:\s+|=))([^\s:]+:\s*){_SECRET_VALUE}",
 )
+# --token SECRET and --password "alpha beta". Assignment form (--password=SECRET)
+# is already covered. Underscores in key names are also hyphens on the CLI.
+_CLI_KEY = _CREDENTIAL_KEYS.replace("_", "[-_]")
+_CLI_SECRET_OPT = re.compile(
+    rf"(?i)(--(?:[A-Za-z0-9]+[-_])*(?:{_CLI_KEY}))(\s+){_SECRET_VALUE}",
+)
 # CSI, OSC, and other ECMA-48 sequences, plus C1 CSI (U+009B).
 _ANSI = re.compile(
     r"(?:\x1b[@-Z\\-_]"
@@ -82,6 +88,7 @@ def _redact_display_text(text: object) -> str:
     raw = _BEARER.sub(r"\1***", raw)
     raw = _DASH_USER_QUOTED.sub(r"\1***", raw)
     raw = _DASH_USER.sub(r"\1\2***", raw)
+    raw = _CLI_SECRET_OPT.sub(r"\1\2***", raw)
     return _SECRET_ASSIGN.sub(r"\1\2***", raw)
 
 
@@ -242,7 +249,13 @@ def write_task_failures(path: str, text: str) -> bool:
     resolved = allowed_task_failures_path(path)
     if resolved is None:
         return False
-    flags = os.O_WRONLY | os.O_NOFOLLOW | os.O_TRUNC | getattr(os, "O_CLOEXEC", 0)
+    flags = (
+        os.O_WRONLY
+        | os.O_NOFOLLOW
+        | os.O_TRUNC
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
     fd = -1
     try:
         fd = os.open(resolved, flags)
@@ -282,7 +295,9 @@ _READ_LIMIT = 128_000
 def read_task_failures_log(path: str) -> str:
     """Log text, or empty when the file is missing, unsafe, or only whitespace.
 
-    Open with ``O_NOFOLLOW`` and the same owner/mode checks as the writer.
+    Open with ``O_NOFOLLOW`` and ``O_NONBLOCK`` and the same owner/mode
+    checks as the writer. A FIFO would otherwise block in open before
+    the regular-file check.
     The playbook process can see ``PLAIBOOK_TASK_FAILURES_LOG`` and replace
     that path before the CLI reads it. Following a symlink would print the
     target.
@@ -292,7 +307,12 @@ def read_task_failures_log(path: str) -> str:
     resolved = allowed_task_failures_path(path)
     if resolved is None:
         return ""
-    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    flags = (
+        os.O_RDONLY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
     fd = -1
     try:
         fd = os.open(resolved, flags)
