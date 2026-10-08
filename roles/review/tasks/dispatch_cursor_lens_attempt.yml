@@ -23,34 +23,60 @@
           {{ review_structured_output_max_attempts }}
           (agent_family=cursor)
 
-    # Redispatch only a start that ended with no module payload (for
-    # example "database is locked"). A result that already has status,
-    # usage, or structured_tool_calls is the original job: bind it.
-    # finished=false means the wait gave up while that job is still
-    # running; do not start a second agent on top of it.
+    # A start with no module payload is not a missing tool call.
+    # "database is locked" is the two-bridge collision: dispatch once
+    # more now that the other lens is done. Any other start failure
+    # (Network request failed) is the Cursor process, not the model.
+    # Do not spend the structured-output attempts on it.
+    # A result that already has status, usage, or structured_tool_calls
+    # is the original job: bind it. finished=false means the wait gave
+    # up while that job is still running.
     # The wait task must not use failed_when: false — that conditional
     # overwrites failed and a msg-only start error is then bound as the
     # lens result.
+    - name: "Cursor: decide whether {{ cursor_nonce_lens_label }} failed before it produced a result"
+      ansible.builtin.set_fact:
+        _cursor_lens_start_failure: >-
+          {{
+            cursor_lens_preregistered_raw is defined
+            and (cursor_lens_preregistered_raw.failed | default(false) | bool)
+            and (cursor_lens_preregistered_raw.finished | default(true) | bool)
+            and cursor_lens_preregistered_raw.usage_normalized is not defined
+            and cursor_lens_preregistered_raw.status is not defined
+            and cursor_lens_preregistered_raw.structured_tool_calls is not defined
+          }}
+
     - name: "Cursor: decide whether {{ cursor_nonce_lens_label }} still needs an agent"
       ansible.builtin.set_fact:
         _cursor_lens_needs_dispatch: >-
           {{
             cursor_lens_preregistered_raw is not defined
             or (
-              (cursor_lens_preregistered_raw.failed | default(false) | bool)
-              and (cursor_lens_preregistered_raw.finished | default(true) | bool)
-              and cursor_lens_preregistered_raw.usage_normalized is not defined
-              and cursor_lens_preregistered_raw.status is not defined
-              and cursor_lens_preregistered_raw.structured_tool_calls is not defined
+              (_cursor_lens_start_failure | bool)
+              and ('database is locked' in (cursor_lens_preregistered_raw.msg | default('')))
             )
           }}
 
-    - name: "Cursor: do not retry {{ cursor_nonce_lens_label }} while the original job is still running"
+    - name: "Cursor: keep {{ cursor_nonce_lens_label }} start failure instead of launching again"
+      when: >-
+        (
+          (_cursor_lens_start_failure | bool)
+          and not (_cursor_lens_needs_dispatch | bool)
+        ) or (
+          cursor_lens_preregistered_raw is defined
+          and (cursor_lens_preregistered_raw.failed | default(false) | bool)
+          and not (cursor_lens_preregistered_raw.finished | default(true) | bool)
+        )
+      ansible.builtin.set_fact:
+        _cursor_lens_attempt_raw: "{{ cursor_lens_preregistered_raw }}"
+        "{{ cursor_lens_valid_var }}": false
+        "{{ cursor_lens_fail_var }}": "{{ cursor_lens_preregistered_raw.msg | default('Cursor agent failed to start') }}"
+
+    - name: "Cursor: do not spend more attempts on a {{ cursor_nonce_lens_label }} start failure"
       when:
         - cursor_lens_hold_var is defined
-        - cursor_lens_preregistered_raw is defined
-        - cursor_lens_preregistered_raw.failed | default(false) | bool
-        - not (cursor_lens_preregistered_raw.finished | default(true) | bool)
+        - (_cursor_lens_start_failure | bool) or (cursor_lens_preregistered_raw is defined and (cursor_lens_preregistered_raw.failed | default(false) | bool) and not (cursor_lens_preregistered_raw.finished | default(true) | bool))
+        - not (_cursor_lens_needs_dispatch | bool)
       ansible.builtin.set_fact:
         "{{ cursor_lens_hold_var }}": true
 
@@ -102,6 +128,17 @@
         cursor_attempt_raw: "{{ _cursor_lens_attempt_raw }}"
 
     - name: "Cursor: bind {{ cursor_nonce_lens_label }} named-lens execute"
+      when: >-
+        not (
+          (
+            (_cursor_lens_start_failure | default(false) | bool)
+            and not (_cursor_lens_needs_dispatch | bool)
+          ) or (
+            cursor_lens_preregistered_raw is defined
+            and (cursor_lens_preregistered_raw.failed | default(false) | bool)
+            and not (cursor_lens_preregistered_raw.finished | default(true) | bool)
+          )
+        )
       ansible.builtin.include_tasks: bind_cursor_named_lens.yml
       vars:
         cursor_raw: "{{ _cursor_lens_attempt_raw }}"
@@ -142,3 +179,14 @@
       ansible.builtin.set_fact:
         "{{ cursor_lens_valid_var }}": false
         "{{ cursor_lens_fail_var }}": "{{ ansible_failed_result.msg | default('named lens dispatch failed') }}"
+
+    # A launch that died before it produced status, usage, or tool calls
+    # will fail the same way on the next structured-output attempt.
+    - name: "Cursor: do not repeat a {{ cursor_nonce_lens_label }} start failure"
+      when:
+        - cursor_lens_hold_var is defined
+        - ansible_failed_result.usage_normalized is not defined
+        - ansible_failed_result.status is not defined
+        - ansible_failed_result.structured_tool_calls is not defined
+      ansible.builtin.set_fact:
+        "{{ cursor_lens_hold_var }}": true

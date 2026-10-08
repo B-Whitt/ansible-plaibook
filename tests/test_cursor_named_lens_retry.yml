@@ -772,3 +772,61 @@
               hold={{ security_cursor_lens_hold | default(false) }}
               raw_msg={{ _cursor_security_raw.msg | default('') }}
             success_msg: "Timed-out wait did not start another agent."
+
+    - name: A network start failure is kept and not launched again
+      block:
+        - name: Reset network-start bind flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            security_cursor_lens_hold: false
+            security_cursor_lens_last_fail: ""
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Write a stub that must not run for a network failure
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ {'status': 'finished', 'msg': 'stub must not run'} | to_json }}"
+
+        - name: Bind a start that failed with a network error
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_preregistered_raw:
+              failed: true
+              finished: true
+              msg: "Cursor agent failed to start: internal: Network request failed"
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+            cursor_lens_hold_var: security_cursor_lens_hold
+
+        - name: Confirm the network failure was not retried
+          ansible.builtin.assert:
+            that:
+              - not (security_cursor_lens_valid | bool)
+              - security_cursor_lens_hold | bool
+              - not (_cursor_security_raw.stub | default(false) | bool)
+              - "'Network request failed' in (security_cursor_lens_last_fail | default(''))"
+              - "'stub must not run' not in (security_cursor_lens_last_fail | default(''))"
+              - "'no nested' not in (security_cursor_lens_last_fail | default('') | lower)"
+              - pipeline_agent_calls | default([]) | length == 0
+            fail_msg: >-
+              A network start failure must be reported once, not launched again.
+              valid={{ security_cursor_lens_valid | default('') }}
+              hold={{ security_cursor_lens_hold | default(false) }}
+              fail={{ security_cursor_lens_last_fail | default('') }}
+            success_msg: "Network start failure was kept and not launched again."

@@ -23,7 +23,6 @@
         review_cursor_sidecar_wanted: >-
           {{
             (agent_family | default('')) == 'cursor'
-            and (lookup('ansible.builtin.env', 'CURSOR_AGENT') == '1')
             and not (
               (
                 (lookup('ansible.builtin.env', 'CURSOR_SDK_BRIDGE_URL') | length > 0)
