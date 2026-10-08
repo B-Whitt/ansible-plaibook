@@ -177,9 +177,13 @@ jobs:
       - name: Install ansible-core ${{ matrix.ansible-core }}
         run: uv pip install --python .venv "ansible-core==${{ matrix.ansible-core }}"
 
+      # uv run syncs uv.lock before the command and puts the locked
+      # ansible-core back (2.19.13 on Python 3.11+). --no-sync keeps the
+      # pin from the previous step. Python 3.10 already locks 2.16, which
+      # is why that one cell passed without this flag.
       - name: Confirm ansible-core version
         run: |
-          got="$(uv run --python ${{ matrix.python-version }} python -c 'import ansible; print(ansible.__version__)')"
+          got="$(uv run --no-sync --python ${{ matrix.python-version }} python -c 'import ansible; print(ansible.__version__)')"
           echo "ansible-core ${got}"
           test "${got}" = "${{ matrix.ansible-core }}"
 
@@ -198,9 +202,9 @@ jobs:
           dest="${PLAIBOOK_COLLECTIONS_DEST}"
           mkdir -p "$dest"
           echo "ANSIBLE_COLLECTIONS_PATH=${dest}" >> "$GITHUB_ENV"
-          uv run --python "${{ matrix.python-version }}" python scripts/ci-install-collections.py
+          uv run --no-sync --python "${{ matrix.python-version }}" python scripts/ci-install-collections.py
 
       - name: Run offline Ansible playbook tests
         env:
           ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/plaibook-collections
-        run: uv run --python ${{ matrix.python-version }} ./scripts/run_playbook_tests.sh
+        run: uv run --no-sync --python ${{ matrix.python-version }} ./scripts/run_playbook_tests.sh
