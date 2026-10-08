@@ -830,3 +830,63 @@
               hold={{ security_cursor_lens_hold | default(false) }}
               fail={{ security_cursor_lens_last_fail | default('') }}
             success_msg: "Network start failure was kept and not launched again."
+
+    - name: A post-start miss does not hold the retry
+      block:
+        - name: Reset post-start miss flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            security_cursor_lens_hold: false
+            security_cursor_lens_last_fail: ""
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Bind a finished failure that has usage and no nested execute
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_preregistered_raw:
+              failed: true
+              finished: true
+              msg: "Cursor run finished with status error (run_id=run-miss)"
+              status: error
+              resolved_model: gpt-5.6-luna
+              usage_normalized:
+                input_tokens: 11
+                output_tokens: 1
+                cache_write_tokens: 0
+                cache_read_tokens: 0
+                thinking_tokens: 0
+                total_tokens: 12
+              structured_tool_calls: []
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+            cursor_lens_hold_var: security_cursor_lens_hold
+
+        - name: Confirm the miss did not hold retries
+          ansible.builtin.assert:
+            that:
+              - not (security_cursor_lens_valid | bool)
+              - not (security_cursor_lens_hold | bool)
+              - "'no nested' in (security_cursor_lens_last_fail | default('') | lower)"
+              - pipeline_agent_calls | length == 1
+              - pipeline_agent_calls[0].usage.input_tokens | int == 11
+            fail_msg: >-
+              A post-start miss must stay retryable.
+              valid={{ security_cursor_lens_valid | default('') }}
+              hold={{ security_cursor_lens_hold | default('') }}
+              fail={{ security_cursor_lens_last_fail | default('') }}
+            success_msg: "Post-start miss did not hold the retry."

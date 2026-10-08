@@ -41,6 +41,17 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "password=***" in forms
     assert "Authorization: Bearer ***" in forms
     assert "-u alice:***" in forms
+    prefixed = clean_failure_message(
+        "GITHUB_TOKEN=valueone CURSOR_API_KEY=valuetwo "
+        "AWS_SECRET_ACCESS_KEY=valuethree DB_PASSWORD=valuefour "
+        "Authorization: token valuefive"
+    )
+    for leaked in ("valueone", "valuetwo", "valuethree", "valuefour", "valuefive"):
+        assert leaked not in prefixed
+    assert "GITHUB_TOKEN=***" in prefixed
+    assert "CURSOR_API_KEY=***" in prefixed
+    assert "DB_PASSWORD=***" in prefixed
+    assert "Authorization: token ***" in prefixed
 
 
 def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):

@@ -65,6 +65,8 @@
   ansible.builtin.set_fact:
     security_cursor_lens_valid: false
     review_cursor_lens_valid: false
+    security_cursor_lens_hold: false
+    review_cursor_lens_hold: false
 
 - name: "Cursor: start the Security agent"
   action: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"

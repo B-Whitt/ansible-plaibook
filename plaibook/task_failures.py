@@ -21,18 +21,20 @@ _MESSAGE_LIMIT = 800
 _FIELD_LIMIT = 500
 # Userinfo may contain extra colons (user:p:ass). Stop at @, slash, or space.
 _USERINFO = re.compile(r"://[^@/\s]+@")
+# Longer keys first so api_key wins over key.
 _CREDENTIAL_KEYS = (
-    "token|access_token|private_token|api_key|key|password|passwd|secret|"
-    "client_secret|signature|sig|credential|auth|id_token|refresh_token"
+    "access_token|private_token|client_secret|id_token|refresh_token|api_key|"
+    "password|passwd|signature|credential|secret|token|sig|auth|key"
 )
 _TOKEN_QUERY = re.compile(
     rf"(?i)([?&#](?:{_CREDENTIAL_KEYS})=)[^&#\s]*",
 )
+# ENV_STYLE names (GITHUB_TOKEN, DB_PASSWORD) have no word boundary before the key.
 _SECRET_ASSIGN = re.compile(
-    rf"(?i)\b({_CREDENTIAL_KEYS})\b(\s*[=:]\s*)\S+",
+    rf"(?i)((?:[A-Za-z0-9]+_)*(?:{_CREDENTIAL_KEYS}))(\s*[=:]\s*)\S+",
 )
 _AUTH_HEADER = re.compile(
-    r"(?i)(authorization\s*[:=]\s*(?:bearer|basic)\s+)\S+",
+    r"(?i)(authorization\s*[:=]\s*(?:bearer|basic|token)\s+)\S+",
 )
 _BEARER = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]{8,}")
 _DASH_USER = re.compile(r"(?i)((?:-u|--user)\s+)([^\s:]+:)\S+")
