@@ -133,3 +133,23 @@ def test_write_rejects_unsafe_paths_and_roundtrips_a_private_log(tmp_path, monke
     assert not os.path.exists(path)
     assert not os.path.exists(parent)
     assert secret.read_text(encoding="utf-8") == "super-secret-token-value"
+
+
+def test_oversized_failure_log_is_truncated_and_kept(tmp_path, monkeypatch):
+    monkeypatch.setattr("plaibook.task_failures._READ_LIMIT", 40)
+    parent, path = create_task_failures_log(directory=str(tmp_path))
+    payload = b"planned failure for the error log\n" * 8
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+    try:
+        os.write(fd, payload)
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+    text = read_task_failures_log(path)
+    assert text.startswith("planned failure")
+    assert "ghs_secret" not in text
+    assert text.rstrip().endswith("… failure log truncated")
+    assert len(text.encode("utf-8")) < len(payload)
+    discard_empty_task_failure_log(path)
+    assert os.path.exists(path)
+    assert os.path.isdir(parent)

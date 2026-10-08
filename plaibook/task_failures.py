@@ -262,8 +262,7 @@ def read_task_failures_log(path: str) -> str:
             return ""
         if stat.S_IMODE(info.st_mode) & 0o077:
             return ""
-        if info.st_size > _READ_LIMIT:
-            return ""
+        truncated = info.st_size > _READ_LIMIT
         chunks: list[bytes] = []
         remaining = _READ_LIMIT
         while remaining > 0:
@@ -273,6 +272,8 @@ def read_task_failures_log(path: str) -> str:
             chunks.append(data)
             remaining -= len(data)
         text = b"".join(chunks).decode("utf-8", errors="replace")
+        if truncated:
+            text = text.rstrip() + "\n… failure log truncated\n"
     except OSError:
         return ""
     finally:
