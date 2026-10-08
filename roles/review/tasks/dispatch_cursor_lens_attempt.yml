@@ -23,14 +23,36 @@
           {{ review_structured_output_max_attempts }}
           (agent_family=cursor)
 
-    # A job that failed to start is not a finished lens. Dispatch again
-    # now that its sibling is done and the local Cursor database is free.
-    # This reads the module's failed flag. The wait task must not use
-    # failed_when: false — that conditional overwrites failed and a
-    # msg-only start error is then bound as the lens result.
+    # Redispatch only a start that ended with no module payload (for
+    # example "database is locked"). A result that already has status,
+    # usage, or structured_tool_calls is the original job: bind it.
+    # finished=false means the wait gave up while that job is still
+    # running; do not start a second agent on top of it.
+    # The wait task must not use failed_when: false — that conditional
+    # overwrites failed and a msg-only start error is then bound as the
+    # lens result.
     - name: "Cursor: decide whether {{ cursor_nonce_lens_label }} still needs an agent"
       ansible.builtin.set_fact:
-        _cursor_lens_needs_dispatch: "{{ cursor_lens_preregistered_raw is not defined or (cursor_lens_preregistered_raw.failed | default(false) | bool) }}"
+        _cursor_lens_needs_dispatch: >-
+          {{
+            cursor_lens_preregistered_raw is not defined
+            or (
+              (cursor_lens_preregistered_raw.failed | default(false) | bool)
+              and (cursor_lens_preregistered_raw.finished | default(true) | bool)
+              and cursor_lens_preregistered_raw.usage_normalized is not defined
+              and cursor_lens_preregistered_raw.status is not defined
+              and cursor_lens_preregistered_raw.structured_tool_calls is not defined
+            )
+          }}
+
+    - name: "Cursor: do not retry {{ cursor_nonce_lens_label }} while the original job is still running"
+      when:
+        - cursor_lens_hold_var is defined
+        - cursor_lens_preregistered_raw is defined
+        - cursor_lens_preregistered_raw.failed | default(false) | bool
+        - not (cursor_lens_preregistered_raw.finished | default(true) | bool)
+      ansible.builtin.set_fact:
+        "{{ cursor_lens_hold_var }}": true
 
     - name: "Cursor: use the already finished {{ cursor_nonce_lens_label }} agent"
       when: not (_cursor_lens_needs_dispatch | bool)

@@ -19,11 +19,23 @@ LOG_SUFFIX = ".log"
 ENV_LOG = "PLAIBOOK_TASK_FAILURES_LOG"
 _MESSAGE_LIMIT = 800
 _FIELD_LIMIT = 500
-_USERINFO = re.compile(r"://[^/\s:@]+:[^/\s@]+@")
-_TOKEN_QUERY = re.compile(
-    r"([?&](?:token|access_token|private_token|api_key|key)=)[^&\s]*",
-    re.IGNORECASE,
+# Userinfo may contain extra colons (user:p:ass). Stop at @, slash, or space.
+_USERINFO = re.compile(r"://[^@/\s]+@")
+_CREDENTIAL_KEYS = (
+    "token|access_token|private_token|api_key|key|password|passwd|secret|"
+    "client_secret|signature|sig|credential|auth|id_token|refresh_token"
 )
+_TOKEN_QUERY = re.compile(
+    rf"(?i)([?&#](?:{_CREDENTIAL_KEYS})=)[^&#\s]*",
+)
+_SECRET_ASSIGN = re.compile(
+    rf"(?i)\b({_CREDENTIAL_KEYS})\b(\s*[=:]\s*)\S+",
+)
+_AUTH_HEADER = re.compile(
+    r"(?i)(authorization\s*[:=]\s*(?:bearer|basic)\s+)\S+",
+)
+_BEARER = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]{8,}")
+_DASH_USER = re.compile(r"(?i)((?:-u|--user)\s+)([^\s:]+:)\S+")
 # CSI, OSC, and other ECMA-48 sequences, plus C1 CSI (U+009B).
 _ANSI = re.compile(
     r"(?:\x1b[@-Z\\-_]"
@@ -41,7 +53,11 @@ def _redact_display_text(text: object) -> str:
     raw = _ANSI.sub("", raw)
     raw = _C0_C1.sub("", raw)
     raw = _USERINFO.sub("://***@", raw)
-    return _TOKEN_QUERY.sub(r"\1***", raw)
+    raw = _TOKEN_QUERY.sub(r"\1***", raw)
+    raw = _AUTH_HEADER.sub(r"\1***", raw)
+    raw = _BEARER.sub(r"\1***", raw)
+    raw = _DASH_USER.sub(r"\1\2***", raw)
+    return _SECRET_ASSIGN.sub(r"\1\2***", raw)
 
 
 def sanitize_failure_field(text: object, *, limit: int = _FIELD_LIMIT) -> str:
@@ -272,6 +288,9 @@ def read_task_failures_log(path: str) -> str:
             chunks.append(data)
             remaining -= len(data)
         text = b"".join(chunks).decode("utf-8", errors="replace")
+        # The playbook can overwrite this file after the callback writes it.
+        # Sanitize again at read time so quiet mode does not print raw bytes.
+        text = _redact_display_text(text)
         if truncated:
             text = text.rstrip() + "\n… failure log truncated\n"
     except OSError:

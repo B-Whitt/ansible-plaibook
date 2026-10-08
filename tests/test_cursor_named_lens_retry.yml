@@ -645,3 +645,130 @@
               valid={{ security_cursor_lens_valid | default('') }}
               raw={{ _cursor_security_raw | default({}) }}
             success_msg: "Failed start was dispatched again and bound."
+
+    - name: A finished failure that already has a nested execute is not dispatched again
+      block:
+        - name: Reset post-start bind flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            security_cursor_lens_hold: false
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Write a stub that must not run
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ {'failed': true, 'msg': 'stub must not run'} | to_json }}"
+
+        - name: Bind a failed module result that already has the nested execute
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_preregistered_raw:
+              failed: true
+              finished: true
+              msg: "Cursor run finished with status error (run_id=run-kept)"
+              status: error
+              resolved_model: gpt-5.6-luna
+              usage_normalized:
+                input_tokens: 30
+                output_tokens: 4
+                cache_write_tokens: 0
+                cache_read_tokens: 0
+                thinking_tokens: 0
+                total_tokens: 34
+              structured_tool_calls:
+                - name: report_findings
+                  caller: nested
+                  agent_id:
+                  args: "{{ _nested_lens_args }}"
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+            cursor_lens_hold_var: security_cursor_lens_hold
+
+        - name: Confirm the original nested execute was kept
+          ansible.builtin.assert:
+            that:
+              - security_cursor_lens_valid | bool
+              - _cursor_security_lens.findings[0].file == "lens.py"
+              - not (_cursor_security_raw.stub | default(false) | bool)
+              - "'stub must not run' not in (_cursor_security_raw.msg | default(''))"
+              - pipeline_agent_calls | length == 1
+              - pipeline_agent_calls[0].usage.input_tokens | int == 30
+              - not (security_cursor_lens_hold | bool)
+            fail_msg: >-
+              A failed result that already has a nested execute must bind.
+              valid={{ security_cursor_lens_valid | default('') }}
+              raw_msg={{ _cursor_security_raw.msg | default('') }}
+              calls={{ pipeline_agent_calls | default([]) }}
+            success_msg: "Post-start failure kept its nested execute."
+
+    - name: A wait that times out does not start another agent
+      block:
+        - name: Reset timeout bind flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            security_cursor_lens_hold: false
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Write a stub that must not run for a timeout
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ {'status': 'finished', 'msg': 'stub must not run'} | to_json }}"
+
+        - name: Bind a wait that ended while the job was still running
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_preregistered_raw:
+              failed: true
+              finished: false
+              msg: "async wait exhausted"
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+            cursor_lens_hold_var: security_cursor_lens_hold
+
+        - name: Confirm the timeout did not dispatch
+          ansible.builtin.assert:
+            that:
+              - not (security_cursor_lens_valid | bool)
+              - security_cursor_lens_hold | bool
+              - not (_cursor_security_raw.stub | default(false) | bool)
+              - "'async wait exhausted' in (_cursor_security_raw.msg | default(''))"
+              - "'stub must not run' not in (_cursor_security_raw.msg | default(''))"
+              - pipeline_agent_calls | default([]) | length == 0
+            fail_msg: >-
+              A still-running job must not be replaced by a new dispatch.
+              valid={{ security_cursor_lens_valid | default('') }}
+              hold={{ security_cursor_lens_hold | default(false) }}
+              raw_msg={{ _cursor_security_raw.msg | default('') }}
+            success_msg: "Timed-out wait did not start another agent."

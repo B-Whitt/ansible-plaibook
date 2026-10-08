@@ -29,6 +29,39 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert len(clean_failure_message("x" * 900)) == 800
     assert clean_failure_message("") == "task failed"
     assert "\x1b" not in clean_failure_message("boom\x1b[31m")
+    colon_password = clean_failure_message("clone https://user:p:ass@github.com/org/repo")
+    assert "p:ass" not in colon_password
+    assert "://***@" in colon_password
+    forms = clean_failure_message(
+        "fail password=hunter2 secret=s3cret client_secret=abc signature=sigval "
+        "Authorization: Bearer bearer-token-value -u alice:s3cret"
+    )
+    for leaked in ("hunter2", "s3cret", "abc", "sigval", "bearer-token-value"):
+        assert leaked not in forms
+    assert "password=***" in forms
+    assert "Authorization: Bearer ***" in forms
+    assert "-u alice:***" in forms
+
+
+def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):
+    monkeypatch.setattr("plaibook.task_failures._READ_LIMIT", 4000)
+    _parent, path = create_task_failures_log(directory=str(tmp_path))
+    poisoned = (
+        "\x1b[31mhttps://user:p:ass@github.com/org/repo?password=hunter2\n"
+        "Authorization: Bearer bearer-token-value\n"
+    )
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+    try:
+        os.write(fd, poisoned.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+    text = read_task_failures_log(path)
+    assert "\x1b" not in text
+    assert "p:ass" not in text
+    assert "hunter2" not in text
+    assert "bearer-token-value" not in text
+    assert "://***@" in text
 
 
 def test_note_failure_sanitizes_task_path_and_host():

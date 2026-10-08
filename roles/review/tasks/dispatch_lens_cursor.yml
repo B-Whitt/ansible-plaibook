@@ -160,6 +160,7 @@
     cursor_lens_fail_var: security_cursor_lens_last_fail
     cursor_lens_raw_var: _cursor_security_raw
     cursor_lens_stats_name: security
+    cursor_lens_hold_var: security_cursor_lens_hold
 
 - name: "Cursor: retry the Security agent if the named lens did not bind"
   ansible.builtin.include_tasks: dispatch_cursor_lens_attempt.yml
@@ -178,7 +179,10 @@
     cursor_lens_fail_var: security_cursor_lens_last_fail
     cursor_lens_raw_var: _cursor_security_raw
     cursor_lens_stats_name: security
-  when: not security_cursor_lens_valid
+    cursor_lens_hold_var: security_cursor_lens_hold
+  when:
+    - not (security_cursor_lens_valid | bool)
+    - not (security_cursor_lens_hold | default(false) | bool)
 
 - name: "Cursor: show the Review agent's request configuration"
   ansible.builtin.debug:
@@ -209,6 +213,7 @@
     cursor_lens_fail_var: review_cursor_lens_last_fail
     cursor_lens_raw_var: _cursor_review_raw
     cursor_lens_stats_name: review
+    cursor_lens_hold_var: review_cursor_lens_hold
 
 - name: "Cursor: retry the Review agent if the named lens did not bind"
   ansible.builtin.include_tasks: dispatch_cursor_lens_attempt.yml
@@ -227,7 +232,10 @@
     cursor_lens_fail_var: review_cursor_lens_last_fail
     cursor_lens_raw_var: _cursor_review_raw
     cursor_lens_stats_name: review
-  when: not review_cursor_lens_valid
+    cursor_lens_hold_var: review_cursor_lens_hold
+  when:
+    - not (review_cursor_lens_valid | bool)
+    - not (review_cursor_lens_hold | default(false) | bool)
 
 # Build whichever sibling bound before the trust checkpoint so a Review
 # miss does not throw Security findings or usage away.
