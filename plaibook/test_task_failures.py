@@ -84,9 +84,15 @@ def test_write_rejects_unsafe_paths_and_roundtrips_a_private_log(tmp_path, monke
     os.chmod(parent, 0o755)
     assert allowed_task_failures_path(path) is None
     os.chmod(parent, 0o700)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("super-secret-token-value", encoding="utf-8")
     os.unlink(path)
-    open(path, "w", encoding="utf-8").close()
-    os.chmod(path, 0o600)
+    os.symlink(secret, path)
+    assert read_task_failures_log(path) == ""
+    os.unlink(path)
+    fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    os.close(fd)
     discard_empty_task_failure_log(path)
     assert not os.path.exists(path)
     assert not os.path.exists(parent)
+    assert secret.read_text(encoding="utf-8") == "super-secret-token-value"

@@ -202,14 +202,52 @@ def write_task_failures(path: str, text: str) -> bool:
                 pass
 
 
+_READ_LIMIT = 128_000
+
+
 def read_task_failures_log(path: str) -> str:
-    """Log text, or empty when the file is missing or only whitespace."""
-    if not path:
+    """Log text, or empty when the file is missing, unsafe, or only whitespace.
+
+    Open with ``O_NOFOLLOW`` and the same owner/mode checks as the writer.
+    The playbook process can see ``PLAIBOOK_TASK_FAILURES_LOG`` and replace
+    that path before the CLI reads it. Following a symlink would print the
+    target.
+    """
+    if not path or not hasattr(os, "O_NOFOLLOW"):
         return ""
+    resolved = allowed_task_failures_path(path)
+    if resolved is None:
+        return ""
+    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    fd = -1
     try:
-        text = open(path, encoding="utf-8").read()
+        fd = os.open(resolved, flags)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            return ""
+        if info.st_uid != os.geteuid():
+            return ""
+        if stat.S_IMODE(info.st_mode) & 0o077:
+            return ""
+        if info.st_size > _READ_LIMIT:
+            return ""
+        chunks: list[bytes] = []
+        remaining = _READ_LIMIT
+        while remaining > 0:
+            data = os.read(fd, min(65536, remaining))
+            if not data:
+                break
+            chunks.append(data)
+            remaining -= len(data)
+        text = b"".join(chunks).decode("utf-8", errors="replace")
     except OSError:
         return ""
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
     return text if text.strip() else ""
 
 
