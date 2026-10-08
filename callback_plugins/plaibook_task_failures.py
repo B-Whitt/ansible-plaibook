@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 
+from ansible.errors import AnsibleError
 from ansible.plugins.callback import CallbackBase
 
 try:
@@ -85,7 +86,7 @@ class CallbackModule(CallbackBase):
             if callable(get_path):
                 try:
                     path = str(get_path() or "")
-                except Exception:
+                except (AttributeError, OSError, TypeError, ValueError, AnsibleError):
                     path = ""
             if not ignored:
                 ignored = bool(getattr(task, "ignore_errors", False))

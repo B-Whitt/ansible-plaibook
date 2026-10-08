@@ -31,6 +31,25 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "\x1b" not in clean_failure_message("boom\x1b[31m")
 
 
+def test_note_failure_sanitizes_task_path_and_host():
+    secret = "https://x-access-token:ghs_secret@github.com/org/repo.git?token=ghs_secret"
+    failures: list[dict[str, str]] = []
+    note_failure(
+        failures,
+        task=f"Clone {secret}\nFAKE FAILURE",
+        message="planned failure",
+        path=f"{secret}\x1b[31m",
+        host=f"host\x1b[2J{secret}",
+    )
+    report = render_task_failures(failures)
+    assert "ghs_secret" not in report
+    assert "\nFAKE FAILURE" not in report
+    assert "\x1b" not in report
+    assert "://***@" in report
+    assert "token=***" in report
+    assert report.count("\n- ") == 1
+
+
 def test_render_is_empty_without_failures_and_lists_them_otherwise():
     assert render_task_failures([]) == ""
     failures: list[dict[str, str]] = []
@@ -80,6 +99,24 @@ def test_write_rejects_unsafe_paths_and_roundtrips_a_private_log(tmp_path, monke
     )
     assert write_task_failures(path, report)
     assert "database is locked" in read_task_failures_log(path)
+
+    real_write = os.write
+
+    def short_write(fd: int, data: bytes | memoryview) -> int:
+        raw = data.tobytes() if isinstance(data, memoryview) else data
+        return real_write(fd, raw[:3])
+
+    monkeypatch.setattr(os, "write", short_write)
+    assert write_task_failures(path, "abcdefghijklmnopqrstuvwxyz")
+    assert read_task_failures_log(path) == "abcdefghijklmnopqrstuvwxyz"
+
+    def zero_write(fd: int, data: bytes | memoryview) -> int:
+        del fd, data
+        return 0
+
+    monkeypatch.setattr(os, "write", zero_write)
+    assert write_task_failures(path, "still-there") is False
+    assert read_task_failures_log(path) == ""
     assert write_task_failures(path, "   ") is False
     os.chmod(parent, 0o755)
     assert allowed_task_failures_path(path) is None

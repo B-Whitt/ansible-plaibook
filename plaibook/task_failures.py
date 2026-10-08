@@ -18,22 +18,44 @@ LOG_PREFIX = "plaibook-task-failures-"
 LOG_SUFFIX = ".log"
 ENV_LOG = "PLAIBOOK_TASK_FAILURES_LOG"
 _MESSAGE_LIMIT = 800
+_FIELD_LIMIT = 500
 _USERINFO = re.compile(r"://[^/\s:@]+:[^/\s@]+@")
 _TOKEN_QUERY = re.compile(
     r"([?&](?:token|access_token|private_token|api_key|key)=)[^&\s]*",
     re.IGNORECASE,
 )
-_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# CSI, OSC, and other ECMA-48 sequences, plus C1 CSI (U+009B).
+_ANSI = re.compile(
+    r"(?:\x1b[@-Z\\-_]"
+    r"|\x1b\[[0-?]*[ -/]*[@-~]"
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
+    r"|\x1b[PX^_].*?(?:\x1b\\|\x07)"
+    r"|\x9b[0-?]*[ -/]*[@-~])"
+)
+# C0 except TAB/LF, DEL, and C1. CR is removed so it cannot rewind the line.
+_C0_C1 = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _redact_display_text(text: object) -> str:
+    raw = text if isinstance(text, str) else ""
+    raw = _ANSI.sub("", raw)
+    raw = _C0_C1.sub("", raw)
+    raw = _USERINFO.sub("://***@", raw)
+    return _TOKEN_QUERY.sub(r"\1***", raw)
+
+
+def sanitize_failure_field(text: object, *, limit: int = _FIELD_LIMIT) -> str:
+    """One task name, path, or host. No extra lines, controls, or URL secrets."""
+    raw = _redact_display_text(text).replace("\t", " ").replace("\n", " ")
+    raw = " ".join(raw.split())
+    if len(raw) > limit:
+        raw = raw[: limit - 1] + "…"
+    return raw
 
 
 def clean_failure_message(text: object, *, limit: int = _MESSAGE_LIMIT) -> str:
     """One failure message, with URL secrets removed and length capped."""
-    raw = text if isinstance(text, str) else ""
-    raw = raw.replace("\x00", "")
-    raw = _ANSI.sub("", raw)
-    raw = _USERINFO.sub("://***@", raw)
-    raw = _TOKEN_QUERY.sub(r"\1***", raw)
-    raw = raw.strip()
+    raw = _redact_display_text(text).strip()
     if len(raw) > limit:
         raw = raw[: limit - 1] + "…"
     return raw or "task failed"
@@ -52,10 +74,10 @@ def note_failure(
     """Append one failure. ``kind`` is ``failed``, ``ignored``, or ``unreachable``."""
     failures.append(
         {
-            "task": (task or "unnamed task").strip() or "unnamed task",
+            "task": sanitize_failure_field(task) or "unnamed task",
             "message": clean_failure_message(message),
-            "path": (path or "").strip(),
-            "host": (host or "").strip(),
+            "path": sanitize_failure_field(path),
+            "host": sanitize_failure_field(host),
             "ignored": "true" if ignored else "false",
             "kind": kind if kind in {"failed", "ignored", "unreachable"} else "failed",
         }
@@ -74,13 +96,13 @@ def render_task_failures(failures: list[Mapping[str, str]], *, log_path: str = "
         kind = item.get("kind") or "failed"
         if item.get("ignored") == "true" and kind == "failed":
             kind = "ignored"
-        where = item.get("path") or ""
-        task = item.get("task") or "unnamed task"
+        where = sanitize_failure_field(item.get("path") or "")
+        task = sanitize_failure_field(item.get("task") or "") or "unnamed task"
         label = f"{task} ({where})" if where else task
-        host = item.get("host") or ""
+        host = sanitize_failure_field(item.get("host") or "")
         host_prefix = f"{host}: " if host else ""
         lines.append(f"- [{kind}] {host_prefix}{label}")
-        message = item.get("message") or "task failed"
+        message = clean_failure_message(item.get("message") or "")
         for message_line in message.splitlines() or ["task failed"]:
             lines.append(f"  {message_line}")
     return "\n".join(lines) + "\n"
@@ -190,9 +212,20 @@ def write_task_failures(path: str, text: str) -> bool:
             return False
         if stat.S_IMODE(info.st_mode) & 0o077:
             return False
-        os.write(fd, text.encode("utf-8"))
+        view = memoryview(text.encode("utf-8"))
+        while len(view) > 0:
+            written = os.write(fd, view)
+            if written <= 0:
+                os.ftruncate(fd, 0)
+                return False
+            view = view[written:]
         return True
     except OSError:
+        if fd >= 0:
+            try:
+                os.ftruncate(fd, 0)
+            except OSError:
+                pass
         return False
     finally:
         if fd >= 0:

@@ -15,6 +15,12 @@ jobs:
     # status checks on main. Jobs on any other runner include the OS.
     name: "${{ matrix.os == 'ubuntu-latest' && format('Test (Python {0})', matrix.python-version) || format('Test (Python {0}, {1})', matrix.python-version, matrix.os) }}"
     runs-on: ${{ matrix.os }}
+    # Actions injects GITHUB_TOKEN into every step. This job runs the
+    # pull request's own scripts. Blank the token so that code cannot
+    # read it. actions/checkout still gets github.token as its action
+    # input. Collection clones are public GitHub mirrors.
+    env:
+      GITHUB_TOKEN: ""
     strategy:
       fail-fast: false
       matrix:
@@ -54,7 +60,6 @@ jobs:
       - name: Install required collections
         env:
           GIT_TERMINAL_PROMPT: "0"
-          GITHUB_TOKEN: ${{ github.token }}
           PLAIBOOK_COLLECTIONS_DEST: ${{ runner.temp }}/plaibook-collections
         run: |
           dest="${PLAIBOOK_COLLECTIONS_DEST}"
@@ -143,6 +148,10 @@ jobs:
   ansible-compat:
     name: Ansible ${{ matrix.ansible-core }} (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    # Same token blank as the Test job. Do not pass github.token into
+    # scripts/ci-install-collections.py from the pull request.
+    env:
+      GITHUB_TOKEN: ""
     strategy:
       fail-fast: false
       matrix:
@@ -196,7 +205,6 @@ jobs:
       - name: Install required collections
         env:
           GIT_TERMINAL_PROMPT: "0"
-          GITHUB_TOKEN: ${{ github.token }}
           PLAIBOOK_COLLECTIONS_DEST: ${{ runner.temp }}/plaibook-collections
         run: |
           dest="${PLAIBOOK_COLLECTIONS_DEST}"
