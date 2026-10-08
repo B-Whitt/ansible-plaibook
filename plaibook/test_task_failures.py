@@ -52,6 +52,41 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "CURSOR_API_KEY=***" in prefixed
     assert "DB_PASSWORD=***" in prefixed
     assert "Authorization: token ***" in prefixed
+    quoted = clean_failure_message(
+        'PASSWORD="spa ce1" secret=\'spa ce2\' '
+        '"token": "spa ce3" '
+        "Authorization: Bearer \"spa ce4\" "
+        "Authorization: token 'spa ce5' "
+        'Authorization: "Bearer spa ce8" '
+        '-u "alice:spa ce6" --user \'bob:spa ce7\''
+    )
+    for leaked in (
+        "spa ce1",
+        "spa ce2",
+        "spa ce3",
+        "spa ce4",
+        "spa ce5",
+        "spa ce6",
+        "spa ce7",
+        "spa ce8",
+        "ce1",
+        "ce2",
+        "ce3",
+        "ce4",
+        "ce5",
+        "ce6",
+        "ce7",
+        "ce8",
+    ):
+        assert leaked not in quoted, leaked
+    assert "PASSWORD=***" in quoted
+    assert "secret=***" in quoted
+    assert '"token": ***' in quoted
+    assert "Authorization: Bearer ***" in quoted
+    assert "Authorization: token ***" in quoted
+    assert 'Authorization: ***' in quoted
+    assert "-u ***" in quoted
+    assert "--user ***" in quoted
 
 
 def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):

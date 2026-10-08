@@ -26,17 +26,33 @@ _CREDENTIAL_KEYS = (
     "access_token|private_token|client_secret|id_token|refresh_token|api_key|"
     "password|passwd|signature|credential|secret|token|sig|auth|key"
 )
+# A quoted value may contain spaces. \S+ stops at the first one, so
+# PASSWORD="alpha beta" used to leave ` beta"` in the log. The quote
+# alternatives are disjoint (backslash vs not) and linear.
+_QUOTED_VALUE = r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\''
+_SECRET_VALUE = rf"(?:{_QUOTED_VALUE}|\S+)"
 _TOKEN_QUERY = re.compile(
-    rf"(?i)([?&#](?:{_CREDENTIAL_KEYS})=)[^&#\s]*",
+    rf"(?i)([?&#](?:{_CREDENTIAL_KEYS})=)(?:{_QUOTED_VALUE}|[^&#\s]*)",
 )
 # ENV_STYLE names (GITHUB_TOKEN, DB_PASSWORD) have no word boundary before the key.
+# An optional quote sits between a JSON/YAML key and its colon: "token": "...".
 _SECRET_ASSIGN = re.compile(
-    rf"(?i)((?:[A-Za-z0-9]+_)*(?:{_CREDENTIAL_KEYS}))(\s*[=:]\s*)\S+",
+    rf"(?i)((?:[A-Za-z0-9]+_)*(?:{_CREDENTIAL_KEYS})[\"']?)"
+    rf"(\s*[=:]\s*){_SECRET_VALUE}",
+)
+# A fully quoted header value ("Bearer alpha beta") has no separate scheme token.
+_AUTH_QUOTED = re.compile(
+    rf"(?i)(authorization\s*[:=]\s*)(?:{_QUOTED_VALUE})",
 )
 _AUTH_HEADER = re.compile(
-    r"(?i)(authorization\s*[:=]\s*(?:bearer|basic|token)\s+)\S+",
+    rf"(?i)(authorization\s*[:=]\s*(?:bearer|basic|token)\s+){_SECRET_VALUE}",
 )
-_BEARER = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]{8,}")
+_BEARER = re.compile(
+    rf"(?i)(\bbearer\s+)(?:{_QUOTED_VALUE}|[A-Za-z0-9._~+/=-]{{8,}})",
+)
+_DASH_USER_QUOTED = re.compile(
+    rf"(?i)((?:-u|--user)\s+)(?:{_QUOTED_VALUE})",
+)
 _DASH_USER = re.compile(r"(?i)((?:-u|--user)\s+)([^\s:]+:)\S+")
 # CSI, OSC, and other ECMA-48 sequences, plus C1 CSI (U+009B).
 _ANSI = re.compile(
@@ -56,8 +72,10 @@ def _redact_display_text(text: object) -> str:
     raw = _C0_C1.sub("", raw)
     raw = _USERINFO.sub("://***@", raw)
     raw = _TOKEN_QUERY.sub(r"\1***", raw)
+    raw = _AUTH_QUOTED.sub(r"\1***", raw)
     raw = _AUTH_HEADER.sub(r"\1***", raw)
     raw = _BEARER.sub(r"\1***", raw)
+    raw = _DASH_USER_QUOTED.sub(r"\1***", raw)
     raw = _DASH_USER.sub(r"\1\2***", raw)
     return _SECRET_ASSIGN.sub(r"\1\2***", raw)
 
