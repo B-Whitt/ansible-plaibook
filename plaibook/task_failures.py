@@ -50,10 +50,15 @@ _AUTH_HEADER = re.compile(
 _BEARER = re.compile(
     rf"(?i)(\bbearer\s+)(?:{_QUOTED_VALUE}|[A-Za-z0-9._~+/=-]{{8,}})",
 )
+# -u "user:pass word" is one quoted argument. -u alice:"alpha beta" keeps
+# the username outside the quotes, so the password quote has to be read
+# after the colon. \S+ used to stop inside that quote.
 _DASH_USER_QUOTED = re.compile(
-    rf"(?i)((?:-u|--user)\s+)(?:{_QUOTED_VALUE})",
+    rf"(?i)((?:-u|--user)(?:\s+|=))(?:{_QUOTED_VALUE})",
 )
-_DASH_USER = re.compile(r"(?i)((?:-u|--user)\s+)([^\s:]+:)\S+")
+_DASH_USER = re.compile(
+    rf"(?i)((?:-u|--user)(?:\s+|=))([^\s:]+:\s*){_SECRET_VALUE}",
+)
 # CSI, OSC, and other ECMA-48 sequences, plus C1 CSI (U+009B).
 _ANSI = re.compile(
     r"(?:\x1b[@-Z\\-_]"

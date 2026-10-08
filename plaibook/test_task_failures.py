@@ -87,6 +87,15 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert 'Authorization: ***' in quoted
     assert "-u ***" in quoted
     assert "--user ***" in quoted
+    attached = clean_failure_message(
+        'curl -u alice:"alpha beta" --user bob:\'gamma delta\' '
+        '--user=carol:"epsilon zeta"'
+    )
+    for leaked in ("alpha", "beta", "gamma", "delta", "epsilon", "zeta"):
+        assert leaked not in attached, leaked
+    assert 'curl -u alice:***' in attached
+    assert "--user bob:***" in attached
+    assert "--user=carol:***" in attached
 
 
 def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):
