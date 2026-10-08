@@ -59,6 +59,8 @@ tmp/
 
 # Offline cursor.agent stub payload written by test_cursor_named_lens_retry.yml
 tests/.cursor_agent_stub.json
+tests/.cursor_agent_stub.json.counts
+tests/.cursor_agent_stub.json.lock
 
 # Side effects of unrelated local tooling, not ansible-plaibook source.
 # .nicegui/: left behind by `ai-guardian setup` (a Red Hat Product

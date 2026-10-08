@@ -133,3 +133,74 @@ jobs:
           .venv-legacy/bin/python -m pip install . --no-build-isolation --no-deps
           test -x .venv-legacy/bin/plai
           .venv-legacy/bin/python -c "from importlib.metadata import version; print(version('plaibook'))"
+
+  # The locked ansible-core follows pyproject markers (2.16 on 3.10, 2.19 on
+  # 3.11+). This job overrides that pin and runs the offline playbooks so a
+  # 2.19-only task keyword cannot land quietly. ansible-lint is not run here:
+  # current ansible-lint forbids 2.17, and the Test job already lints the
+  # locked core. requires-python: 2.16/2.17 need >=3.10, 2.18/2.19 need >=3.11.
+  # 2.16 is not paired with 3.13.
+  ansible-compat:
+    name: Ansible ${{ matrix.ansible-core }} (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ansible-core: "2.16.19"
+            python-version: "3.10"
+          - ansible-core: "2.16.19"
+            python-version: "3.12"
+          - ansible-core: "2.17.14"
+            python-version: "3.11"
+          - ansible-core: "2.18.19"
+            python-version: "3.12"
+          - ansible-core: "2.19.14"
+            python-version: "3.12"
+          - ansible-core: "2.19.14"
+            python-version: "3.13"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4.2.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies with lockfile
+        run: uv sync --locked --extra dev --python ${{ matrix.python-version }}
+
+      - name: Install ansible-core ${{ matrix.ansible-core }}
+        run: uv pip install --python .venv "ansible-core==${{ matrix.ansible-core }}"
+
+      - name: Confirm ansible-core version
+        run: |
+          got="$(uv run --python ${{ matrix.python-version }} python -c 'import ansible; print(ansible.__version__)')"
+          echo "ansible-core ${got}"
+          test "${got}" = "${{ matrix.ansible-core }}"
+
+      - name: Cache Ansible collections
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ runner.temp }}/plaibook-collections
+          key: collections-${{ runner.os }}-${{ hashFiles('collections-requirements.yml', 'scripts/ci-install-collections.py', 'plaibook/collections.py') }}
+
+      - name: Install required collections
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+          GITHUB_TOKEN: ${{ github.token }}
+          PLAIBOOK_COLLECTIONS_DEST: ${{ runner.temp }}/plaibook-collections
+        run: |
+          dest="${PLAIBOOK_COLLECTIONS_DEST}"
+          mkdir -p "$dest"
+          echo "ANSIBLE_COLLECTIONS_PATH=${dest}" >> "$GITHUB_ENV"
+          uv run --python "${{ matrix.python-version }}" python scripts/ci-install-collections.py
+
+      - name: Run offline Ansible playbook tests
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/plaibook-collections
+        run: uv run --python ${{ matrix.python-version }} ./scripts/run_playbook_tests.sh

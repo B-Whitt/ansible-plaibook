@@ -25,6 +25,9 @@
 
     # A job that failed to start is not a finished lens. Dispatch again
     # now that its sibling is done and the local Cursor database is free.
+    # This reads the module's failed flag. The wait task must not use
+    # failed_when: false — that conditional overwrites failed and a
+    # msg-only start error is then bound as the lens result.
     - name: "Cursor: decide whether {{ cursor_nonce_lens_label }} still needs an agent"
       ansible.builtin.set_fact:
         _cursor_lens_needs_dispatch: "{{ cursor_lens_preregistered_raw is not defined or (cursor_lens_preregistered_raw.failed | default(false) | bool) }}"

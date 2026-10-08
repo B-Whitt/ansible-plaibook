@@ -110,29 +110,45 @@
   poll: 0
   register: _cursor_review_job
 
-# A failed async job is still a result. Failing this loop used to abort
-# the play with "One or more items failed" and drop the sibling lens
-# that had already finished. Bind and the retry below handle a job that
-# failed to start (for example Cursor's database is locked).
-- name: "Cursor: wait for both lenses"
+# A failed async job is still a result. One looped wait used to fail the
+# whole task with "One or more items failed" and the pipeline rescue
+# dropped the sibling before bind. failed_when: false stopped that abort
+# by clearing each item's failed flag (ansible-core stores the conditional
+# result there). A start error then has finished=true, failed=false, and
+# no status, usage_normalized, or structured_tool_calls, so bind treated
+# "database is locked" as a finished lens and fail-closed.
+#
+# Wait for each job on its own. ignore_errors keeps the module's failed
+# flag and does not enter the pipeline rescue. The attempt task
+# redispatches only when that flag is still true. Do not put
+# failed_when: false back on these tasks.
+- name: "Cursor: wait for the Security agent"
   ansible.builtin.async_status:
-    jid: "{{ item.ansible_job_id }}"
-  loop:
-    - "{{ _cursor_security_job }}"
-    - "{{ _cursor_review_job }}"
-  register: _cursor_lens_jobs
+    jid: "{{ _cursor_security_job.ansible_job_id }}"
+  register: _cursor_security_wait
   until: >-
-    (_cursor_lens_jobs.finished | default(false) | bool) or
-    (_cursor_lens_jobs.failed | default(false) | bool)
+    (_cursor_security_wait.finished | default(false) | bool) or
+    (_cursor_security_wait.failed | default(false) | bool)
   retries: 180
   delay: 5
-  failed_when: false
+  ignore_errors: true
+
+- name: "Cursor: wait for the Review agent"
+  ansible.builtin.async_status:
+    jid: "{{ _cursor_review_job.ansible_job_id }}"
+  register: _cursor_review_wait
+  until: >-
+    (_cursor_review_wait.finished | default(false) | bool) or
+    (_cursor_review_wait.failed | default(false) | bool)
+  retries: 180
+  delay: 5
+  ignore_errors: true
 
 - name: "Cursor: bind the Security agent result"
   ansible.builtin.include_tasks: dispatch_cursor_lens_attempt.yml
   vars:
     cursor_lens_attempt_number: 1
-    cursor_lens_preregistered_raw: "{{ _cursor_lens_jobs.results[0] }}"
+    cursor_lens_preregistered_raw: "{{ _cursor_security_wait }}"
     cursor_lens_agent_id: security_lens
     cursor_lens_description: Security review lens with trusted instructions.
     cursor_lens_prompt: "{{ security_system_prompt }}"
@@ -181,7 +197,7 @@
   ansible.builtin.include_tasks: dispatch_cursor_lens_attempt.yml
   vars:
     cursor_lens_attempt_number: 1
-    cursor_lens_preregistered_raw: "{{ _cursor_lens_jobs.results[1] }}"
+    cursor_lens_preregistered_raw: "{{ _cursor_review_wait }}"
     cursor_lens_agent_id: review_lens
     cursor_lens_description: Functionality and quality review lens with trusted instructions.
     cursor_lens_prompt: "{{ review_system_prompt }}"
