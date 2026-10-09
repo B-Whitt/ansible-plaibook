@@ -123,7 +123,7 @@ run_failure_log_playbook() {
       cleanup_failure_log
       return 1
     fi
-  else
+  elif [[ "${expect}" == "content" ]]; then
     if ! grep -q "Record a planned failure for the error log" "${log}"; then
       echo "::error file=${pb},title=Failure log missing task name::${log}"
       cat "${log}"
@@ -141,6 +141,32 @@ run_failure_log_playbook() {
       cleanup_failure_log
       return 1
     fi
+  elif [[ "${expect}" == "loop-failed" ]]; then
+    if [[ "$(grep -c 'Fail each loop item' "${log}")" -ne 2 ]]; then
+      echo "::error file=${pb},title=Loop failure count::${log}"
+      cat "${log}"
+      cleanup_failure_log
+      return 1
+    fi
+    if grep -q "One or more items failed" "${log}"; then
+      echo "::error file=${pb},title=Loop summary was recorded::${log}"
+      cat "${log}"
+      cleanup_failure_log
+      return 1
+    fi
+  elif [[ "${expect}" == "loop-unreachable" ]]; then
+    if [[ "$(grep -c '\[unreachable\]' "${log}")" -ne 2 ]]; then
+      echo "::error file=${pb},title=Unreachable loop count::${log}"
+      cat "${log}"
+      cleanup_failure_log
+      return 1
+    fi
+    if grep -q "All items completed" "${log}"; then
+      echo "::error file=${pb},title=Unreachable loop summary was recorded::${log}"
+      cat "${log}"
+      cleanup_failure_log
+      return 1
+    fi
   fi
   cleanup_failure_log
 }
@@ -149,6 +175,10 @@ echo "--- Running tests/test_task_failures_clean.yml ---"
 run_failure_log_playbook "tests/test_task_failures_clean.yml" empty
 echo "--- Running tests/test_task_failures_log.yml ---"
 run_failure_log_playbook "tests/test_task_failures_log.yml" content
+echo "--- Running tests/test_task_failures_loop.yml ---"
+run_failure_log_playbook "tests/test_task_failures_loop.yml" loop-failed
+echo "--- Running tests/test_task_failures_unreachable_loop.yml ---"
+run_failure_log_playbook "tests/test_task_failures_unreachable_loop.yml" loop-unreachable
 
 echo "--- Running tests/run_cursor_sidecar_skip.sh ---"
 bash "${REPO_ROOT}/tests/run_cursor_sidecar_skip.sh"

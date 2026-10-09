@@ -510,13 +510,28 @@ def read_task_failures_log(path: str) -> str:
     return text if text.strip() else ""
 
 
+def _iter_lf_lines(text: str):
+    """Split only on LF. A bare CR must not become a new line or be written back."""
+    parts = text.split("\n")
+    last = len(parts) - 1
+    for index, part in enumerate(parts):
+        yield part, "\n" if index < last else ""
+
+
+def _visible_log_line(body: str) -> str:
+    """Drop ANSI and C0/C1, including CR, before markers or redaction."""
+    return _C0_C1.sub("", _ANSI.sub("", body))
+
+
 def _redact_log_lines(text: str) -> str:
-    """Redact each line on its own, after cutting the line to the message cap.
+    """Redact each LF-delimited line, after cutting it to the message cap.
 
     A PEM block is split across lines, so the BEGIN and END markers are
-    not on one line. After a BEGIN line, every line is redacted until
-    the END line. A quoted credential that does not close on its line
-    stays open across the following lines until the matching quote.
+    not on one line. Controls are removed before that check: an ANSI
+    sequence or a NUL inside the header must still start the block.
+    After a BEGIN line, every line is redacted until the END line. A
+    quoted credential that does not close on its line stays open across
+    the following lines until the matching quote.
     """
     if not text:
         return ""
@@ -524,17 +539,11 @@ def _redact_log_lines(text: str) -> str:
     open_quote = ""
     quote_escaped = False
     pieces: list[str] = []
-    for line in text.splitlines(keepends=True):
-        ending = ""
-        body = line
-        if body.endswith("\r\n"):
-            body, ending = body[:-2], "\r\n"
-        elif body.endswith("\n") or body.endswith("\r"):
-            body, ending = body[:-1], body[-1]
+    for body, ending in _iter_lf_lines(text):
         # ANSI and C0/C1 can sit inside the header. The marker check has
         # to see the same text the redactor will, or a split BEGIN never
         # starts the block and the following key lines stay in the log.
-        visible = _C0_C1.sub("", _ANSI.sub("", body))
+        visible = _visible_log_line(body)
         if open_quote:
             closer, quote_escaped = _scan_quote(visible, open_quote, quote_escaped)
             if closer is None:

@@ -297,6 +297,24 @@ def test_clean_failure_message_bounds_long_input():
         assert text.endswith("…")
 
 
+def test_read_splits_on_lf_only_and_strips_carriage_returns(tmp_path):
+    _parent, path = create_task_failures_log(directory=str(tmp_path))
+    header = "-----BEGIN RSA PRIV" + "\x00" + "ATE KEY-----"
+    payload = "status\rhidden\n" + header + "\n" + ("MIIB" * 8) + "\n-----END RSA PRIVATE KEY-----\nafter\n"
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+    try:
+        os.write(fd, payload.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+    text = read_task_failures_log(path)
+    assert "\r" not in text
+    assert "\x00" not in text
+    assert "hidden" in text
+    assert "MIIB" not in text
+    assert "after" in text
+
+
 def test_read_redacts_pem_when_controls_split_the_header(tmp_path):
     _parent, path = create_task_failures_log(directory=str(tmp_path))
     header = "-----BEGIN " + "\x1b[31m" + "RSA PRIVATE KEY-----"
@@ -366,6 +384,16 @@ def test_unreachable_loop_item_is_recorded():
     assert callback._failures[0]["message"] == "host down"
     assert callback._failures[1]["kind"] == "unreachable"
     assert "second path down" in callback._failures[1]["message"]
+    callback.v2_runner_on_unreachable(
+        _Result({"unreachable": True, "msg": "All items completed", "results": [{}, {}]})
+    )
+    callback.v2_runner_on_failed(
+        _Result({"failed": True, "msg": "One or more items failed", "results": [{}, {}]}),
+        ignore_errors=True,
+    )
+    assert len(callback._failures) == 2
+    assert "All items completed" not in " ".join(item["message"] for item in callback._failures)
+    assert "One or more items failed" not in " ".join(item["message"] for item in callback._failures)
 
 
 def test_read_redacts_a_multiline_pem_block(tmp_path):

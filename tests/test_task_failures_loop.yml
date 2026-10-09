@@ -1,0 +1,14 @@
+---
+# Two failed loop items. The loop summary must not be recorded again.
+
+- name: Record each failed loop item once
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Fail each loop item
+      ansible.builtin.command: /bin/false
+      loop:
+        - one
+        - two
+      ignore_errors: true

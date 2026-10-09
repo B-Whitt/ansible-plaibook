@@ -20,7 +20,6 @@ try:
     from plaibook.task_failures import (
         allowed_task_failures_path,
         failure_message_from_result,
-        is_loop_aggregate,
         note_failure,
         render_task_failures,
         write_task_failures,
@@ -38,7 +37,6 @@ except ImportError:  # pragma: no cover - checkout without the package installed
     _spec.loader.exec_module(_mod)
     allowed_task_failures_path = _mod.allowed_task_failures_path
     failure_message_from_result = _mod.failure_message_from_result
-    is_loop_aggregate = _mod.is_loop_aggregate
     note_failure = _mod.note_failure
     render_task_failures = _mod.render_task_failures
     write_task_failures = _mod.write_task_failures
@@ -68,13 +66,15 @@ class CallbackModule(CallbackBase):
     def __init__(self):
         super().__init__()
         self._failures: list[dict[str, str]] = []
+        # Host and task already recorded from a loop item. The loop summary
+        # ("One or more items failed" / "All items completed") is the same
+        # task again; Ansible strips _ansible_item_result before callbacks,
+        # so the summary cannot be recognized by that key.
+        self._item_tasks: set[tuple[str, str, str]] = set()
         raw = (os.environ.get("PLAIBOOK_TASK_FAILURES_LOG") or "").strip()
         self._path = allowed_task_failures_path(raw) or ""
 
-    def _remember(self, result, *, ignored: bool = False, kind: str = "failed") -> None:
-        payload = getattr(result, "_result", None)
-        if kind == "failed" and is_loop_aggregate(payload):
-            return
+    def _subject(self, result) -> tuple[str, str, str, object]:
         task = getattr(result, "_task", None)
         name = "unnamed task"
         path = ""
@@ -88,13 +88,18 @@ class CallbackModule(CallbackBase):
                     path = str(get_path() or "")
                 except (AttributeError, OSError, TypeError, ValueError, AnsibleError):
                     path = ""
-            if not ignored:
-                ignored = bool(getattr(task, "ignore_errors", False))
         host = ""
         host_obj = getattr(result, "_host", None)
         get_host = getattr(host_obj, "get_name", None)
         if callable(get_host):
             host = str(get_host() or "")
+        return host, name, path, task
+
+    def _remember(self, result, *, ignored: bool = False, kind: str = "failed") -> None:
+        payload = getattr(result, "_result", None)
+        host, name, path, task = self._subject(result)
+        if task is not None and not ignored:
+            ignored = bool(getattr(task, "ignore_errors", False))
         note_failure(
             self._failures,
             task=name,
@@ -105,7 +110,17 @@ class CallbackModule(CallbackBase):
             kind="ignored" if ignored and kind == "failed" else kind,
         )
 
+    def _mark_item(self, result) -> None:
+        host, name, path, _task = self._subject(result)
+        self._item_tasks.add((host, name, path))
+
+    def _summary_already_recorded(self, result) -> bool:
+        host, name, path, _task = self._subject(result)
+        return (host, name, path) in self._item_tasks
+
     def v2_runner_on_failed(self, result, ignore_errors=False):
+        if self._summary_already_recorded(result):
+            return
         self._remember(result, ignored=bool(ignore_errors), kind="failed")
 
     def v2_runner_item_on_failed(self, result):
@@ -122,13 +137,17 @@ class CallbackModule(CallbackBase):
             ignored=ignored,
             kind="unreachable" if unreachable else "failed",
         )
+        self._mark_item(result)
 
     def v2_runner_item_on_unreachable(self, result):
         task = getattr(result, "_task", None)
         ignored = bool(getattr(task, "ignore_unreachable", False))
         self._remember(result, ignored=ignored, kind="unreachable")
+        self._mark_item(result)
 
     def v2_runner_on_unreachable(self, result):
+        if self._summary_already_recorded(result):
+            return
         task = getattr(result, "_task", None)
         ignored = bool(getattr(task, "ignore_unreachable", False))
         self._remember(result, ignored=ignored, kind="unreachable")
