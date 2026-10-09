@@ -16,6 +16,11 @@ import os
 
 from ansible.module_utils.basic import AnsibleModule
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - unix hosts have fcntl
+    fcntl = None  # type: ignore[assignment]
+
 DOCUMENTATION = r"""
 ---
 module: cursor_agent_stub
@@ -105,13 +110,74 @@ def main() -> None:
         module.fail_json(msg="cursor agent stub payload must be a JSON object")
         return
 
-    failed = bool(payload.pop("failed", False))
-    payload["stub"] = True
+    selected = _select_payload(module, payload, path)
+    failed = bool(selected.pop("failed", False))
+    selected.pop("by_agent", None)
+    selected["stub"] = True
     if failed:
-        msg = payload.pop("msg", "cursor agent stub failure")
-        module.fail_json(msg=msg, **payload)
+        msg = selected.pop("msg", "cursor agent stub failure")
+        module.fail_json(msg=msg, **selected)
         return
-    module.exit_json(changed=False, **payload)
+    module.exit_json(changed=False, **selected)
+
+
+def _select_payload(module: AnsibleModule, payload: dict, path: str) -> dict:
+    """Return the JSON object this call should emit.
+
+    A flat object is the whole payload (existing tests). ``by_agent`` maps
+    an agent id (the single key of the ``agents`` argument) to an object,
+    or to ``first`` / ``then`` so the async start can fail and the later
+    synchronous redispatch can succeed. Call counts live beside the stub
+    file and are locked so the two lens processes do not lose an update.
+    """
+    by_agent = payload.get("by_agent")
+    if not isinstance(by_agent, dict):
+        return dict(payload)
+
+    agents = module.params.get("agents") or {}
+    agent_id = next(iter(agents)) if isinstance(agents, dict) and agents else ""
+    chosen = by_agent.get(agent_id)
+    if not isinstance(chosen, dict):
+        module.fail_json(msg=f"cursor agent stub has no by_agent entry for {agent_id or 'unknown'}")
+        return {}
+    if "first" not in chosen and "then" not in chosen:
+        return dict(chosen)
+
+    call_number = _bump_call_count(path, agent_id)
+    if call_number == 1 and isinstance(chosen.get("first"), dict):
+        return dict(chosen["first"])
+    then = chosen.get("then")
+    if not isinstance(then, dict):
+        module.fail_json(msg=f"cursor agent stub by_agent.then for {agent_id or 'unknown'} must be an object")
+        return {}
+    return dict(then)
+
+
+def _bump_call_count(path: str, agent_id: str) -> int:
+    counts_path = path + ".counts"
+    lock_path = path + ".lock"
+    lock_handle = open(lock_path, "a", encoding="utf-8")
+    try:
+        if fcntl is not None:
+            fcntl.flock(lock_handle, fcntl.LOCK_EX)
+        counts: dict[str, int] = {}
+        if os.path.exists(counts_path):
+            try:
+                with open(counts_path, encoding="utf-8") as handle:
+                    loaded = json.load(handle)
+                if isinstance(loaded, dict):
+                    counts = {str(key): int(value) for key, value in loaded.items()}
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                counts = {}
+        call_number = counts.get(agent_id, 0) + 1
+        counts[agent_id] = call_number
+        with open(counts_path, "w", encoding="utf-8") as handle:
+            json.dump(counts, handle)
+        return call_number
+    finally:
+        if fcntl is not None:
+            fcntl.flock(lock_handle, fcntl.LOCK_UN)
+        lock_handle.close()
 
 
 if __name__ == "__main__":
