@@ -80,6 +80,65 @@ for pb in "${PLAYBOOKS[@]}"; do
   run_playbook "${pb}"
 done
 
+# Private dir + file the failure callback will accept. A clean play must
+# leave the file empty. A planned ignored failure must name the task and
+# the message, and must not keep a token from the failure text.
+prepare_failure_log() {
+  local dir log
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/plaibook-task-failures-XXXXXX")"
+  chmod 700 "${dir}"
+  log="${dir}/plaibook-task-failures-run.log"
+  : >"${log}"
+  chmod 600 "${log}"
+  printf '%s\n' "${log}"
+}
+
+run_failure_log_playbook() {
+  local pb="$1"
+  local expect="$2"
+  local log out rc=0
+  log="$(prepare_failure_log)"
+  out="$(mktemp)"
+  set +e
+  PLAIBOOK_TASK_FAILURES_LOG="${log}" ansible-playbook "${pb}" >"${out}" 2>&1
+  rc=$?
+  set -euo pipefail
+  cat "${out}"
+  rm -f "${out}"
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "::error file=${pb},title=Playbook test failed::${pb} exited ${rc}"
+    return "${rc}"
+  fi
+  if [[ "${expect}" == "empty" ]]; then
+    if [[ -s "${log}" ]]; then
+      echo "::error file=${pb},title=Failure log was not empty::${log}"
+      cat "${log}"
+      return 1
+    fi
+  else
+    if ! grep -q "Record a planned failure for the error log" "${log}"; then
+      echo "::error file=${pb},title=Failure log missing task name::${log}"
+      cat "${log}"
+      return 1
+    fi
+    if ! grep -q "planned failure for the error log" "${log}"; then
+      echo "::error file=${pb},title=Failure log missing message::${log}"
+      cat "${log}"
+      return 1
+    fi
+    if grep -q "ghs_secret" "${log}"; then
+      echo "::error file=${pb},title=Failure log leaked a token::${log}"
+      return 1
+    fi
+  fi
+  rm -rf "$(dirname "${log}")"
+}
+
+echo "--- Running tests/test_task_failures_clean.yml ---"
+run_failure_log_playbook "tests/test_task_failures_clean.yml" empty
+echo "--- Running tests/test_task_failures_log.yml ---"
+run_failure_log_playbook "tests/test_task_failures_log.yml" content
+
 echo "--- Running tests/run_cursor_sidecar_skip.sh ---"
 bash "${REPO_ROOT}/tests/run_cursor_sidecar_skip.sh"
 

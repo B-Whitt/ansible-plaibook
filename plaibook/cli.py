@@ -42,6 +42,11 @@ from plaibook.summary import (
     load_json,
     sanitize_display_line,
 )
+from plaibook.task_failures import (
+    create_task_failures_log,
+    discard_empty_task_failure_log,
+    read_task_failures_log,
+)
 from plaibook.wait import WaitSpinner, spinner_enabled
 
 USAGE_EPILOG = """\
@@ -367,6 +372,35 @@ def _apply_sandbox_fallback(args: argparse.Namespace, extras: dict) -> str | Non
     )
 
 
+def _playbook_env(failures_path: str, extra: dict[str, str] | None = None) -> dict[str, str] | None:
+    """Env for ansible-playbook. Empty means leave the subprocess env unchanged."""
+    env: dict[str, str] = {}
+    if failures_path:
+        env["PLAIBOOK_TASK_FAILURES_LOG"] = failures_path
+    if extra:
+        env.update(extra)
+    return env or None
+
+
+def _emit_task_failures(path: str, args: argparse.Namespace, *, captured_already_shown: bool) -> None:
+    """Reprint the failure log when quiet mode discarded callback display.
+
+    Verbose runs already showed it. A dumped ansible transcript already
+    contains it. An empty log is removed so a clean review leaves no file.
+    """
+    if not path:
+        return
+    text = read_task_failures_log(path)
+    if not text:
+        discard_empty_task_failure_log(path)
+        return
+    if captured_already_shown or ansible_verbosity(args) > 0:
+        return
+    sys.stderr.write(text)
+    if not text.endswith("\n"):
+        sys.stderr.write("\n")
+
+
 def _emit_summary(document: dict, args: argparse.Namespace) -> None:
     if args.as_json:
         dump_json(document, sys.stdout)
@@ -469,11 +503,21 @@ def cmd_review(args: argparse.Namespace) -> int:
 
     structured = args.as_json or args.as_yaml
     inherit_tty = (not structured) and ansible_verbosity(args) > 0
+    failures_path = ""
+    try:
+        _, failures_path = create_task_failures_log(directory=str(runtime_tmp_dir()))
+    except (OSError, ScratchDirError):
+        failures_path = ""
     try:
         if inherit_tty:
             sys.stderr.write(_progress_line(args))
             sys.stderr.flush()
-            result = run_ansible_playbook(command, playbook_root=root, verbose=True)
+            result = run_ansible_playbook(
+                command,
+                playbook_root=root,
+                verbose=True,
+                env=_playbook_env(failures_path),
+            )
         elif spinner_enabled(sys.stderr):
             progress_dir, progress_path = create_progress_file(directory=str(runtime_tmp_dir()))
             try:
@@ -486,7 +530,7 @@ def cmd_review(args: argparse.Namespace) -> int:
                         command,
                         playbook_root=root,
                         verbose=False,
-                        env={"PLAIBOOK_PROGRESS_FILE": progress_path},
+                        env=_playbook_env(failures_path, {"PLAIBOOK_PROGRESS_FILE": progress_path}),
                     )
             finally:
                 Path(progress_path).unlink(missing_ok=True)
@@ -498,9 +542,15 @@ def cmd_review(args: argparse.Namespace) -> int:
             if not structured:
                 sys.stderr.write(_progress_line(args))
                 sys.stderr.flush()
-            result = run_ansible_playbook(command, playbook_root=root, verbose=False)
+            result = run_ansible_playbook(
+                command,
+                playbook_root=root,
+                verbose=False,
+                env=_playbook_env(failures_path),
+            )
     except (PlaybookTimeoutError, ScratchDirError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
+        _emit_task_failures(failures_path, args, captured_already_shown=False)
         return 2
     captured = "" if inherit_tty else ((result.stderr or "") + (result.stdout or ""))
     if structured and ansible_verbosity(args) > 0 and captured.strip():
@@ -513,22 +563,27 @@ def cmd_review(args: argparse.Namespace) -> int:
     # canonical path is last-write-wins and can belong to another run.
     summary_file = last_run_path(run_id)
     if not summary_file.is_file():
+        showed_capture = False
         if captured.strip():
             sys.stderr.write(captured)
             if not captured.endswith("\n"):
                 sys.stderr.write("\n")
+            showed_capture = True
         print(
             f"ansible-playbook exited {result.returncode} without writing {summary_file}",
             file=sys.stderr,
         )
+        _emit_task_failures(failures_path, args, captured_already_shown=showed_capture)
         return result.returncode if result.returncode else 2
 
     try:
         document = enrich_last_run(load_json(summary_file), last_run_file=summary_file)
     except SummaryError as exc:
         print(str(exc), file=sys.stderr)
+        _emit_task_failures(failures_path, args, captured_already_shown=False)
         return 2
     _emit_summary(document, args)
+    _emit_task_failures(failures_path, args, captured_already_shown=False)
     return result.returncode
 
 
