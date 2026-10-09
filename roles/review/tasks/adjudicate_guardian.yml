@@ -1,9 +1,9 @@
 ---
 # Later agent pass over hits that would force NEEDS_CHANGES.
 # Runs after verify and before guardian_scan_enforce_verdict.yml.
-# The agent's note is recorded and cannot drop a hit. A hit is cleared
-# only when the captured value is a variable reference or placeholder.
-# Prefix-backed tokens and git userinfo stay.
+# No model call. A hit is cleared only when the captured value is a
+# variable reference or placeholder. Prefix-backed tokens and git
+# userinfo stay blocking.
 
 - name: Skip guardian adjudication when it is disabled or there is nothing to judge
   when: >-

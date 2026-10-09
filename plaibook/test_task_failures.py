@@ -122,6 +122,17 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "AWS_SECRET_ACCESS_KEY_ID=***" in suffixed
     assert "CURSOR_API_KEY_ID=***" in suffixed
     assert "api_key_id=***" in suffixed
+    bare = "ghp_" + "abcd5678wxyz"
+    pem = (
+        "-----BEGIN "
+        + "RSA PRIVATE KEY-----\nMIIB\n-----END "
+        + "RSA PRIVATE KEY-----"
+    )
+    loose = clean_failure_message(f"authentication failed: {bare}\n{pem}")
+    assert bare not in loose
+    assert "PRIVATE KEY" not in loose
+    assert "MIIB" not in loose
+    assert "***" in loose
 
 
 def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):

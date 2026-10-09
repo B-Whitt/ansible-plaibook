@@ -588,11 +588,10 @@ review_guardian_pip_timeout_seconds: 60
 # tokens (ghp_, glpat-, sk-ant-, AKIA, PEM private keys) block even
 # when the surrounding text is an env assignment.
 #
-# After verify, one later agent pass reads each remaining blocking hit
-# and may clear it when the captured value is a code constant, path, or
-# test fixture rather than a credential. A missing or failed judgment
-# keeps the hit. credentials-in-git-url and prefix-backed tokens stay
-# blocking even if the agent calls them false.
+# After verify, remaining blocking hits are classified locally. The
+# captured snippet is not sent to a model. A hit is cleared only when
+# the value is a placeholder or variable reference. credentials-in-git-url
+# and prefix-backed tokens stay blocking.
 #
 # A list, not a single hardcoded value, so adding another confirmed-
 # reliable blocking category later is a config change, not a code

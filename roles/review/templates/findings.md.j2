@@ -191,10 +191,10 @@ password assignment, long base64/hex, or a JSON credential field)
 stays visible here and does not override the lens verdict only when
 the captured value is a placeholder or a variable reference. A
 literal JSON/YAML credential, bearer token, or API-key header still
-blocks. A later agent pass records a note and cannot remove a
-blocker. A hit is cleared only when the captured value is a variable
-reference or a placeholder. Prefix-backed tokens and git userinfo URLs
-stay blocking.
+blocks. Classification is local. The captured snippet is not sent to
+a model. A hit is cleared only when the value is a variable reference
+or a placeholder. Prefix-backed tokens and git userinfo URLs stay
+blocking.
 {% if guardian_scan_truncated | default(false) %}
 
 Scan input was truncated to {{ review_guardian_max_scan_chars }} characters before scanning.

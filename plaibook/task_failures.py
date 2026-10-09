@@ -68,6 +68,14 @@ _CLI_KEY = _CREDENTIAL_KEYS.replace("_", "[-_]")
 _CLI_SECRET_OPT = re.compile(
     rf"(?i)(--(?:[A-Za-z0-9]+[-_])*(?:{_CLI_KEY}){_KEY_SUFFIX})(\s+){_SECRET_VALUE}",
 )
+# A bare token or a PEM block has no assignment delimiter.
+_PREFIX_TOKEN = re.compile(
+    r"ghp_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|glpat-[A-Za-z0-9_\-]{8,}|"
+    r"sk-ant-[A-Za-z0-9_\-]{8,}|AKIA[0-9A-Z]{16}"
+)
+_PEM_BLOCK = re.compile(
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"
+)
 # CSI, OSC, and other ECMA-48 sequences, plus C1 CSI (U+009B).
 _ANSI = re.compile(
     r"(?:\x1b[@-Z\\-_]"
@@ -92,7 +100,9 @@ def _redact_display_text(text: object) -> str:
     raw = _DASH_USER_QUOTED.sub(r"\1***", raw)
     raw = _DASH_USER.sub(r"\1\2***", raw)
     raw = _CLI_SECRET_OPT.sub(r"\1\2***", raw)
-    return _SECRET_ASSIGN.sub(r"\1\2***", raw)
+    raw = _SECRET_ASSIGN.sub(r"\1\2***", raw)
+    raw = _PEM_BLOCK.sub("***", raw)
+    return _PREFIX_TOKEN.sub("***", raw)
 
 
 def sanitize_failure_field(text: object, *, limit: int = _FIELD_LIMIT) -> str:
