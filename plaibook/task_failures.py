@@ -64,9 +64,14 @@ _DASH_USER_QUOTED = re.compile(
 _DASH_USER = re.compile(
     rf"(?i)((?:--user|-u)(?:\s+|=)?)([^\s:]+:\s*){_SECRET_VALUE}",
 )
-# mysql -pSECRET is attached. Do not treat a letter-only flag such as -print as a password.
-_SHORT_PASSWORD = re.compile(
-    rf"(?i)(?<![A-Za-z0-9])(-p)(?:{_QUOTED_VALUE}|(?=\S*\d)\S+)",
+# mysql -pSECRET, -p SECRET, and -p "secret". A lowercase-only flag
+# such as -print is not a password. Case of the value matters for the
+# attached form: -pSECRET is a password, -print is a flag.
+_SHORT_P_SEPARATED = re.compile(
+    rf"(?<![A-Za-z0-9])(-[pP])(\s+){_SECRET_VALUE}",
+)
+_SHORT_P_ATTACHED = re.compile(
+    rf"(?<![A-Za-z0-9])(-[pP])(?![a-z]+(?!\S))(?:{_QUOTED_VALUE}|\S+)",
 )
 # --token SECRET and --password "alpha beta". Assignment form (--password=SECRET)
 # is already covered. Underscores in key names are also hyphens on the CLI.
@@ -105,7 +110,8 @@ def _redact_display_text(text: object) -> str:
     raw = _BEARER.sub(r"\1***", raw)
     raw = _DASH_USER_QUOTED.sub(r"\1***", raw)
     raw = _DASH_USER.sub(r"\1\2***", raw)
-    raw = _SHORT_PASSWORD.sub(r"\1***", raw)
+    raw = _SHORT_P_SEPARATED.sub(r"\1\2***", raw)
+    raw = _SHORT_P_ATTACHED.sub(r"\1***", raw)
     raw = _CLI_SECRET_OPT.sub(r"\1\2***", raw)
     raw = _SECRET_ASSIGN.sub(r"\1\2***", raw)
     raw = _PEM_BLOCK.sub("***", raw)
