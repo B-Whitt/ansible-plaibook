@@ -329,6 +329,66 @@ def test_read_splits_on_lf_only_and_strips_carriage_returns(tmp_path):
     assert "after" in text
 
 
+def _pem_lines(header: str) -> str:
+    body = "MIIB" * 8
+    footer = "-----END " + "RSA PRIVATE KEY-----"
+    return "\n".join(["ssh failed:", header, body, footer, "after"]) + "\n"
+
+
+def test_read_redacts_pem_hidden_by_longer_escapes(tmp_path):
+    sequences = (
+        "\x1b]0;t\x07",
+        "\x1b(B",
+        "\u200b",
+    )
+    for sequence in sequences:
+        header = "-----BEGIN RSA PRIV" + sequence + "ATE KEY-----"
+        text = clean_failure_message(_pem_lines(header))
+        assert "MIIB" not in text, repr(sequence)
+        _parent, path = create_task_failures_log(directory=str(tmp_path))
+        fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+        try:
+            os.write(fd, _pem_lines(header).encode("utf-8"))
+        finally:
+            os.close(fd)
+        os.chmod(path, 0o600)
+        logged = read_task_failures_log(path)
+        assert "MIIB" not in logged, repr(sequence)
+        assert "after" in logged
+        os.unlink(path)
+        os.rmdir(_parent)
+
+
+def test_key_on_the_line_after_a_credential_name_is_redacted(tmp_path):
+    header = "-----BEGIN " + "RSA PRIVATE KEY-----"
+    message = "private_key:\n" + _pem_lines(header)
+    text = clean_failure_message(message)
+    assert "MIIB" not in text
+    quoted = clean_failure_message('password:\n"alpha\nbeta\ngamma"\nafter')
+    for leaked in ("alpha", "beta", "gamma"):
+        assert leaked not in quoted, leaked
+    assert "after" in quoted
+    _parent, path = create_task_failures_log(directory=str(tmp_path))
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+    try:
+        os.write(fd, message.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+    logged = read_task_failures_log(path)
+    assert "MIIB" not in logged
+    assert "after" in logged
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+    try:
+        os.write(fd, b'password:\n"alpha\nbeta\ngamma"\nafter\n')
+    finally:
+        os.close(fd)
+    logged = read_task_failures_log(path)
+    for leaked in ("alpha", "beta", "gamma"):
+        assert leaked not in logged, leaked
+    assert "after" in logged
+
+
 def test_read_redacts_pem_when_controls_split_the_header(tmp_path):
     _parent, path = create_task_failures_log(directory=str(tmp_path))
     header = "-----BEGIN " + "\x1b[31m" + "RSA PRIVATE KEY-----"

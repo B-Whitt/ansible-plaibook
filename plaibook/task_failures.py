@@ -4,6 +4,10 @@
 The callback displays this report. Quiet ``plai review`` swallows callback
 output, so the CLI reprints the file when it is non-empty. The file is
 written only for a path this module allows, and only when something failed.
+
+Redaction catches accidental leaks: tokens in URLs, passwords in
+commands, and private keys in error messages. It does not defend
+against deliberately disguised text.
 """
 
 from __future__ import annotations
@@ -12,6 +16,7 @@ import os
 import re
 import stat
 import tempfile
+import unicodedata
 from typing import Mapping
 
 LOG_PREFIX = "plaibook-" + "task-failures-"
@@ -50,12 +55,15 @@ _TOKEN_QUERY = re.compile(
 # A leading (?:[A-Za-z0-9]+_)* group made that search quadratic. An optional
 # quote sits between a JSON/YAML key and its colon: "token": "...".
 # A credential name with nothing after '=' or ':'. The value is the next line.
+# Spaces and tabs only. A newline must not count, or ssh_key:\\n-----BEGIN
+# treats the header as the value and the key body is left behind.
+_HSPACE = r"[ \t]*"
 _CREDENTIAL_VALUE_FOLLOWS = re.compile(
-    rf"(?i)(?:{_ASSIGN_KEY}){_KEY_SUFFIX}\s*[=:]\s*$"
+    rf"(?i)(?:{_ASSIGN_KEY}){_KEY_SUFFIX}{_HSPACE}[=:]{_HSPACE}$"
 )
 _CREDENTIAL_ASSIGN = re.compile(
     rf"(?i)((?:{_ASSIGN_KEY}){_KEY_SUFFIX}[\"']?)"
-    rf"(\s*[=:]\s*){_FIELD_VALUE}",
+    rf"({_HSPACE}[=:]{_HSPACE}){_FIELD_VALUE}",
 )
 # A fully quoted header value ("Bearer alpha beta") has no separate scheme token.
 _AUTH_QUOTED = re.compile(
@@ -111,7 +119,7 @@ _PREFIX_TOKEN = re.compile(
 # A credential value that opens a quote. Used only to see whether the
 # display cap cut the quote off; the value itself is not consumed here.
 _CREDENTIAL_QUOTE_OPEN = re.compile(
-    rf"(?i)(?:(?:{_ASSIGN_KEY}){_KEY_SUFFIX}[\"']?\s*[=:]\s*"
+    rf"(?i)(?:(?:{_ASSIGN_KEY}){_KEY_SUFFIX}[\"']?{_HSPACE}[=:]{_HSPACE}"
     rf"|(?:--(?:{_CLI_LONG}|{_CAMEL_CREDENTIAL_KEYS}|{_SHORT_KEY}){_KEY_SUFFIX})\s+"
     rf"|{_DASH_USER_HEAD}"
     rf"|authorization\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?"
@@ -125,22 +133,38 @@ _PEM_END = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
 _PEM_BLOCK = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)"
 )
-# CSI, OSC, and other ECMA-48 sequences, plus C1 CSI (U+009B).
+# Longer sequences before the two-byte Fe pattern. ESC ] / P / X / ^ / _
+# open OSC, DCS, and the rest; matching only those two bytes leaves the
+# tail of the sequence in the line and splits a PEM header.
+# ESC ( B is a character-set switch. [ is not in the two-byte class, so
+# CSI (ESC [ 31 m) is not consumed as a two-byte sequence.
 _ANSI = re.compile(
-    r"(?:\x1b[@-Z\\-_]"
-    r"|\x1b\[[0-?]*[ -/]*[@-~]"
+    r"(?:"
+    r"\x1b\[[0-?]*[ -/]*[@-~]"
+    r"|\x9b[0-?]*[ -/]*[@-~]"
     r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
     r"|\x1b[PX^_].*?(?:\x1b\\|\x07)"
-    r"|\x9b[0-?]*[ -/]*[@-~])"
+    r"|\x1b[ -/]+[0-~]"
+    r"|\x1b[@-Z\\-_]"
+    r")"
 )
 # C0 except TAB/LF, DEL, and C1. CR is removed so it cannot rewind the line.
 _C0_C1 = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
+def _strip_format_chars(text: str) -> str:
+    """Drop Unicode Cf characters (zero-width space, direction overrides)."""
+    return "".join(char for char in text if unicodedata.category(char) != "Cf")
+
+
 def _redact_display_text(text: object) -> str:
     raw = text if isinstance(text, str) else ""
+    raw = _strip_format_chars(raw)
     raw = _ANSI.sub("", raw)
     raw = _C0_C1.sub("", raw)
+    # Before assignment patterns. ssh_key:\\n-----BEGIN must not have the
+    # header consumed as the assignment value.
+    raw = _PEM_BLOCK.sub("***", raw)
     raw = _USERINFO.sub("://***@", raw)
     raw = _TOKEN_QUERY.sub(r"\1***", raw)
     raw = _AUTH_QUOTED.sub(r"\1***", raw)
@@ -152,7 +176,6 @@ def _redact_display_text(text: object) -> str:
     raw = _SHORT_P_ATTACHED.sub(r"\1***", raw)
     raw = _CLI_CREDENTIAL_OPT.sub(r"\1\2***", raw)
     raw = _CREDENTIAL_ASSIGN.sub(r"\1\2***", raw)
-    raw = _PEM_BLOCK.sub("***", raw)
     return _PREFIX_TOKEN.sub("***", raw)
 
 
@@ -168,6 +191,17 @@ def _scan_quote(text: str, quote: str, escaped: bool) -> tuple[int | None, bool]
         if char == quote:
             return index, False
     return None, escaped
+
+
+def _dangling_quote(text: str) -> tuple[str, bool]:
+    """A quote that opens on this line and never closes."""
+    for index, char in enumerate(text):
+        if char not in "\"'":
+            continue
+        closer, escaped = _scan_quote(text[index + 1 :], char, False)
+        if closer is None:
+            return char, escaped
+    return "", False
 
 
 def _unclosed_credential_quote(text: str) -> tuple[str, bool]:
@@ -232,9 +266,15 @@ def sanitize_failure_field(text: object, *, limit: int = _FIELD_LIMIT) -> str:
 
 
 def clean_failure_message(text: object, *, limit: int = _MESSAGE_LIMIT) -> str:
-    """One failure message, with URL secrets removed and length capped."""
+    """One failure message, with URL secrets removed and length capped.
+
+    Line state matches the log reader: a credential name at the end of a
+    line keeps the following private key or quoted value hidden.
+    """
     raw = text if isinstance(text, str) else ""
-    raw = _redact_bounded(raw, limit=limit).strip()
+    raw = _redact_log_lines(raw).strip()
+    if len(raw) > limit:
+        raw = raw[: limit - 1] + "…"
     return raw or "task failed"
 
 
@@ -523,8 +563,8 @@ def _iter_lf_lines(text: str):
 
 
 def _visible_log_line(body: str) -> str:
-    """Drop ANSI and C0/C1, including CR, before markers or redaction."""
-    return _C0_C1.sub("", _ANSI.sub("", body))
+    """Drop ANSI, C0/C1, and Unicode format characters before markers."""
+    return _strip_format_chars(_C0_C1.sub("", _ANSI.sub("", body)))
 
 
 def _redact_log_lines(text: str) -> str:
@@ -552,6 +592,15 @@ def _redact_log_lines(text: str) -> str:
         if mask_next:
             mask_next = False
             pieces.append("***" + ending)
+            # The hidden line can itself open a key or a quote. Keep
+            # hiding until that block ends.
+            if _PEM_BEGIN.search(visible) and not _PEM_END.search(visible):
+                in_pem = True
+            elif not _PEM_BEGIN.search(visible):
+                probe = visible[:_MESSAGE_LIMIT]
+                open_quote, quote_escaped = _unclosed_credential_quote(probe)
+                if not open_quote:
+                    open_quote, quote_escaped = _dangling_quote(probe)
             continue
         if open_quote:
             closer, quote_escaped = _scan_quote(visible, open_quote, quote_escaped)
