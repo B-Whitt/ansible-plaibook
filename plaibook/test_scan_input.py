@@ -550,8 +550,9 @@ def test_apply_guardian_judgments_drops_false_positives_and_keeps_prefix_tokens(
     result = mod.apply_guardian_judgments(
         findings,
         [
-            {"index": 0, "valid_secret": False, "reason": "code constant"},
+            {"index": 0, "valid_secret": True, "reason": "model called it real"},
             {"index": 1, "valid_secret": False, "reason": "agent was wrong"},
+            {"index": 2, "valid_secret": False, "reason": "agent cannot clear a credential name"},
         ],
     )
     assert [item["snippet"] for item in result["kept"]] == [

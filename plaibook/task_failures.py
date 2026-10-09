@@ -31,13 +31,16 @@ _CREDENTIAL_KEYS = (
 # alternatives are disjoint (backslash vs not) and linear.
 _QUOTED_VALUE = r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\''
 _SECRET_VALUE = rf"(?:{_QUOTED_VALUE}|\S+)"
+# A suffix such as _ID still belongs to the credential name:
+# AWS_SECRET_ACCESS_KEY_ID=... must not stop at KEY.
+_KEY_SUFFIX = r"(?:[_-][A-Za-z0-9]+)*"
 _TOKEN_QUERY = re.compile(
-    rf"(?i)([?&#](?:{_CREDENTIAL_KEYS})=)(?:{_QUOTED_VALUE}|[^&#\s]*)",
+    rf"(?i)([?&#](?:{_CREDENTIAL_KEYS}){_KEY_SUFFIX}=)(?:{_QUOTED_VALUE}|[^&#\s]*)",
 )
 # ENV_STYLE names (GITHUB_TOKEN, DB_PASSWORD) have no word boundary before the key.
 # An optional quote sits between a JSON/YAML key and its colon: "token": "...".
 _SECRET_ASSIGN = re.compile(
-    rf"(?i)((?:[A-Za-z0-9]+_)*(?:{_CREDENTIAL_KEYS})[\"']?)"
+    rf"(?i)((?:[A-Za-z0-9]+_)*(?:{_CREDENTIAL_KEYS}){_KEY_SUFFIX}[\"']?)"
     rf"(\s*[=:]\s*){_SECRET_VALUE}",
 )
 # A fully quoted header value ("Bearer alpha beta") has no separate scheme token.
@@ -63,7 +66,7 @@ _DASH_USER = re.compile(
 # is already covered. Underscores in key names are also hyphens on the CLI.
 _CLI_KEY = _CREDENTIAL_KEYS.replace("_", "[-_]")
 _CLI_SECRET_OPT = re.compile(
-    rf"(?i)(--(?:[A-Za-z0-9]+[-_])*(?:{_CLI_KEY}))(\s+){_SECRET_VALUE}",
+    rf"(?i)(--(?:[A-Za-z0-9]+[-_])*(?:{_CLI_KEY}){_KEY_SUFFIX})(\s+){_SECRET_VALUE}",
 )
 # CSI, OSC, and other ECMA-48 sequences, plus C1 CSI (U+009B).
 _ANSI = re.compile(

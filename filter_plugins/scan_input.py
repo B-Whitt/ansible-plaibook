@@ -294,18 +294,31 @@ def secret_value_is_placeholder(finding: dict) -> bool:
     return all(_one(text) for text in texts)
 
 
-def _as_bool(value: Any) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes"}
-    return bool(value)
+_CREDENTIAL_NAME_TAIL = (
+    "access_token|private_token|client_secret|id_token|refresh_token|api_key|"
+    "password|passwd|signature|credential|secret|token|sig|auth|key"
+)
+
+
+def _assignment_name(finding: dict) -> str:
+    for text in _candidate_texts(finding):
+        match = re.search(r"(?i)(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=", text)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def _name_is_credential(name: str) -> bool:
+    return bool(re.search(rf"(?i)(?:{_CREDENTIAL_NAME_TAIL})(?:_[A-Za-z0-9]+)*$", name))
 
 
 def apply_guardian_judgments(findings: Any, judgments: Any) -> dict:
-    """Drop blocking hits a later agent judged to be false positives.
+    """Record a later agent's note. Only a deterministic rule clears a hit.
 
-    ``judgments`` items are ``{index, valid_secret, reason}``. A missing
-    judgment keeps the hit. Prefix-backed tokens and git-userinfo URLs
-    stay blocking even when the agent says the hit is not a secret.
+    An agent ``valid_secret: false`` does not remove a blocker. An
+    env-variable hit whose name does not end in a credential key is a
+    code constant or config string and is cleared. Prefix-backed tokens
+    and git userinfo URLs stay blocking.
     """
     decided: dict[int, dict] = {}
     if isinstance(judgments, list):
@@ -324,17 +337,28 @@ def apply_guardian_judgments(findings: Any, judgments: Any) -> dict:
         if not isinstance(finding, dict):
             continue
         decision = decided.get(index)
-        valid = True if decision is None else _as_bool(decision.get("valid_secret"))
         locked = finding_has_prefix_token(finding) or guardian_secret_type(finding) == "credentials-in-git-url"
+        name = _assignment_name(finding)
+        non_credential_env = (
+            guardian_secret_type(finding) in {"env-variable", "exported-env-variable"}
+            and bool(name)
+            and not _name_is_credential(name)
+            and not locked
+        )
+        valid = not non_credential_env
         if locked:
             valid = True
-        reason = ""
+        agent_note = ""
         if isinstance(decision, dict):
-            reason = str(decision.get("reason") or "")
+            agent_note = str(decision.get("reason") or "")
+        if non_credential_env:
+            reason = "variable name is not a credential"
         elif locked:
             reason = "prefix-backed token or git userinfo stays blocking"
         else:
-            reason = "no agent judgment; kept"
+            reason = "kept; an agent judgment cannot clear this hit"
+        if agent_note:
+            reason = f"{reason}. agent: {agent_note}"
         notes.append(
             {
                 "index": index,

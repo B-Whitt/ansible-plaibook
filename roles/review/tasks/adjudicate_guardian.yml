@@ -1,8 +1,9 @@
 ---
 # Later agent pass over hits that would force NEEDS_CHANGES.
 # Runs after verify and before guardian_scan_enforce_verdict.yml.
-# A false judgment drops the hit. No judgment, a failed call, a
-# prefix-backed token, or a git userinfo URL keeps it.
+# The agent's note is recorded and cannot by itself drop a hit.
+# apply_guardian_judgments clears only an env-variable whose name is
+# not a credential. Prefix-backed tokens and git userinfo stay.
 
 - name: Skip guardian adjudication when it is disabled or there is nothing to judge
   when: >-

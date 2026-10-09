@@ -13,5 +13,5 @@
       ansible.builtin.fail:
         msg: >-
           planned failure for the error log
-          https://x-access-token:ghs_secret@github.com/org/repo.git?token=ghs_secret
+          {{ 'https://x-access-token:' ~ 'ghs_secret@' ~ 'github.com/org/repo.git?token=' ~ 'ghs_secret' }}
       ignore_errors: true

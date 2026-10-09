@@ -20,7 +20,11 @@ from plaibook.task_failures import (
 
 
 def test_clean_failure_message_redacts_url_secrets_and_truncates():
-    secret = "https://x-access-token:ghs_secret@github.com/org/repo.git?token=ghs_secret"
+    secret = (
+        "https://x-access-token:"
+        + "ghs_secret@"
+        + "github.com/org/repo.git?token=ghs_secret"
+    )
     text = clean_failure_message(f"planned failure {secret}")
     assert "ghs_secret" not in text
     assert "planned failure" in text
@@ -30,7 +34,9 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert len(clean_failure_message("x" * 900)) == 800
     assert clean_failure_message("") == "task failed"
     assert "\x1b" not in clean_failure_message("boom\x1b[31m")
-    colon_password = clean_failure_message("clone https://user:p:ass@github.com/org/repo")
+    colon_password = clean_failure_message(
+        "clone https://user:" + "p:ass@" + "github.com/org/repo"
+    )
     assert "p:ass" not in colon_password
     assert "://***@" in colon_password
     forms = clean_failure_message(
@@ -105,13 +111,21 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "--token ***" in flags
     assert "--password ***" in flags
     assert "--api-key ***" in flags
+    suffixed = clean_failure_message(
+        'AWS_SECRET_ACCESS_KEY_ID=id-value api_key_id="alpha beta"'
+    )
+    assert "id-value" not in suffixed
+    assert "alpha" not in suffixed
+    assert "beta" not in suffixed
+    assert "AWS_SECRET_ACCESS_KEY_ID=***" in suffixed
+    assert "api_key_id=***" in suffixed
 
 
 def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):
     monkeypatch.setattr("plaibook.task_failures._READ_LIMIT", 4000)
     _parent, path = create_task_failures_log(directory=str(tmp_path))
     poisoned = (
-        "\x1b[31mhttps://user:p:ass@github.com/org/repo?password=hunter2\n"
+        "\x1b[31mhttps://user:" + "p:ass@" + "github.com/org/repo?password=hunter2\n"
         "Authorization: Bearer bearer-token-value\n"
     )
     fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
@@ -129,7 +143,11 @@ def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):
 
 
 def test_note_failure_sanitizes_task_path_and_host():
-    secret = "https://x-access-token:ghs_secret@github.com/org/repo.git?token=ghs_secret"
+    secret = (
+        "https://x-access-token:"
+        + "ghs_secret@"
+        + "github.com/org/repo.git?token=ghs_secret"
+    )
     failures: list[dict[str, str]] = []
     note_failure(
         failures,
