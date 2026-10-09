@@ -165,6 +165,20 @@ def test_camel_case_api_key_fields_are_redacted():
     assert "monkey: banana" in clean_failure_message("monkey: banana")
 
 
+def test_read_masks_a_value_on_the_line_after_the_name(tmp_path):
+    _parent, path = create_task_failures_log(directory=str(tmp_path))
+    payload = "password=\nsekritvalue\nafter\n"
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+    try:
+        os.write(fd, payload.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+    text = read_task_failures_log(path)
+    assert "sekritvalue" not in text
+    assert "after" in text
+
+
 def test_read_masks_a_quoted_secret_that_continues_on_the_next_line(tmp_path):
     _parent, path = create_task_failures_log(directory=str(tmp_path))
     payload = 'password="first-line\nsecond-line"\nafter\n'
@@ -387,13 +401,13 @@ def test_unreachable_loop_item_is_recorded():
     callback.v2_runner_on_unreachable(
         _Result({"unreachable": True, "msg": "All items completed", "results": [{}, {}]})
     )
-    callback.v2_runner_on_failed(
-        _Result({"failed": True, "msg": "One or more items failed", "results": [{}, {}]}),
-        ignore_errors=True,
-    )
     assert len(callback._failures) == 2
     assert "All items completed" not in " ".join(item["message"] for item in callback._failures)
-    assert "One or more items failed" not in " ".join(item["message"] for item in callback._failures)
+    callback.v2_runner_on_failed(
+        _Result({"failed": True, "msg": "later failure of the same task"})
+    )
+    assert len(callback._failures) == 3
+    assert callback._failures[2]["message"] == "later failure of the same task"
 
 
 def test_read_redacts_a_multiline_pem_block(tmp_path):

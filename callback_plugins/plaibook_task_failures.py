@@ -116,7 +116,13 @@ class CallbackModule(CallbackBase):
 
     def _summary_already_recorded(self, result) -> bool:
         host, name, path, _task = self._subject(result)
-        return (host, name, path) in self._item_tasks
+        key = (host, name, path)
+        if key not in self._item_tasks:
+            return False
+        # One summary belongs to the items just recorded. A later run of
+        # the same task must still be reported.
+        self._item_tasks.discard(key)
+        return True
 
     def v2_runner_on_failed(self, result, ignore_errors=False):
         if self._summary_already_recorded(result):

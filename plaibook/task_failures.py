@@ -39,7 +39,7 @@ _ASSIGN_KEY = rf"(?:{_LONG_CREDENTIAL_KEYS}|{_CAMEL_CREDENTIAL_KEYS}|{_SHORT_KEY
 # A quoted password containing a space used to leave the tail in the log. The quote
 # alternatives are disjoint (backslash vs not) and linear.
 _QUOTED_VALUE = r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\''
-_SECRET_VALUE = rf"(?:{_QUOTED_VALUE}|\S+)"
+_FIELD_VALUE = rf"(?:{_QUOTED_VALUE}|\S+)"
 # A suffix such as _ID still belongs to the credential name:
 # AWS_SECRET_ACCESS_KEY_ID=... must not stop at KEY.
 _KEY_SUFFIX = r"(?:[_-][A-Za-z0-9]+)*"
@@ -49,16 +49,20 @@ _TOKEN_QUERY = re.compile(
 # ENV_STYLE names (GITHUB_TOKEN, DB_PASSWORD) match the key inside the name.
 # A leading (?:[A-Za-z0-9]+_)* group made that search quadratic. An optional
 # quote sits between a JSON/YAML key and its colon: "token": "...".
-_SECRET_ASSIGN = re.compile(
+# A credential name with nothing after '=' or ':'. The value is the next line.
+_CREDENTIAL_VALUE_FOLLOWS = re.compile(
+    rf"(?i)(?:{_ASSIGN_KEY}){_KEY_SUFFIX}\s*[=:]\s*$"
+)
+_CREDENTIAL_ASSIGN = re.compile(
     rf"(?i)((?:{_ASSIGN_KEY}){_KEY_SUFFIX}[\"']?)"
-    rf"(\s*[=:]\s*){_SECRET_VALUE}",
+    rf"(\s*[=:]\s*){_FIELD_VALUE}",
 )
 # A fully quoted header value ("Bearer alpha beta") has no separate scheme token.
 _AUTH_QUOTED = re.compile(
     rf"(?i)(authorization\s*[:=]\s*)(?:{_QUOTED_VALUE})",
 )
 _AUTH_HEADER = re.compile(
-    rf"(?i)(authorization\s*[:=]\s*(?:bearer|basic|token)\s+){_SECRET_VALUE}",
+    rf"(?i)(authorization\s*[:=]\s*(?:bearer|basic|token)\s+){_FIELD_VALUE}",
 )
 _BEARER = re.compile(
     rf"(?i)(\bbearer\s+)(?:{_QUOTED_VALUE}|[A-Za-z0-9._~+/=-]{{8,}})",
@@ -74,14 +78,14 @@ _DASH_USER_QUOTED = re.compile(
     rf"(?i)({_DASH_USER_HEAD})(?:{_QUOTED_VALUE})",
 )
 _DASH_USER = re.compile(
-    rf"(?i)({_DASH_USER_HEAD})([^\s:]*:\s*){_SECRET_VALUE}",
+    rf"(?i)({_DASH_USER_HEAD})([^\s:]*:\s*){_FIELD_VALUE}",
 )
 # mysql/mysqldump/mariadb -p, including options between the command and
 # -p (mysql -u root -psecret). psql -p is a port. The 800-character cap
 # runs first, so the gap between the command and -p stays cheap.
 _P_COMMAND = r"(?:mysql|mysqldump|mariadb)\b[^\n|;&]*?\s-[pP]"
 _SHORT_P_SEPARATED = re.compile(
-    rf"(?i)({_P_COMMAND}\s+){_SECRET_VALUE}",
+    rf"(?i)({_P_COMMAND}\s+){_FIELD_VALUE}",
 )
 _SHORT_P_ATTACHED = re.compile(
     rf"(?i)({_P_COMMAND})(?:{_QUOTED_VALUE}|\S+)",
@@ -91,9 +95,9 @@ _SHORT_P_ATTACHED = re.compile(
 # No leading (?:[A-Za-z0-9]+[-_])* group: that search is quadratic, and the
 # key already matches inside the flag.
 _CLI_LONG = _LONG_CREDENTIAL_KEYS.replace("_", "[-_]")
-_CLI_SECRET_OPT = re.compile(
+_CLI_CREDENTIAL_OPT = re.compile(
     rf"(?i)(--(?:{_CLI_LONG}|{_CAMEL_CREDENTIAL_KEYS}|{_SHORT_KEY}){_KEY_SUFFIX})"
-    rf"(\s+){_SECRET_VALUE}",
+    rf"(\s+){_FIELD_VALUE}",
 )
 # A bare token or a PEM block has no assignment delimiter.
 # ghs_/gho_/ghu_/ghr_ are GitHub installation, OAuth, user-to-server,
@@ -106,7 +110,7 @@ _PREFIX_TOKEN = re.compile(
 )
 # A credential value that opens a quote. Used only to see whether the
 # display cap cut the quote off; the value itself is not consumed here.
-_SECRET_QUOTE_OPEN = re.compile(
+_CREDENTIAL_QUOTE_OPEN = re.compile(
     rf"(?i)(?:(?:{_ASSIGN_KEY}){_KEY_SUFFIX}[\"']?\s*[=:]\s*"
     rf"|(?:--(?:{_CLI_LONG}|{_CAMEL_CREDENTIAL_KEYS}|{_SHORT_KEY}){_KEY_SUFFIX})\s+"
     rf"|{_DASH_USER_HEAD}"
@@ -146,8 +150,8 @@ def _redact_display_text(text: object) -> str:
     raw = _DASH_USER.sub(r"\1\2***", raw)
     raw = _SHORT_P_SEPARATED.sub(r"\1***", raw)
     raw = _SHORT_P_ATTACHED.sub(r"\1***", raw)
-    raw = _CLI_SECRET_OPT.sub(r"\1\2***", raw)
-    raw = _SECRET_ASSIGN.sub(r"\1\2***", raw)
+    raw = _CLI_CREDENTIAL_OPT.sub(r"\1\2***", raw)
+    raw = _CREDENTIAL_ASSIGN.sub(r"\1\2***", raw)
     raw = _PEM_BLOCK.sub("***", raw)
     return _PREFIX_TOKEN.sub("***", raw)
 
@@ -166,11 +170,11 @@ def _scan_quote(text: str, quote: str, escaped: bool) -> tuple[int | None, bool]
     return None, escaped
 
 
-def _unclosed_secret_quote(text: str) -> tuple[str, bool]:
+def _unclosed_credential_quote(text: str) -> tuple[str, bool]:
     """Quote character and trailing escape state when a credential quote never closes."""
     pos = 0
     while True:
-        match = _SECRET_QUOTE_OPEN.search(text, pos)
+        match = _CREDENTIAL_QUOTE_OPEN.search(text, pos)
         if not match:
             return "", False
         quote = match.group("quote")
@@ -180,7 +184,7 @@ def _unclosed_secret_quote(text: str) -> tuple[str, bool]:
         pos = match.end() + closer + 1
 
 
-def _mask_open_quoted_secret(clipped: str) -> str:
+def _mask_open_quoted_value(clipped: str) -> str:
     """Mask a credential quote that the display cap cut before it closed.
 
     ``\\S+`` would keep only the first word and leave the rest of the
@@ -189,7 +193,7 @@ def _mask_open_quoted_secret(clipped: str) -> str:
     """
     pos = 0
     while True:
-        match = _SECRET_QUOTE_OPEN.search(clipped, pos)
+        match = _CREDENTIAL_QUOTE_OPEN.search(clipped, pos)
         if not match:
             return clipped
         quote = match.group("quote")
@@ -210,7 +214,7 @@ def _redact_bounded(text: str, *, limit: int) -> str:
     """
     clipped = len(text) > limit
     raw = text[:limit] if clipped else text
-    raw = _mask_open_quoted_secret(raw)
+    raw = _mask_open_quoted_value(raw)
     raw = _redact_display_text(raw)
     if clipped or len(raw) > limit:
         raw = raw[: limit - 1] + "…"
@@ -538,12 +542,17 @@ def _redact_log_lines(text: str) -> str:
     in_pem = False
     open_quote = ""
     quote_escaped = False
+    mask_next = False
     pieces: list[str] = []
     for body, ending in _iter_lf_lines(text):
         # ANSI and C0/C1 can sit inside the header. The marker check has
         # to see the same text the redactor will, or a split BEGIN never
         # starts the block and the following key lines stay in the log.
         visible = _visible_log_line(body)
+        if mask_next:
+            mask_next = False
+            pieces.append("***" + ending)
+            continue
         if open_quote:
             closer, quote_escaped = _scan_quote(visible, open_quote, quote_escaped)
             if closer is None:
@@ -561,7 +570,9 @@ def _redact_log_lines(text: str) -> str:
         if _PEM_BEGIN.search(visible) and not _PEM_END.search(visible):
             in_pem = True
         probe = visible[:_MESSAGE_LIMIT]
-        open_quote, quote_escaped = _unclosed_secret_quote(probe)
+        open_quote, quote_escaped = _unclosed_credential_quote(probe)
+        if not open_quote and _CREDENTIAL_VALUE_FOLLOWS.search(probe):
+            mask_next = True
         pieces.append(_redact_bounded(body, limit=_MESSAGE_LIMIT) + ending)
     return "".join(pieces)
 
