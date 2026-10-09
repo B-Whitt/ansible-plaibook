@@ -15,7 +15,7 @@
         guardian_adjudications: []
         _guardian_judged_blocking: []
 
-    - name: Ask the agent whether each blocking guardian hit is a real secret
+    - name: Classify each blocking guardian hit locally
       ansible.builtin.include_tasks: adjudicate_one_guardian_finding.yml
       loop: "{{ guardian_blocking_findings }}"
       loop_control:

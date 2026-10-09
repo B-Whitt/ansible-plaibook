@@ -24,7 +24,7 @@ _USERINFO = re.compile(r"://[^@/\s]+@")
 # Longer keys first so api_key wins over key.
 _CREDENTIAL_KEYS = (
     "access_token|private_token|client_secret|id_token|refresh_token|api_key|"
-    "password|passwd|signature|credential|secret|token|sig|auth|key"
+    "password|passwd|signature|credential|secret|bearer|token|sig|auth|key"
 )
 # A quoted value may contain spaces. \S+ stops at the first one, so
 # A quoted password containing a space used to leave the tail in the log. The quote

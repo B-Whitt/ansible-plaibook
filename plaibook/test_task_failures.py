@@ -133,6 +133,9 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "PRIVATE KEY" not in loose
     assert "MIIB" not in loose
     assert "***" in loose
+    bearer_assign = clean_failure_message("BEARER=real-token")
+    assert "real-token" not in bearer_assign
+    assert "BEARER=***" in bearer_assign
 
 
 def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):
