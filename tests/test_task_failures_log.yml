@@ -1,0 +1,17 @@
+---
+# One ignored failure. scripts/run_playbook_tests.sh points
+# PLAIBOOK_TASK_FAILURES_LOG at a private file and checks the callback
+# wrote this task name and message, with the token URL redacted.
+# The callback writes from v2_playbook_on_stats, after tasks can assert.
+
+- name: Record one planned task failure
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Record a planned failure for the error log
+      ansible.builtin.fail:
+        msg: >-
+          planned failure for the error log
+          {{ 'https://x-access-token:' ~ 'ghs_secret@' ~ 'github.com/org/repo.git?token=' ~ 'ghs_secret' }}
+      ignore_errors: true

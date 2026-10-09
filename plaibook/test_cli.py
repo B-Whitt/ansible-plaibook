@@ -11,6 +11,8 @@ import pytest
 import yaml
 
 from plaibook.cli import (
+    _FAILURE_LOG_UNAVAILABLE,
+    _emit_task_failures,
     _progress_line,
     _validate_review_args,
     ansible_verbosity,
@@ -28,6 +30,7 @@ from plaibook.playbook import (
     last_run_path,
 )
 from plaibook.summary import enrich_last_run, format_pretty
+from plaibook.task_failures import create_task_failures_log, write_task_failures
 
 
 @pytest.fixture(autouse=True)
@@ -167,6 +170,245 @@ def test_extra_vars_sandbox_and_passthrough():
         "runId0123456789",
     )
     assert extras["use_sandbox"] is True
+
+
+def test_cmd_review_quiet_reprints_task_failure_log(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
+
+    seen: dict[str, str] = {}
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        assert env and env.get("PLAIBOOK_TASK_FAILURES_LOG")
+        seen["log"] = env["PLAIBOOK_TASK_FAILURES_LOG"]
+        Path(env["PLAIBOOK_TASK_FAILURES_LOG"]).write_text(
+            "Task failures (1):\n- planned failure for the error log\n"
+        )
+        extras = json.loads(command[command.index("-e") + 1])
+        path = last_run_path(extras["last_run_id"], home=home)
+        path.write_text(json.dumps({"run_id": extras["last_run_id"], "status": "ok", "targets": []}))
+        return SimpleNamespace(returncode=0, stdout="HIDDEN ANSIBLE", stderr="")
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.openshell_available", lambda: True)
+    monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
+    monkeypatch.setattr("plaibook.cli.reexec_sandbox_runtime", lambda **kwargs: None)
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr("plaibook.cli.runtime_tmp_dir", lambda home=None: home or tmp_path)
+
+    code = cmd_review(_args(target="org/repo/1", playbook_root=str(checkout), use_sandbox=False))
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "planned failure for the error log" in captured.err
+    assert "HIDDEN ANSIBLE" not in captured.err
+    assert "HIDDEN ANSIBLE" not in captured.out
+    assert not Path(seen["log"]).exists()
+    assert not Path(seen["log"]).parent.exists()
+
+
+def test_cmd_review_json_verbose_prints_the_failure_log_once(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
+    line = "planned failure for the error log"
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        assert env and env.get("PLAIBOOK_TASK_FAILURES_LOG")
+        Path(env["PLAIBOOK_TASK_FAILURES_LOG"]).write_text(f"Task failures (1):\n- {line}\n")
+        extras = json.loads(command[command.index("-e") + 1])
+        path = last_run_path(extras["last_run_id"], home=home)
+        path.write_text(json.dumps({"run_id": extras["last_run_id"], "status": "ok", "targets": []}))
+        return SimpleNamespace(returncode=0, stdout=f"TASK [failed]\n{line}\n", stderr="")
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.openshell_available", lambda: True)
+    monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
+    monkeypatch.setattr("plaibook.cli.reexec_sandbox_runtime", lambda **kwargs: None)
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr("plaibook.cli.runtime_tmp_dir", lambda home=None: home or tmp_path)
+
+    code = cmd_review(
+        _args(
+            target="org/repo/1",
+            playbook_root=str(checkout),
+            use_sandbox=False,
+            as_json=True,
+            verbose=True,
+        )
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert captured.err.count(line) == 1
+
+
+def test_cmd_review_verbose_does_not_reprint_task_failure_log(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
+
+    seen: dict[str, str] = {}
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        assert verbose is True
+        assert env and env.get("PLAIBOOK_TASK_FAILURES_LOG")
+        seen["log"] = env["PLAIBOOK_TASK_FAILURES_LOG"]
+        Path(env["PLAIBOOK_TASK_FAILURES_LOG"]).write_text(
+            "Task failures (1):\n- planned failure for the error log\n"
+        )
+        extras = json.loads(command[command.index("-e") + 1])
+        path = last_run_path(extras["last_run_id"], home=home)
+        path.write_text(json.dumps({"run_id": extras["last_run_id"], "status": "ok", "targets": []}))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.openshell_available", lambda: True)
+    monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
+    monkeypatch.setattr("plaibook.cli.reexec_sandbox_runtime", lambda **kwargs: None)
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr("plaibook.cli.runtime_tmp_dir", lambda home=None: home or tmp_path)
+
+    code = cmd_review(
+        _args(target="org/repo/1", playbook_root=str(checkout), use_sandbox=False, verbose=True)
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "planned failure for the error log" not in captured.err
+    assert not Path(seen["log"]).exists()
+    assert not Path(seen["log"]).parent.exists()
+
+
+def _summary_for(command, home: Path) -> None:
+    extras = json.loads(command[command.index("-e") + 1])
+    path = last_run_path(extras["last_run_id"], home=home)
+    path.write_text(
+        json.dumps(
+            {
+                "run_id": extras["last_run_id"],
+                "status": "ok",
+                "cost_usd": 0.0,
+                "targets": [
+                    {
+                        "target": "local@HEAD",
+                        "verdict": "READY_FOR_HUMAN_REVIEW",
+                        "score": 100.0,
+                    }
+                ],
+            }
+        )
+    )
+
+
+def _patch_commit_review(tmp_path, monkeypatch, fake_run):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr("plaibook.cli.runtime_tmp_dir", lambda home=None: tmp_path)
+    return checkout, home
+
+
+def test_quiet_mode_warns_when_the_failure_log_is_unavailable(tmp_path, capsys):
+    parent, path = create_task_failures_log(directory=str(tmp_path))
+    _emit_task_failures(path, _args(), captured_already_shown=False, playbook_rc=2)
+    assert capsys.readouterr().err == _FAILURE_LOG_UNAVAILABLE
+    assert not Path(path).exists()
+    assert not Path(parent).exists()
+
+    _emit_task_failures("", _args(), captured_already_shown=False, playbook_rc=0, log_unavailable=True)
+    assert capsys.readouterr().err == _FAILURE_LOG_UNAVAILABLE
+
+    _emit_task_failures(
+        "",
+        _args(verbose=True),
+        captured_already_shown=False,
+        playbook_rc=2,
+        log_unavailable=True,
+    )
+    assert capsys.readouterr().err == ""
+
+    parent, path = create_task_failures_log(directory=str(tmp_path))
+    _emit_task_failures(path, _args(), captured_already_shown=False, playbook_rc=0)
+    assert capsys.readouterr().err == ""
+    assert not Path(path).exists()
+
+    parent, path = create_task_failures_log(directory=str(tmp_path))
+    assert write_task_failures(path, "planned failure\n")
+    _emit_task_failures(path, _args(), captured_already_shown=False, playbook_rc=2)
+    err = capsys.readouterr().err
+    assert "planned failure" in err
+    assert _FAILURE_LOG_UNAVAILABLE not in err
+    assert not Path(path).exists()
+    assert not Path(parent).exists()
+
+
+def test_quiet_review_warns_when_failure_log_creation_fails(tmp_path, monkeypatch, capsys):
+    def broken_log(*, directory=None):
+        raise OSError("temp unavailable")
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        _summary_for(command, home)
+        return SimpleNamespace(returncode=0, stdout="TASK [noisy]\n", stderr="")
+
+    checkout, home = _patch_commit_review(tmp_path, monkeypatch, fake_run)
+    monkeypatch.setattr("plaibook.cli.create_task_failures_log", broken_log)
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout)))
+    captured = capsys.readouterr()
+    assert code == 0
+    assert _FAILURE_LOG_UNAVAILABLE in captured.err
+    assert "TASK [noisy]" not in captured.err
+    assert "READY_FOR_HUMAN_REVIEW" in captured.out
+
+
+def test_quiet_review_warns_when_a_failed_play_leaves_an_empty_log(tmp_path, monkeypatch, capsys):
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        assert env and env.get("PLAIBOOK_TASK_FAILURES_LOG")
+        _summary_for(command, home)
+        return SimpleNamespace(returncode=2, stdout="TASK [noisy]\n", stderr="")
+
+    checkout, home = _patch_commit_review(tmp_path, monkeypatch, fake_run)
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout)))
+    captured = capsys.readouterr()
+    assert code == 2
+    assert _FAILURE_LOG_UNAVAILABLE in captured.err
+    assert "TASK [noisy]" not in captured.err
+
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout), verbose=True))
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "task-failure log unavailable" not in captured.err
 
 
 def test_cmd_review_does_not_pass_controller_interpreter_as_extra_var(tmp_path, monkeypatch):
