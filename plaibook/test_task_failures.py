@@ -115,12 +115,12 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "--password ***" in flags
     assert "--api-key ***" in flags
     suffixed = clean_failure_message(
-        'AWS_SECRET_ACCESS_KEY_ID=id-value api_key_id="alpha beta"'
+        'AWS_SECRET_ACCESS_KEY_ID=id-value CURSOR_API_KEY_ID=cursor-id api_key_id="alpha beta"'
     )
-    assert "id-value" not in suffixed
-    assert "alpha" not in suffixed
-    assert "beta" not in suffixed
+    for leaked in ("id-value", "cursor-id", "alpha", "beta"):
+        assert leaked not in suffixed, leaked
     assert "AWS_SECRET_ACCESS_KEY_ID=***" in suffixed
+    assert "CURSOR_API_KEY_ID=***" in suffixed
     assert "api_key_id=***" in suffixed
 
 
