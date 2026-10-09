@@ -252,10 +252,11 @@ def write_task_failures(path: str, text: str) -> bool:
     resolved = allowed_task_failures_path(path)
     if resolved is None:
         return False
+    # Truncate only after the inode checks. O_TRUNC on open would wipe a
+    # hard-linked file before st_nlink can reject it.
     flags = (
         os.O_WRONLY
         | os.O_NOFOLLOW
-        | os.O_TRUNC
         | getattr(os, "O_NONBLOCK", 0)
         | getattr(os, "O_CLOEXEC", 0)
     )
@@ -265,10 +266,13 @@ def write_task_failures(path: str, text: str) -> bool:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             return False
+        if info.st_nlink != 1:
+            return False
         if info.st_uid != os.geteuid():
             return False
         if stat.S_IMODE(info.st_mode) & 0o077:
             return False
+        os.ftruncate(fd, 0)
         view = memoryview(text.encode("utf-8"))
         while len(view) > 0:
             written = os.write(fd, view)
@@ -321,6 +325,8 @@ def read_task_failures_log(path: str) -> str:
         fd = os.open(resolved, flags)
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
+            return ""
+        if info.st_nlink != 1:
             return ""
         if info.st_uid != os.geteuid():
             return ""

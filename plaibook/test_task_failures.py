@@ -282,3 +282,15 @@ def test_fifo_log_open_returns_without_blocking(tmp_path):
     assert write_task_failures(path, "planned failure") is False
     assert read_task_failures_log(path) == ""
     assert time.monotonic() - started < 2
+
+
+def test_hard_linked_log_is_not_read_or_written(tmp_path):
+    parent, path = create_task_failures_log(directory=str(tmp_path))
+    assert write_task_failures(path, "planned failure\n")
+    link = os.path.join(parent, "plaibook-task-failures-link.log")
+    os.link(path, link)
+    assert os.stat(path).st_nlink == 2
+    assert read_task_failures_log(path) == ""
+    assert write_task_failures(path, "replacement\n") is False
+    os.unlink(link)
+    assert "planned failure" in read_task_failures_log(path)
