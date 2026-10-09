@@ -56,11 +56,17 @@ _BEARER = re.compile(
 # -u "user:pass word" is one quoted argument. -u alice:"alpha beta" keeps
 # the username outside the quotes, so the password quote has to be read
 # after the colon. \S+ used to stop inside that quote.
+# --user before -u so --user is not parsed as -u plus a username.
+# Whitespace or '=' may be absent: curl -uuser:secret.
 _DASH_USER_QUOTED = re.compile(
-    rf"(?i)((?:-u|--user)(?:\s+|=))(?:{_QUOTED_VALUE})",
+    rf"(?i)((?:--user|-u)(?:\s+|=)?)(?:{_QUOTED_VALUE})",
 )
 _DASH_USER = re.compile(
-    rf"(?i)((?:-u|--user)(?:\s+|=))([^\s:]+:\s*){_SECRET_VALUE}",
+    rf"(?i)((?:--user|-u)(?:\s+|=)?)([^\s:]+:\s*){_SECRET_VALUE}",
+)
+# mysql -pSECRET is attached. Do not treat a letter-only flag such as -print as a password.
+_SHORT_PASSWORD = re.compile(
+    rf"(?i)(?<![A-Za-z0-9])(-p)(?:{_QUOTED_VALUE}|(?=\S*\d)\S+)",
 )
 # --token SECRET and --password "alpha beta". Assignment form (--password=SECRET)
 # is already covered. Underscores in key names are also hyphens on the CLI.
@@ -99,6 +105,7 @@ def _redact_display_text(text: object) -> str:
     raw = _BEARER.sub(r"\1***", raw)
     raw = _DASH_USER_QUOTED.sub(r"\1***", raw)
     raw = _DASH_USER.sub(r"\1\2***", raw)
+    raw = _SHORT_PASSWORD.sub(r"\1***", raw)
     raw = _CLI_SECRET_OPT.sub(r"\1\2***", raw)
     raw = _SECRET_ASSIGN.sub(r"\1\2***", raw)
     raw = _PEM_BLOCK.sub("***", raw)

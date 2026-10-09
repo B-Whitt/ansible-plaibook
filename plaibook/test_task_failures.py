@@ -136,6 +136,11 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     bearer_assign = clean_failure_message("BEARER=real-token")
     assert "real-token" not in bearer_assign
     assert "BEARER=***" in bearer_assign
+    attached_short = clean_failure_message("mysql -pS3CRET && curl -uuser:S3CRET -print")
+    assert "S3CRET" not in attached_short
+    assert "mysql -p***" in attached_short
+    assert "curl -uuser:***" in attached_short
+    assert "-print" in attached_short
 
 
 def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):
