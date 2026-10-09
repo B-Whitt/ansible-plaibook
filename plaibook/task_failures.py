@@ -268,12 +268,16 @@ def sanitize_failure_field(text: object, *, limit: int = _FIELD_LIMIT) -> str:
 def clean_failure_message(text: object, *, limit: int = _MESSAGE_LIMIT) -> str:
     """One failure message, with URL secrets removed and length capped.
 
-    Line state matches the log reader: a credential name at the end of a
-    line keeps the following private key or quoted value hidden.
+    The cap is applied before the line pass. Line state on that prefix
+    still keeps a private key or quoted value hidden when its name ends
+    the previous line.
     """
     raw = text if isinstance(text, str) else ""
+    clipped = len(raw) > limit
+    if clipped:
+        raw = raw[:limit]
     raw = _redact_log_lines(raw).strip()
-    if len(raw) > limit:
+    if clipped or len(raw) > limit:
         raw = raw[: limit - 1] + "…"
     return raw or "task failed"
 
@@ -399,6 +403,50 @@ def allowed_task_failures_path(path: str) -> str | None:
     return os.path.join(real_parent, name)
 
 
+# Device and inode of the file create_task_failures_log made. A later
+# open of the same path must be that file. The callback rewrites this
+# inode; a replaced path is not read or deleted.
+# The descriptor stays open so the kernel cannot recycle that inode for
+# a new file created at the same path after unlink or rename.
+_LOG_IDENTITY: dict[str, tuple[int, int]] = {}
+_LOG_HELD_FD: dict[str, int] = {}
+
+
+def _remember_log_identity(path: str, fd: int) -> None:
+    key = allowed_task_failures_path(path)
+    if not key:
+        return
+    info = os.fstat(fd)
+    held = os.dup(fd)
+    try:
+        os.set_inheritable(held, False)
+    except OSError:
+        os.close(held)
+        raise
+    previous = _LOG_HELD_FD.pop(key, None)
+    if previous is not None:
+        os.close(previous)
+    _LOG_HELD_FD[key] = held
+    _LOG_IDENTITY[key] = (info.st_dev, info.st_ino)
+
+
+def _release_log_identity(path: str) -> None:
+    key = allowed_task_failures_path(path)
+    if not key:
+        return
+    _LOG_IDENTITY.pop(key, None)
+    held = _LOG_HELD_FD.pop(key, None)
+    if held is not None:
+        os.close(held)
+
+
+def _opened_log_is_original(path: str, info: os.stat_result) -> bool:
+    expected = _LOG_IDENTITY.get(path)
+    if expected is None:
+        return True
+    return (info.st_dev, info.st_ino) == expected
+
+
 def create_task_failures_log(*, directory: str | None = None) -> tuple[str, str]:
     """Private 0o700 directory and empty 0o600 log. Caller deletes both when unused.
 
@@ -413,6 +461,7 @@ def create_task_failures_log(*, directory: str | None = None) -> tuple[str, str]
         os.chmod(parent, 0o700)
         fd, path = tempfile.mkstemp(prefix=LOG_PREFIX, suffix=LOG_SUFFIX, dir=parent)
         os.fchmod(fd, 0o600)
+        _remember_log_identity(path, fd)
     except OSError:
         if fd >= 0:
             try:
@@ -425,6 +474,7 @@ def create_task_failures_log(*, directory: str | None = None) -> tuple[str, str]
                 os.unlink(path)
             except OSError:
                 pass
+            _release_log_identity(path)
         try:
             os.rmdir(parent)
         except OSError:
@@ -501,7 +551,8 @@ def read_task_failures_log(path: str) -> str:
     the regular-file check.
     The playbook process can see ``PLAIBOOK_TASK_FAILURES_LOG`` and replace
     that path before the CLI reads it. Following a symlink would print the
-    target.
+    target. A different inode at the same path is left unread. The callback
+    rewrites the file this process created.
     """
     if not path or not hasattr(os, "O_NOFOLLOW"):
         return ""
@@ -525,6 +576,8 @@ def read_task_failures_log(path: str) -> str:
         if info.st_uid != os.geteuid():
             return ""
         if stat.S_IMODE(info.st_mode) & 0o077:
+            return ""
+        if not _opened_log_is_original(resolved, info):
             return ""
         truncated = info.st_size > _READ_LIMIT
         chunks: list[bytes] = []
@@ -576,6 +629,8 @@ def _redact_log_lines(text: str) -> str:
     After a BEGIN line, every line is redacted until the END line. A
     quoted credential that does not close on its line stays open across
     the following lines until the matching quote.
+    A newline inside an escape sequence is disguised text. The split
+    happens before those controls are removed, and that case is out of scope.
     """
     if not text:
         return ""
@@ -631,15 +686,33 @@ def discard_task_failure_log(path: str) -> None:
 
     The file exists so quiet mode can reprint what the callback displayed.
     Once that reprint has happened, the directory is not a record we keep.
+    A path that no longer names the created inode is left in place.
     """
     resolved = allowed_task_failures_path(path) if path else None
     if resolved is None:
         return
+    flags = (
+        os.O_RDONLY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    try:
+        fd = os.open(resolved, flags)
+    except OSError:
+        return
+    try:
+        info = os.fstat(fd)
+        if not _opened_log_is_original(resolved, info):
+            return
+    finally:
+        os.close(fd)
     parent = os.path.dirname(resolved)
     try:
         os.unlink(resolved)
     except OSError:
         return
+    _release_log_identity(resolved)
     try:
         if os.path.basename(parent).startswith(LOG_PREFIX):
             os.rmdir(parent)

@@ -382,20 +382,38 @@ def _playbook_env(failures_path: str, extra: dict[str, str] | None = None) -> di
     return env or None
 
 
-def _emit_task_failures(path: str, args: argparse.Namespace, *, captured_already_shown: bool) -> None:
+_FAILURE_LOG_UNAVAILABLE = (
+    "task-failure log unavailable; rerun with -v to see failed tasks\n"
+)
+
+
+def _emit_task_failures(
+    path: str,
+    args: argparse.Namespace,
+    *,
+    captured_already_shown: bool,
+    playbook_rc: int = 0,
+    log_unavailable: bool = False,
+) -> None:
     """Reprint the failure log when quiet mode discarded callback display.
 
     Verbose runs already showed it. A dumped ansible transcript already
     contains it. The private directory is removed after this read: the
-    reprint is the last use of the file.
+    reprint is the last use of the file. Quiet mode does not fall back
+    to that transcript. It says the log is unavailable instead.
     """
-    if not path:
+    quiet = ansible_verbosity(args) == 0
+    if log_unavailable or not path:
+        if quiet and (log_unavailable or playbook_rc != 0):
+            sys.stderr.write(_FAILURE_LOG_UNAVAILABLE)
         return
     text = read_task_failures_log(path)
-    if text and not captured_already_shown and ansible_verbosity(args) == 0:
+    if text and not captured_already_shown and quiet:
         sys.stderr.write(text)
         if not text.endswith("\n"):
             sys.stderr.write("\n")
+    elif quiet and playbook_rc != 0 and not text:
+        sys.stderr.write(_FAILURE_LOG_UNAVAILABLE)
     discard_task_failure_log(path)
 
 
@@ -502,10 +520,12 @@ def cmd_review(args: argparse.Namespace) -> int:
     structured = args.as_json or args.as_yaml
     inherit_tty = (not structured) and ansible_verbosity(args) > 0
     failures_path = ""
+    log_unavailable = False
     try:
         _, failures_path = create_task_failures_log(directory=str(runtime_tmp_dir()))
     except (OSError, ScratchDirError):
         failures_path = ""
+        log_unavailable = True
     try:
         if inherit_tty:
             sys.stderr.write(_progress_line(args))
@@ -548,7 +568,13 @@ def cmd_review(args: argparse.Namespace) -> int:
             )
     except (PlaybookTimeoutError, ScratchDirError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
-        _emit_task_failures(failures_path, args, captured_already_shown=False)
+        _emit_task_failures(
+            failures_path,
+            args,
+            captured_already_shown=False,
+            playbook_rc=2,
+            log_unavailable=log_unavailable,
+        )
         return 2
     captured = "" if inherit_tty else ((result.stderr or "") + (result.stdout or ""))
     showed_structured_capture = False
@@ -577,6 +603,8 @@ def cmd_review(args: argparse.Namespace) -> int:
             failures_path,
             args,
             captured_already_shown=showed_capture or showed_structured_capture,
+            playbook_rc=result.returncode,
+            log_unavailable=log_unavailable,
         )
         return result.returncode if result.returncode else 2
 
@@ -585,12 +613,20 @@ def cmd_review(args: argparse.Namespace) -> int:
     except SummaryError as exc:
         print(str(exc), file=sys.stderr)
         _emit_task_failures(
-            failures_path, args, captured_already_shown=showed_structured_capture
+            failures_path,
+            args,
+            captured_already_shown=showed_structured_capture,
+            playbook_rc=result.returncode,
+            log_unavailable=log_unavailable,
         )
         return 2
     _emit_summary(document, args)
     _emit_task_failures(
-        failures_path, args, captured_already_shown=showed_structured_capture
+        failures_path,
+        args,
+        captured_already_shown=showed_structured_capture,
+        playbook_rc=result.returncode,
+        log_unavailable=log_unavailable,
     )
     return result.returncode
 

@@ -11,6 +11,7 @@ from plaibook.task_failures import (
     clean_failure_message,
     create_task_failures_log,
     discard_empty_task_failure_log,
+    discard_task_failure_log,
     failure_message_from_result,
     is_loop_aggregate,
     note_failure,
@@ -301,7 +302,7 @@ def test_clean_failure_message_keeps_ports_paths_and_ordinary_words():
 
 
 def test_clean_failure_message_bounds_long_input():
-    samples = ("a_" * 8000, "key_a" * 3200)
+    samples = ("a_" * 8000, "key_a" * 3200, "key_" * 250_000)
     for sample in samples:
         started = time.monotonic()
         text = clean_failure_message(sample)
@@ -309,6 +310,11 @@ def test_clean_failure_message_bounds_long_input():
         assert elapsed < 0.5, elapsed
         assert len(text) == 800
         assert text.endswith("…")
+    kept = clean_failure_message("password=hunter2 " + ("x" * 2000))
+    assert kept.startswith("password=***")
+    assert "hunter2" not in kept
+    assert kept.endswith("…")
+    assert len(kept) <= 800
 
 
 def test_read_splits_on_lf_only_and_strips_carriage_returns(tmp_path):
@@ -631,10 +637,12 @@ def test_write_rejects_unsafe_paths_and_roundtrips_a_private_log(tmp_path, monke
     assert read_task_failures_log(path) == ""
     os.unlink(path)
     fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    real_write(fd, b"replaced-log\n")
     os.close(fd)
-    discard_empty_task_failure_log(path)
-    assert not os.path.exists(path)
-    assert not os.path.exists(parent)
+    discard_task_failure_log(path)
+    assert os.path.exists(path)
+    assert open(path, encoding="utf-8").read() == "replaced-log\n"
+    assert os.path.isdir(parent)
     assert secret.read_text(encoding="utf-8") == "super-secret-token-value"
 
 
@@ -679,3 +687,26 @@ def test_hard_linked_log_is_not_read_or_written(tmp_path):
     assert write_task_failures(path, "replacement\n") is False
     os.unlink(link)
     assert "planned failure" in read_task_failures_log(path)
+
+
+def test_replaced_failure_log_is_not_read_or_deleted(tmp_path):
+    parent, path = create_task_failures_log(directory=str(tmp_path))
+    assert write_task_failures(path, "planned failure\n")
+    original = os.stat(path)
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+    os.write(fd, b"still the same file\n")
+    os.close(fd)
+    assert os.stat(path).st_ino == original.st_ino
+    assert "still the same file" in read_task_failures_log(path)
+
+    os.unlink(path)
+    replacement = "copied-over-the-log\n"
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    os.write(fd, replacement.encode("utf-8"))
+    os.close(fd)
+    assert os.stat(path).st_ino != original.st_ino
+    assert read_task_failures_log(path) == ""
+    discard_task_failure_log(path)
+    assert os.path.isfile(path)
+    assert os.path.isdir(parent)
+    assert open(path, encoding="utf-8").read() == replacement
