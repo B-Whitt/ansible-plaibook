@@ -29,9 +29,12 @@ _LONG_CREDENTIAL_KEYS = (
     "password|passwd|signature|credential|secret|bearer|token"
 )
 _SHORT_CREDENTIAL_KEYS = "sig|auth|key"
-_CREDENTIAL_KEYS = f"{_LONG_CREDENTIAL_KEYS}|{_SHORT_CREDENTIAL_KEYS}"
+# apiKey / privateKey. The optional separator also covers api_key and api-key.
+# This is not fed through the CLI underscore replacement: the class is already here.
+_CAMEL_CREDENTIAL_KEYS = r"api[-_]?key|private[-_]?key"
+_CREDENTIAL_KEYS = f"{_LONG_CREDENTIAL_KEYS}|{_CAMEL_CREDENTIAL_KEYS}|{_SHORT_CREDENTIAL_KEYS}"
 _SHORT_KEY = rf"(?<![A-Za-z0-9])(?:{_SHORT_CREDENTIAL_KEYS})"
-_ASSIGN_KEY = rf"(?:{_LONG_CREDENTIAL_KEYS}|{_SHORT_KEY})"
+_ASSIGN_KEY = rf"(?:{_LONG_CREDENTIAL_KEYS}|{_CAMEL_CREDENTIAL_KEYS}|{_SHORT_KEY})"
 # A quoted value may contain spaces. \S+ stops at the first one, so
 # A quoted password containing a space used to leave the tail in the log. The quote
 # alternatives are disjoint (backslash vs not) and linear.
@@ -89,7 +92,7 @@ _SHORT_P_ATTACHED = re.compile(
 # key already matches inside the flag.
 _CLI_LONG = _LONG_CREDENTIAL_KEYS.replace("_", "[-_]")
 _CLI_SECRET_OPT = re.compile(
-    rf"(?i)(--(?:{_CLI_LONG}|{_SHORT_KEY}){_KEY_SUFFIX})"
+    rf"(?i)(--(?:{_CLI_LONG}|{_CAMEL_CREDENTIAL_KEYS}|{_SHORT_KEY}){_KEY_SUFFIX})"
     rf"(\s+){_SECRET_VALUE}",
 )
 # A bare token or a PEM block has no assignment delimiter.
@@ -105,7 +108,7 @@ _PREFIX_TOKEN = re.compile(
 # display cap cut the quote off; the value itself is not consumed here.
 _SECRET_QUOTE_OPEN = re.compile(
     rf"(?i)(?:(?:{_ASSIGN_KEY}){_KEY_SUFFIX}[\"']?\s*[=:]\s*"
-    rf"|(?:--(?:{_CLI_LONG}|{_SHORT_KEY}){_KEY_SUFFIX})\s+"
+    rf"|(?:--(?:{_CLI_LONG}|{_CAMEL_CREDENTIAL_KEYS}|{_SHORT_KEY}){_KEY_SUFFIX})\s+"
     rf"|{_DASH_USER_HEAD}"
     rf"|authorization\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?"
     rf"|\bbearer\s+"
@@ -149,10 +152,9 @@ def _redact_display_text(text: object) -> str:
     return _PREFIX_TOKEN.sub("***", raw)
 
 
-def _quote_closes(text: str, quote: str) -> bool:
-    """True when ``text`` contains an unescaped closing ``quote``."""
-    escaped = False
-    for char in text:
+def _scan_quote(text: str, quote: str, escaped: bool) -> tuple[int | None, bool]:
+    """Index of the unescaped closer, or None, and the escape state at the end."""
+    for index, char in enumerate(text):
         if escaped:
             escaped = False
             continue
@@ -160,8 +162,22 @@ def _quote_closes(text: str, quote: str) -> bool:
             escaped = True
             continue
         if char == quote:
-            return True
-    return False
+            return index, False
+    return None, escaped
+
+
+def _unclosed_secret_quote(text: str) -> tuple[str, bool]:
+    """Quote character and trailing escape state when a credential quote never closes."""
+    pos = 0
+    while True:
+        match = _SECRET_QUOTE_OPEN.search(text, pos)
+        if not match:
+            return "", False
+        quote = match.group("quote")
+        closer, escaped = _scan_quote(text[match.end() :], quote, False)
+        if closer is None:
+            return quote, escaped
+        pos = match.end() + closer + 1
 
 
 def _mask_open_quoted_secret(clipped: str) -> str:
@@ -176,8 +192,10 @@ def _mask_open_quoted_secret(clipped: str) -> str:
         match = _SECRET_QUOTE_OPEN.search(clipped, pos)
         if not match:
             return clipped
-        if _quote_closes(clipped[match.end() :], match.group("quote")):
-            pos = match.end()
+        quote = match.group("quote")
+        closer, _escaped = _scan_quote(clipped[match.end() :], quote, False)
+        if closer is not None:
+            pos = match.end() + closer + 1
             continue
         return clipped[: match.end() - 1] + "***"
 
@@ -497,11 +515,14 @@ def _redact_log_lines(text: str) -> str:
 
     A PEM block is split across lines, so the BEGIN and END markers are
     not on one line. After a BEGIN line, every line is redacted until
-    the END line.
+    the END line. A quoted credential that does not close on its line
+    stays open across the following lines until the matching quote.
     """
     if not text:
         return ""
     in_pem = False
+    open_quote = ""
+    quote_escaped = False
     pieces: list[str] = []
     for line in text.splitlines(keepends=True):
         ending = ""
@@ -514,6 +535,15 @@ def _redact_log_lines(text: str) -> str:
         # to see the same text the redactor will, or a split BEGIN never
         # starts the block and the following key lines stay in the log.
         visible = _C0_C1.sub("", _ANSI.sub("", body))
+        if open_quote:
+            closer, quote_escaped = _scan_quote(visible, open_quote, quote_escaped)
+            if closer is None:
+                pieces.append("***" + ending)
+                continue
+            open_quote = ""
+            tail = visible[closer + 1 :]
+            pieces.append("***" + _redact_bounded(tail, limit=_MESSAGE_LIMIT) + ending)
+            continue
         if in_pem:
             if _PEM_END.search(visible):
                 in_pem = False
@@ -521,6 +551,8 @@ def _redact_log_lines(text: str) -> str:
             continue
         if _PEM_BEGIN.search(visible) and not _PEM_END.search(visible):
             in_pem = True
+        probe = visible[:_MESSAGE_LIMIT]
+        open_quote, quote_escaped = _unclosed_secret_quote(probe)
         pieces.append(_redact_bounded(body, limit=_MESSAGE_LIMIT) + ending)
     return "".join(pieces)
 

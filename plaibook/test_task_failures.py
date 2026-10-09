@@ -154,6 +154,32 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "psql -p 5432" in clients
 
 
+def test_camel_case_api_key_fields_are_redacted():
+    assigned = clean_failure_message("apiKey=sekritvalue")
+    assert "sekritvalue" not in assigned
+    assert "apiKey=***" in assigned
+    private = clean_failure_message("privateKey=sekritvalue")
+    assert "sekritvalue" not in private
+    quoted = clean_failure_message('"apiKey": "sekritvalue"')
+    assert "sekritvalue" not in quoted
+    assert "monkey: banana" in clean_failure_message("monkey: banana")
+
+
+def test_read_masks_a_quoted_secret_that_continues_on_the_next_line(tmp_path):
+    _parent, path = create_task_failures_log(directory=str(tmp_path))
+    payload = 'password="first-line\nsecond-line"\nafter\n'
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+    try:
+        os.write(fd, payload.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+    text = read_task_failures_log(path)
+    assert "first-line" not in text
+    assert "second-line" not in text
+    assert "after" in text
+
+
 def test_short_keys_after_an_underscore_are_redacted():
     text = clean_failure_message(
         "DB_KEY=db-secret export SSH_KEY=ssh-secret STRIPE_KEY: stripe-secret APP_AUTH=app-secret"
