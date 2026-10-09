@@ -6,6 +6,7 @@ import stat
 import time
 
 from plaibook.task_failures import (
+    _MESSAGE_LIMIT,
     allowed_task_failures_path,
     clean_failure_message,
     create_task_failures_log,
@@ -187,6 +188,58 @@ def test_pem_longer_than_the_message_cap_is_redacted():
     assert "MIIB" not in text
     assert "PRIVATE KEY" not in text
     assert text.startswith("ssh failed:")
+
+
+def test_bare_github_installation_tokens_are_redacted():
+    body = " ".join(prefix + "abcd5678wxyz" for prefix in ("ghs_", "gho_", "ghu_", "ghr_"))
+    text = clean_failure_message("fail " + body)
+    assert "abcd5678wxyz" not in text
+    for prefix in ("ghs_", "gho_", "ghu_", "ghr_"):
+        assert prefix not in text
+
+
+def test_quoted_secret_cut_by_the_message_cap_is_masked():
+    marker = ' password="'
+    inside = "alpha beta"
+    intro = "a" * (_MESSAGE_LIMIT - len(marker) - len(inside))
+    message = intro + marker + inside + ' gamma delta"'
+    assert len(intro + marker + inside) == _MESSAGE_LIMIT
+    text = clean_failure_message(message)
+    for leaked in ("alpha", "beta", "gamma", "delta"):
+        assert leaked not in text, leaked
+    kept = clean_failure_message('note monkey: "banana split remains"')
+    assert "banana split remains" in kept
+
+
+def test_create_log_removes_partial_directory(tmp_path, monkeypatch):
+    real_chmod = os.chmod
+
+    def boom_chmod(path, mode):
+        if os.path.basename(path).startswith("plaibook-" + "task-failures-"):
+            raise OSError("chmod failed")
+        real_chmod(path, mode)
+
+    monkeypatch.setattr(os, "chmod", boom_chmod)
+    try:
+        create_task_failures_log(directory=str(tmp_path))
+    except OSError as exc:
+        assert "chmod failed" in str(exc)
+    else:
+        raise AssertionError("chmod failure must propagate")
+    assert list(tmp_path.iterdir()) == []
+
+    def boom_fchmod(_fd, _mode):
+        raise OSError("fchmod failed")
+
+    monkeypatch.setattr(os, "chmod", real_chmod)
+    monkeypatch.setattr(os, "fchmod", boom_fchmod)
+    try:
+        create_task_failures_log(directory=str(tmp_path))
+    except OSError as exc:
+        assert "fchmod failed" in str(exc)
+    else:
+        raise AssertionError("fchmod failure must propagate")
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_clean_failure_message_keeps_ports_paths_and_ordinary_words():

@@ -93,9 +93,22 @@ _CLI_SECRET_OPT = re.compile(
     rf"(\s+){_SECRET_VALUE}",
 )
 # A bare token or a PEM block has no assignment delimiter.
+# ghs_/gho_/ghu_/ghr_ are GitHub installation, OAuth, user-to-server,
+# and refresh tokens. They show up without an assignment or a query key.
 _PREFIX_TOKEN = re.compile(
-    r"ghp_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|glpat-[A-Za-z0-9_\-]{8,}|"
-    r"sk-ant-[A-Za-z0-9_\-]{8,}|AKIA[0-9A-Z]{16}"
+    r"ghp_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|ghs_[A-Za-z0-9_]{8,}|"
+    r"gho_[A-Za-z0-9_]{8,}|ghu_[A-Za-z0-9_]{8,}|ghr_[A-Za-z0-9_]{8,}|"
+    r"glpat-[A-Za-z0-9_\-]{8,}|sk-ant-[A-Za-z0-9_\-]{8,}|AKIA[0-9A-Z]{16}"
+)
+# A credential value that opens a quote. Used only to see whether the
+# display cap cut the quote off; the value itself is not consumed here.
+_SECRET_QUOTE_OPEN = re.compile(
+    rf"(?i)(?:(?:{_ASSIGN_KEY}){_KEY_SUFFIX}[\"']?\s*[=:]\s*"
+    rf"|(?:--(?:{_CLI_LONG}|{_SHORT_KEY}){_KEY_SUFFIX})\s+"
+    rf"|{_DASH_USER_HEAD}"
+    rf"|authorization\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?"
+    rf"|\bbearer\s+"
+    rf"|{_P_COMMAND})(?P<quote>[\"'])"
 )
 _PEM_BEGIN = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _PEM_END = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
@@ -135,15 +148,50 @@ def _redact_display_text(text: object) -> str:
     return _PREFIX_TOKEN.sub("***", raw)
 
 
+def _quote_closes(text: str, quote: str) -> bool:
+    """True when ``text`` contains an unescaped closing ``quote``."""
+    escaped = False
+    for char in text:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == quote:
+            return True
+    return False
+
+
+def _mask_open_quoted_secret(clipped: str) -> str:
+    """Mask a credential quote that the display cap cut before it closed.
+
+    ``\\S+`` would keep only the first word and leave the rest of the
+    secret in the returned text. The closer is not in this slice, so
+    the remainder of the slice is the secret.
+    """
+    pos = 0
+    while True:
+        match = _SECRET_QUOTE_OPEN.search(clipped, pos)
+        if not match:
+            return clipped
+        if _quote_closes(clipped[match.end() :], match.group("quote")):
+            pos = match.end()
+            continue
+        return clipped[: match.end() - 1] + "***"
+
+
 def _redact_bounded(text: str, *, limit: int) -> str:
     """Redact at most ``limit`` characters.
 
     The credential patterns are applied after the cut. A long run of
     ``key_a_a_…`` is quadratic in the suffix group, so the cut has to
-    happen first.
+    happen first. A quoted secret that starts inside the cut and does
+    not close is masked through the end of the slice before that.
     """
     clipped = len(text) > limit
     raw = text[:limit] if clipped else text
+    raw = _mask_open_quoted_secret(raw)
     raw = _redact_display_text(raw)
     if clipped or len(raw) > limit:
         raw = raw[: limit - 1] + "…"
@@ -289,14 +337,42 @@ def allowed_task_failures_path(path: str) -> str | None:
 
 
 def create_task_failures_log(*, directory: str | None = None) -> tuple[str, str]:
-    """Private 0o700 directory and empty 0o600 log. Caller deletes both when unused."""
+    """Private 0o700 directory and empty 0o600 log. Caller deletes both when unused.
+
+    A failure after the directory exists removes that directory and any
+    file created in it. The CLI catches the error and continues, so a
+    leftover directory would otherwise accumulate.
+    """
     parent = tempfile.mkdtemp(prefix=LOG_PREFIX, dir=directory)
-    os.chmod(parent, 0o700)
-    fd, path = tempfile.mkstemp(prefix=LOG_PREFIX, suffix=LOG_SUFFIX, dir=parent)
+    fd = -1
+    path = ""
     try:
+        os.chmod(parent, 0o700)
+        fd, path = tempfile.mkstemp(prefix=LOG_PREFIX, suffix=LOG_SUFFIX, dir=parent)
         os.fchmod(fd, 0o600)
+    except OSError:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            fd = -1
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        try:
+            os.rmdir(parent)
+        except OSError:
+            pass
+        raise
     finally:
-        os.close(fd)
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
     return parent, path
 
 
