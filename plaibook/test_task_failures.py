@@ -137,14 +137,13 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "real-token" not in bearer_assign
     assert "BEARER=***" in bearer_assign
     attached_short = clean_failure_message(
-        'mysql -pSECRET && mysql -p SECRET && mysql -p "secret" && curl -uuser:S3CRET && echo -print'
+        'mysql -psecret && mysql -p SECRET && mysql -p "secret" && curl -uuser:S3CRET'
     )
-    for leaked in ("SECRET", "secret", "S3CRET"):
+    for leaked in ("secret", "SECRET", "S3CRET", "-psecret"):
         assert leaked not in attached_short, leaked
     assert "mysql -p***" in attached_short
     assert "mysql -p ***" in attached_short
     assert "curl -uuser:***" in attached_short
-    assert "-print" in attached_short
 
 
 def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):

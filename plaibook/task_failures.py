@@ -64,14 +64,14 @@ _DASH_USER_QUOTED = re.compile(
 _DASH_USER = re.compile(
     rf"(?i)((?:--user|-u)(?:\s+|=)?)([^\s:]+:\s*){_SECRET_VALUE}",
 )
-# mysql -pSECRET, -p SECRET, and -p "secret". A lowercase-only flag
-# such as -print is not a password. Case of the value matters for the
-# attached form: -pSECRET is a password, -print is a flag.
+# mysql -psecret, -p SECRET, and -p "secret". Any attached value is a
+# password, including a lowercase-only one. A flag such as -print is
+# redacted the same way.
 _SHORT_P_SEPARATED = re.compile(
-    rf"(?<![A-Za-z0-9])(-[pP])(\s+){_SECRET_VALUE}",
+    rf"(?<![A-Za-z0-9-])(-[pP])(\s+){_SECRET_VALUE}",
 )
 _SHORT_P_ATTACHED = re.compile(
-    rf"(?<![A-Za-z0-9])(-[pP])(?![a-z]+(?!\S))(?:{_QUOTED_VALUE}|\S+)",
+    rf"(?<![A-Za-z0-9-])(-[pP])(?:{_QUOTED_VALUE}|\S+)",
 )
 # --token SECRET and --password "alpha beta". Assignment form (--password=SECRET)
 # is already covered. Underscores in key names are also hyphens on the CLI.
