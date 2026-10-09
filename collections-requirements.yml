@@ -36,8 +36,8 @@ collections:
     # / mcp coupling, playbook-owned sidecar, structured_tool_calls with
     # parent vs nested caller, WaitLiveRun-after-drain flake fix). Moving
     # main can silently change module arguments. SHA is ansible-cursor
-    # #26 on main (cursor-sdk 1.0.35 contract; includes #22).
-    version: de54465e89d2cd214a333bf5b98eb942181b1b98
+    # #30 on main (serialize starts that share a cwd; includes #26 and #22).
+    version: 26a87c80ff79fa4106d72151afb34ac40a777b27
   # GitHub clones, not Galaxy FQCNs. version is the commit SHA of a
   # release tag (tags move). First-run install uses git + ansible-galaxy
   # install --no-deps and never calls galaxy.ansible.com (Python OpenSSL
