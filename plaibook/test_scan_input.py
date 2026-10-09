@@ -532,7 +532,7 @@ def test_apply_guardian_judgments_drops_false_positives_and_keeps_prefix_tokens(
             "rule_id": "SECRET-001",
             "message": "Secret detected: Environment Variable",
             "details": {"secret_type": "env-variable"},
-            "snippet": "CALLBACK_" + "NAME = " + '"plaibook_task_' + 'failures"',
+            "snippet": "export FOO=${FOO}",
         },
         {
             "rule_id": "SECRET-001",

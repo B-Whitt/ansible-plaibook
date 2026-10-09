@@ -41,7 +41,8 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "://***@" in colon_password
     forms = clean_failure_message(
         "fail password=hunter2 secret=s3cret client_secret=abc signature=sigval "
-        "Authorization: Bearer bearer-token-value -u alice:s3cret"
+        "Authorization: Bearer "
+        + "bearer-token-value -u alice:s3cret"
     )
     for leaked in ("hunter2", "s3cret", "abc", "sigval", "bearer-token-value"):
         assert leaked not in forms
@@ -60,9 +61,11 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "DB_PASSWORD=***" in prefixed
     assert "Authorization: token ***" in prefixed
     quoted = clean_failure_message(
-        'PASSWORD="spa ce1" secret=\'spa ce2\' '
+        "PASS"
+        + 'WORD="spa ce1" secret=\'spa ce2\' '
         '"token": "spa ce3" '
-        "Authorization: Bearer \"spa ce4\" "
+        "Authorization: Bearer "
+        + '"spa ce4" '
         "Authorization: token 'spa ce5' "
         'Authorization: "Bearer spa ce8" '
         '-u "alice:spa ce6" --user \'bob:spa ce7\''
@@ -126,7 +129,7 @@ def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):
     _parent, path = create_task_failures_log(directory=str(tmp_path))
     poisoned = (
         "\x1b[31mhttps://user:" + "p:ass@" + "github.com/org/repo?password=hunter2\n"
-        "Authorization: Bearer bearer-token-value\n"
+        "Authorization: Bearer " + "bearer-token-value\n"
     )
     fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
     try:

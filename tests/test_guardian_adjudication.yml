@@ -22,7 +22,7 @@
     _false_positive:
       rule_id: SECRET-001
       message: "Secret detected: Environment Variable"
-      snippet: 'CALLBACK_NAME = "plaibook_task_failures"'
+      snippet: "export FOO=${FOO}"
       details:
         secret_type: env-variable
     _prefix_token:
@@ -78,8 +78,8 @@
           - not (guardian_adjudications[0].kept | bool)
           - guardian_adjudications[1].kept | bool
         fail_msg: >-
-          A code-constant guardian hit must be cleared and a prefix-backed
-          token must stay blocking.
+          A placeholder guardian hit must be cleared and a prefix-backed
+          token must stay blocking. A literal stays even if the agent says no.
           kept={{ guardian_blocking_findings | default([]) }}
           notes={{ guardian_adjudications | default([]) }}
         success_msg: "Guardian adjudication cleared the false positive and kept the prefix token."

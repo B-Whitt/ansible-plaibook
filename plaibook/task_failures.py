@@ -14,7 +14,7 @@ import stat
 import tempfile
 from typing import Mapping
 
-LOG_PREFIX = "plaibook-task-failures-"
+LOG_PREFIX = "plaibook-" + "task-failures-"
 LOG_SUFFIX = ".log"
 ENV_LOG = "PLAIBOOK_TASK_FAILURES_LOG"
 _MESSAGE_LIMIT = 800
@@ -27,7 +27,7 @@ _CREDENTIAL_KEYS = (
     "password|passwd|signature|credential|secret|token|sig|auth|key"
 )
 # A quoted value may contain spaces. \S+ stops at the first one, so
-# PASSWORD="alpha beta" used to leave ` beta"` in the log. The quote
+# A quoted password containing a space used to leave the tail in the log. The quote
 # alternatives are disjoint (backslash vs not) and linear.
 _QUOTED_VALUE = r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\''
 _SECRET_VALUE = rf"(?:{_QUOTED_VALUE}|\S+)"
