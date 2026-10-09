@@ -144,6 +144,10 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "mysql -p***" in attached_short
     assert "mysql -p ***" in attached_short
     assert "curl -uuser:***" in attached_short
+    empty_user = clean_failure_message("curl -u :S3CRET && curl --user=:S3CRET")
+    assert "S3CRET" not in empty_user
+    assert "curl -u :***" in empty_user
+    assert "curl --user=:***" in empty_user
 
 
 def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):

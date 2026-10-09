@@ -62,7 +62,7 @@ _DASH_USER_QUOTED = re.compile(
     rf"(?i)((?:--user|-u)(?:\s+|=)?)(?:{_QUOTED_VALUE})",
 )
 _DASH_USER = re.compile(
-    rf"(?i)((?:--user|-u)(?:\s+|=)?)([^\s:]+:\s*){_SECRET_VALUE}",
+    rf"(?i)((?:--user|-u)(?:\s+|=)?)([^\s:]*:\s*){_SECRET_VALUE}",
 )
 # mysql -psecret, -p SECRET, and -p "secret". Any attached value is a
 # password, including a lowercase-only one. A flag such as -print is
