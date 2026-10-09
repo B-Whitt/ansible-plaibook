@@ -98,7 +98,8 @@ _CLI_SECRET_OPT = re.compile(
 _PREFIX_TOKEN = re.compile(
     r"ghp_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|ghs_[A-Za-z0-9_]{8,}|"
     r"gho_[A-Za-z0-9_]{8,}|ghu_[A-Za-z0-9_]{8,}|ghr_[A-Za-z0-9_]{8,}|"
-    r"glpat-[A-Za-z0-9_\-]{8,}|sk-ant-[A-Za-z0-9_\-]{8,}|AKIA[0-9A-Z]{16}"
+    r"glpat-[A-Za-z0-9_\-]{8,}|sk-proj-[A-Za-z0-9_\-]{8,}|sk-ant-[A-Za-z0-9_\-]{8,}|"
+    r"sk_live_[A-Za-z0-9]{8,}|sk_test_[A-Za-z0-9]{8,}|AKIA[0-9A-Z]{16}"
 )
 # A credential value that opens a quote. Used only to see whether the
 # display cap cut the quote off; the value itself is not consumed here.

@@ -551,11 +551,13 @@ def cmd_review(args: argparse.Namespace) -> int:
         _emit_task_failures(failures_path, args, captured_already_shown=False)
         return 2
     captured = "" if inherit_tty else ((result.stderr or "") + (result.stdout or ""))
+    showed_structured_capture = False
     if structured and ansible_verbosity(args) > 0 and captured.strip():
         sys.stderr.write(captured)
         if not captured.endswith("\n"):
             sys.stderr.write("\n")
         captured = ""
+        showed_structured_capture = True
     # Always last_run.<run_id>.json — never last_run.json. The playbook
     # always-block writes both (including same-commit cache hits); the
     # canonical path is last-write-wins and can belong to another run.
@@ -571,17 +573,25 @@ def cmd_review(args: argparse.Namespace) -> int:
             f"ansible-playbook exited {result.returncode} without writing {summary_file}",
             file=sys.stderr,
         )
-        _emit_task_failures(failures_path, args, captured_already_shown=showed_capture)
+        _emit_task_failures(
+            failures_path,
+            args,
+            captured_already_shown=showed_capture or showed_structured_capture,
+        )
         return result.returncode if result.returncode else 2
 
     try:
         document = enrich_last_run(load_json(summary_file), last_run_file=summary_file)
     except SummaryError as exc:
         print(str(exc), file=sys.stderr)
-        _emit_task_failures(failures_path, args, captured_already_shown=False)
+        _emit_task_failures(
+            failures_path, args, captured_already_shown=showed_structured_capture
+        )
         return 2
     _emit_summary(document, args)
-    _emit_task_failures(failures_path, args, captured_already_shown=False)
+    _emit_task_failures(
+        failures_path, args, captured_already_shown=showed_structured_capture
+    )
     return result.returncode
 
 

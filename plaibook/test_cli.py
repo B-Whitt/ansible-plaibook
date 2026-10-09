@@ -212,6 +212,49 @@ def test_cmd_review_quiet_reprints_task_failure_log(tmp_path, monkeypatch, capsy
     assert not Path(seen["log"]).parent.exists()
 
 
+def test_cmd_review_json_verbose_prints_the_failure_log_once(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
+    line = "planned failure for the error log"
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        assert env and env.get("PLAIBOOK_TASK_FAILURES_LOG")
+        Path(env["PLAIBOOK_TASK_FAILURES_LOG"]).write_text(f"Task failures (1):\n- {line}\n")
+        extras = json.loads(command[command.index("-e") + 1])
+        path = last_run_path(extras["last_run_id"], home=home)
+        path.write_text(json.dumps({"run_id": extras["last_run_id"], "status": "ok", "targets": []}))
+        return SimpleNamespace(returncode=0, stdout=f"TASK [failed]\n{line}\n", stderr="")
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.openshell_available", lambda: True)
+    monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
+    monkeypatch.setattr("plaibook.cli.reexec_sandbox_runtime", lambda **kwargs: None)
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr("plaibook.cli.runtime_tmp_dir", lambda home=None: home or tmp_path)
+
+    code = cmd_review(
+        _args(
+            target="org/repo/1",
+            playbook_root=str(checkout),
+            use_sandbox=False,
+            as_json=True,
+            verbose=True,
+        )
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert captured.err.count(line) == 1
+
+
 def test_cmd_review_verbose_does_not_reprint_task_failure_log(tmp_path, monkeypatch, capsys):
     checkout = tmp_path / "checkout"
     checkout.mkdir()

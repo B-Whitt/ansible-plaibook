@@ -191,10 +191,11 @@ def test_pem_longer_than_the_message_cap_is_redacted():
 
 
 def test_bare_github_installation_tokens_are_redacted():
-    body = " ".join(prefix + "abcd5678wxyz" for prefix in ("ghs_", "gho_", "ghu_", "ghr_"))
+    prefixes = ("ghs_", "gho_", "ghu_", "ghr_", "sk-" + "proj-", "sk_" + "live_", "sk_" + "test_")
+    body = " ".join(prefix + "abcd5678wxyz" for prefix in prefixes)
     text = clean_failure_message("fail " + body)
     assert "abcd5678wxyz" not in text
-    for prefix in ("ghs_", "gho_", "ghu_", "ghr_"):
+    for prefix in prefixes:
         assert prefix not in text
 
 

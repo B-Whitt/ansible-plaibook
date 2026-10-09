@@ -100,39 +100,49 @@ run_failure_log_playbook() {
   local log out rc=0
   log="$(prepare_failure_log)"
   out="$(mktemp)"
+  cleanup_failure_log() {
+    rm -f "${out}"
+    if [[ -n "${log}" ]]; then
+      rm -rf "$(dirname "${log}")"
+    fi
+  }
   set +e
   PLAIBOOK_TASK_FAILURES_LOG="${log}" ansible-playbook "${pb}" >"${out}" 2>&1
   rc=$?
   set -euo pipefail
   cat "${out}"
-  rm -f "${out}"
   if [[ "${rc}" -ne 0 ]]; then
     echo "::error file=${pb},title=Playbook test failed::${pb} exited ${rc}"
+    cleanup_failure_log
     return "${rc}"
   fi
   if [[ "${expect}" == "empty" ]]; then
     if [[ -s "${log}" ]]; then
       echo "::error file=${pb},title=Failure log was not empty::${log}"
       cat "${log}"
+      cleanup_failure_log
       return 1
     fi
   else
     if ! grep -q "Record a planned failure for the error log" "${log}"; then
       echo "::error file=${pb},title=Failure log missing task name::${log}"
       cat "${log}"
+      cleanup_failure_log
       return 1
     fi
     if ! grep -q "planned failure for the error log" "${log}"; then
       echo "::error file=${pb},title=Failure log missing message::${log}"
       cat "${log}"
+      cleanup_failure_log
       return 1
     fi
     if grep -q "ghs_secret" "${log}"; then
       echo "::error file=${pb},title=Failure log leaked a token::${log}"
+      cleanup_failure_log
       return 1
     fi
   fi
-  rm -rf "$(dirname "${log}")"
+  cleanup_failure_log
 }
 
 echo "--- Running tests/test_task_failures_clean.yml ---"
