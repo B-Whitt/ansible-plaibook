@@ -510,12 +510,16 @@ def _redact_log_lines(text: str) -> str:
             body, ending = body[:-2], "\r\n"
         elif body.endswith("\n") or body.endswith("\r"):
             body, ending = body[:-1], body[-1]
+        # ANSI and C0/C1 can sit inside the header. The marker check has
+        # to see the same text the redactor will, or a split BEGIN never
+        # starts the block and the following key lines stay in the log.
+        visible = _C0_C1.sub("", _ANSI.sub("", body))
         if in_pem:
-            if _PEM_END.search(body):
+            if _PEM_END.search(visible):
                 in_pem = False
             pieces.append("***" + ending)
             continue
-        if _PEM_BEGIN.search(body) and not _PEM_END.search(body):
+        if _PEM_BEGIN.search(visible) and not _PEM_END.search(visible):
             in_pem = True
         pieces.append(_redact_bounded(body, limit=_MESSAGE_LIMIT) + ending)
     return "".join(pieces)

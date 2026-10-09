@@ -109,10 +109,29 @@ class CallbackModule(CallbackBase):
         self._remember(result, ignored=bool(ignore_errors), kind="failed")
 
     def v2_runner_item_on_failed(self, result):
-        self._remember(result, kind="failed")
+        # Ansible sends an unreachable loop item through this hook.
+        # There is no separate item-unreachable method on 2.16–2.19.
+        payload = getattr(result, "_result", None)
+        unreachable = isinstance(payload, dict) and bool(payload.get("unreachable"))
+        ignored = False
+        if unreachable:
+            task = getattr(result, "_task", None)
+            ignored = bool(getattr(task, "ignore_unreachable", False))
+        self._remember(
+            result,
+            ignored=ignored,
+            kind="unreachable" if unreachable else "failed",
+        )
+
+    def v2_runner_item_on_unreachable(self, result):
+        task = getattr(result, "_task", None)
+        ignored = bool(getattr(task, "ignore_unreachable", False))
+        self._remember(result, ignored=ignored, kind="unreachable")
 
     def v2_runner_on_unreachable(self, result):
-        self._remember(result, kind="unreachable")
+        task = getattr(result, "_task", None)
+        ignored = bool(getattr(task, "ignore_unreachable", False))
+        self._remember(result, ignored=ignored, kind="unreachable")
 
     def v2_playbook_on_stats(self, stats):
         del stats

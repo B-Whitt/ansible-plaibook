@@ -271,6 +271,77 @@ def test_clean_failure_message_bounds_long_input():
         assert text.endswith("…")
 
 
+def test_read_redacts_pem_when_controls_split_the_header(tmp_path):
+    _parent, path = create_task_failures_log(directory=str(tmp_path))
+    header = "-----BEGIN " + "\x1b[31m" + "RSA PRIVATE KEY-----"
+    footer = "-----END " + "\x1b[0m" + "RSA PRIVATE KEY-----"
+    body = "MIIB" * 16
+    payload = "\n".join(["ssh failed:", header, body, footer, "after the key"]) + "\n"
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+    try:
+        os.write(fd, payload.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+    text = read_task_failures_log(path)
+    assert "MIIB" not in text
+    assert "PRIVATE KEY" not in text
+    assert "after the key" in text
+    assert "ssh failed:" in text
+
+
+def test_unreachable_loop_item_is_recorded():
+    import importlib.util
+
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "callback_plugins",
+        "plaibook_task_failures.py",
+    )
+    spec = importlib.util.spec_from_file_location("plaibook_task_failures_cb", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class _Task:
+        ignore_errors = False
+        ignore_unreachable = False
+
+        def get_name(self):
+            return "ping each host"
+
+        def get_path(self):
+            return "play.yml:10"
+
+    class _Host:
+        def get_name(self):
+            return "db.example"
+
+    class _Result:
+        def __init__(self, payload):
+            self._result = payload
+            self._task = _Task()
+            self._host = _Host()
+
+    callback = module.CallbackModule()
+    callback.v2_runner_item_on_failed(
+        _Result(
+            {
+                "unreachable": True,
+                "msg": "host down",
+                "_ansible_item_result": True,
+            }
+        )
+    )
+    callback.v2_runner_item_on_unreachable(
+        _Result({"unreachable": True, "msg": "second path down", "_ansible_item_result": True})
+    )
+    assert len(callback._failures) == 2
+    assert callback._failures[0]["kind"] == "unreachable"
+    assert callback._failures[0]["message"] == "host down"
+    assert callback._failures[1]["kind"] == "unreachable"
+    assert "second path down" in callback._failures[1]["message"]
+
+
 def test_read_redacts_a_multiline_pem_block(tmp_path):
     _parent, path = create_task_failures_log(directory=str(tmp_path))
     body = "\n".join("MIIB" * 16 for _ in range(30))
