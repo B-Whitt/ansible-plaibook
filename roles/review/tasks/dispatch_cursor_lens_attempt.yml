@@ -23,6 +23,13 @@
           {{ review_structured_output_max_attempts }}
           (agent_family=cursor)
 
+    # Rescue holds a start failure only while this is true. The dispatch
+    # task sets it, and the next task clears it, so a later bind miss
+    # does not hold. A task rename must not change that.
+    - name: "Cursor: clear the {{ cursor_nonce_lens_label }} dispatch mark"
+      ansible.builtin.set_fact:
+        _cursor_lens_in_dispatch: false
+
     # A start with no module payload is not a missing tool call.
     # "database is locked" is the two-bridge collision: dispatch once
     # more now that the other lens is done. Any other start failure
@@ -95,6 +102,11 @@
     # register outranks set_fact. A skipped dispatch still registers, so
     # this name must not be _cursor_lens_attempt_raw or the finished
     # async result is replaced by the skip.
+    - name: "Cursor: mark the {{ cursor_nonce_lens_label }} dispatch"
+      when: _cursor_lens_needs_dispatch | bool
+      ansible.builtin.set_fact:
+        _cursor_lens_in_dispatch: true
+
     - name: "Cursor: dispatch the {{ cursor_nonce_lens_label }} agent"
       when: _cursor_lens_needs_dispatch | bool
       action: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
@@ -120,6 +132,10 @@
       when: _cursor_lens_needs_dispatch | bool
       ansible.builtin.set_fact:
         _cursor_lens_attempt_raw: "{{ _cursor_lens_dispatch_raw }}"
+
+    - name: "Cursor: the {{ cursor_nonce_lens_label }} dispatch finished"
+      ansible.builtin.set_fact:
+        _cursor_lens_in_dispatch: false
 
     # Remember the module payload, then bill unless the return is
     # parent-only. A miss used to abort the play here, which skipped
@@ -177,13 +193,14 @@
         "{{ cursor_lens_valid_var }}": false
         "{{ cursor_lens_fail_var }}": "{{ ansible_failed_result.msg | default('named lens dispatch failed') }}"
 
-    # Only the dispatch task. A bind miss is an ansible.builtin.fail
-    # with none of those module fields; holding that would skip the
-    # structured-output retries.
+    # Only while the dispatch task is the one that failed. A bind miss
+    # is an ansible.builtin.fail with none of those module fields;
+    # holding that would skip the structured-output retries. The mark
+    # is cleared as soon as the dispatch task returns.
     - name: "Cursor: do not repeat a {{ cursor_nonce_lens_label }} start failure"
       when:
         - cursor_lens_hold_var is defined
-        - "'dispatch the' in (ansible_failed_task.name | default(''))"
+        - _cursor_lens_in_dispatch | default(false) | bool
         - ansible_failed_result.usage_normalized is not defined
         - ansible_failed_result.status is not defined
         - ansible_failed_result.structured_tool_calls is not defined

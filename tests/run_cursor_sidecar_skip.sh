@@ -26,14 +26,6 @@ run_case() {
 }
 
 run_case "no attach" true
-echo "--- sidecar skip: no CURSOR_AGENT (expect wanted=true) ---"
-env -u CURSOR_AGENT \
-  -u CURSOR_SDK_BRIDGE_URL \
-  -u CURSOR_SDK_BRIDGE_TOKEN \
-  -u CURSOR_SDK_BRIDGE_AUTH_TOKEN \
-  -u CURSOR_SDK_BRIDGE_URL_FILE \
-  -u CURSOR_SDK_BRIDGE_TOKEN_FILE \
-  ansible-playbook "${PLAYBOOK}" -e "expect_sidecar_wanted=true"
 run_case "URL+token" false \
   CURSOR_SDK_BRIDGE_URL=http://127.0.0.1:9 \
   CURSOR_SDK_BRIDGE_TOKEN=test-not-a-real-token

@@ -297,14 +297,11 @@
 
     # Playbook-owned cursor-sdk-bridge sidecar. Must start *before* the
     # pipeline block so FILE attach paths can be put in that block's
-    # environment (templated at block entry). One bridge for every
-    # Cursor review: two in-process launch_bridge processes open the
-    # same local database and the same API at once. One fails with
-    # "database is locked"; the other fails its first RPC with
-    # "Network request failed". Nested launch_bridge under a Cursor
-    # IDE agent is also SIGKILL'd (137). Skip only when attach env is
-    # already set (URL+token or URL_FILE+TOKEN_FILE). Never set_fact
-    # the token.
+    # environment (templated at block entry). Nested launch_bridge under
+    # a Cursor IDE agent is SIGKILL'd (137). Skip when attach env is
+    # already set (URL+token or URL_FILE+TOKEN_FILE), or when this is
+    # not a Cursor-agent session (iTerm/CI/AAP keep in-process
+    # launch_bridge). Never set_fact the token.
     # include_tasks, not a play-level FQCN: Ansible resolves
     # aknochow.cursor.bridge at parse time, so a Vertex-only AAP EE
     # without that collection never reaches when:.
@@ -313,6 +310,7 @@
         review_cursor_sidecar_wanted: >-
           {{
             (agent_family | default('')) == 'cursor'
+            and (lookup('ansible.builtin.env', 'CURSOR_AGENT') == '1')
             and not (
               (
                 (lookup('ansible.builtin.env', 'CURSOR_SDK_BRIDGE_URL') | length > 0)

@@ -890,3 +890,54 @@
               hold={{ security_cursor_lens_hold | default('') }}
               fail={{ security_cursor_lens_last_fail | default('') }}
             success_msg: "Post-start miss did not hold the retry."
+
+    - name: A msg-only dispatch failure holds retries
+      block:
+        - name: Reset msg-only dispatch flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            security_cursor_lens_hold: false
+            security_cursor_lens_last_fail: ""
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Write a stub that fails before it produces a module result
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ {'failed': true, 'msg': 'Cursor agent failed to start: bridge down'} | to_json }}"
+
+        - name: Dispatch a start that returns only a message
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+            cursor_lens_hold_var: security_cursor_lens_hold
+
+        - name: Confirm the msg-only dispatch failure held retries
+          ansible.builtin.assert:
+            that:
+              - not (security_cursor_lens_valid | bool)
+              - security_cursor_lens_hold | bool
+              - "'bridge down' in (security_cursor_lens_last_fail | default(''))"
+              - pipeline_agent_calls | default([]) | length == 0
+            fail_msg: >-
+              A dispatch that fails before it returns usage or status must
+              hold. valid={{ security_cursor_lens_valid | default('') }}
+              hold={{ security_cursor_lens_hold | default(false) }}
+              fail={{ security_cursor_lens_last_fail | default('') }}
+            success_msg: "Msg-only dispatch failure held the retry."
