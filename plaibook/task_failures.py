@@ -21,11 +21,15 @@ _MESSAGE_LIMIT = 800
 _FIELD_LIMIT = 500
 # Userinfo may contain extra colons (user:p:ass). Stop at @, slash, or space.
 _USERINFO = re.compile(r"://[^@/\s]+@")
-# Longer keys first so api_key wins over key.
-_CREDENTIAL_KEYS = (
+# Longer keys first so api_key wins over key. Short keys take a word
+# boundary: "key" is inside "monkey", and "auth" is inside longer words.
+_LONG_CREDENTIAL_KEYS = (
     "access_token|private_token|client_secret|id_token|refresh_token|api_key|"
-    "password|passwd|signature|credential|secret|bearer|token|sig|auth|key"
+    "password|passwd|signature|credential|secret|bearer|token"
 )
+_SHORT_CREDENTIAL_KEYS = "sig|auth|key"
+_CREDENTIAL_KEYS = f"{_LONG_CREDENTIAL_KEYS}|{_SHORT_CREDENTIAL_KEYS}"
+_ASSIGN_KEY = rf"(?:{_LONG_CREDENTIAL_KEYS}|\b(?:{_SHORT_CREDENTIAL_KEYS}))"
 # A quoted value may contain spaces. \S+ stops at the first one, so
 # A quoted password containing a space used to leave the tail in the log. The quote
 # alternatives are disjoint (backslash vs not) and linear.
@@ -37,10 +41,11 @@ _KEY_SUFFIX = r"(?:[_-][A-Za-z0-9]+)*"
 _TOKEN_QUERY = re.compile(
     rf"(?i)([?&#](?:{_CREDENTIAL_KEYS}){_KEY_SUFFIX}=)(?:{_QUOTED_VALUE}|[^&#\s]*)",
 )
-# ENV_STYLE names (GITHUB_TOKEN, DB_PASSWORD) have no word boundary before the key.
-# An optional quote sits between a JSON/YAML key and its colon: "token": "...".
+# ENV_STYLE names (GITHUB_TOKEN, DB_PASSWORD) match the key inside the name.
+# A leading (?:[A-Za-z0-9]+_)* group made that search quadratic. An optional
+# quote sits between a JSON/YAML key and its colon: "token": "...".
 _SECRET_ASSIGN = re.compile(
-    rf"(?i)((?:[A-Za-z0-9]+_)*(?:{_CREDENTIAL_KEYS}){_KEY_SUFFIX}[\"']?)"
+    rf"(?i)((?:{_ASSIGN_KEY}){_KEY_SUFFIX}[\"']?)"
     rf"(\s*[=:]\s*){_SECRET_VALUE}",
 )
 # A fully quoted header value ("Bearer alpha beta") has no separate scheme token.
@@ -58,26 +63,31 @@ _BEARER = re.compile(
 # after the colon. \S+ used to stop inside that quote.
 # --user before -u so --user is not parsed as -u plus a username.
 # Whitespace or '=' may be absent: curl -uuser:secret.
+# The lookbehind keeps -u from matching inside a word (build-utils).
+_DASH_USER_HEAD = r"(?<![A-Za-z0-9-])(?:--user|-u)(?:\s+|=)?"
 _DASH_USER_QUOTED = re.compile(
-    rf"(?i)((?:--user|-u)(?:\s+|=)?)(?:{_QUOTED_VALUE})",
+    rf"(?i)({_DASH_USER_HEAD})(?:{_QUOTED_VALUE})",
 )
 _DASH_USER = re.compile(
-    rf"(?i)((?:--user|-u)(?:\s+|=)?)([^\s:]*:\s*){_SECRET_VALUE}",
+    rf"(?i)({_DASH_USER_HEAD})([^\s:]*:\s*){_SECRET_VALUE}",
 )
-# mysql -psecret, -p SECRET, and -p "secret". Any attached value is a
-# password, including a lowercase-only one. A flag such as -print is
-# redacted the same way.
+# mysql/mysqldump/psql -psecret, -p SECRET, and -p "secret". Other -p
+# uses are ports, paths, and flags (ssh -p 2222, mkdir -p, -print).
+_P_COMMAND = r"(?<![A-Za-z0-9-])(?:mysql|mysqldump|psql)"
 _SHORT_P_SEPARATED = re.compile(
-    rf"(?<![A-Za-z0-9-])(-[pP])(\s+){_SECRET_VALUE}",
+    rf"(?i)({_P_COMMAND}\s+-[pP]\s+){_SECRET_VALUE}",
 )
 _SHORT_P_ATTACHED = re.compile(
-    rf"(?<![A-Za-z0-9-])(-[pP])(?:{_QUOTED_VALUE}|\S+)",
+    rf"(?i)({_P_COMMAND}\s+-[pP])(?:{_QUOTED_VALUE}|\S+)",
 )
 # --token SECRET and --password "alpha beta". Assignment form (--password=SECRET)
 # is already covered. Underscores in key names are also hyphens on the CLI.
-_CLI_KEY = _CREDENTIAL_KEYS.replace("_", "[-_]")
+# No leading (?:[A-Za-z0-9]+[-_])* group: that search is quadratic, and the
+# key already matches inside the flag.
+_CLI_LONG = _LONG_CREDENTIAL_KEYS.replace("_", "[-_]")
 _CLI_SECRET_OPT = re.compile(
-    rf"(?i)(--(?:[A-Za-z0-9]+[-_])*(?:{_CLI_KEY}){_KEY_SUFFIX})(\s+){_SECRET_VALUE}",
+    rf"(?i)(--(?:{_CLI_LONG}|\b(?:{_SHORT_CREDENTIAL_KEYS})){_KEY_SUFFIX})"
+    rf"(\s+){_SECRET_VALUE}",
 )
 # A bare token or a PEM block has no assignment delimiter.
 _PREFIX_TOKEN = re.compile(
@@ -110,7 +120,7 @@ def _redact_display_text(text: object) -> str:
     raw = _BEARER.sub(r"\1***", raw)
     raw = _DASH_USER_QUOTED.sub(r"\1***", raw)
     raw = _DASH_USER.sub(r"\1\2***", raw)
-    raw = _SHORT_P_SEPARATED.sub(r"\1\2***", raw)
+    raw = _SHORT_P_SEPARATED.sub(r"\1***", raw)
     raw = _SHORT_P_ATTACHED.sub(r"\1***", raw)
     raw = _CLI_SECRET_OPT.sub(r"\1\2***", raw)
     raw = _SECRET_ASSIGN.sub(r"\1\2***", raw)
@@ -118,9 +128,25 @@ def _redact_display_text(text: object) -> str:
     return _PREFIX_TOKEN.sub("***", raw)
 
 
+def _redact_bounded(text: str, *, limit: int) -> str:
+    """Redact at most ``limit`` characters.
+
+    The credential patterns are applied after the cut. A long run of
+    ``key_a_a_…`` is quadratic in the suffix group, so the cut has to
+    happen first.
+    """
+    clipped = len(text) > limit
+    raw = text[:limit] if clipped else text
+    raw = _redact_display_text(raw)
+    if clipped or len(raw) > limit:
+        raw = raw[: limit - 1] + "…"
+    return raw
+
+
 def sanitize_failure_field(text: object, *, limit: int = _FIELD_LIMIT) -> str:
     """One task name, path, or host. No extra lines, controls, or URL secrets."""
-    raw = _redact_display_text(text).replace("\t", " ").replace("\n", " ")
+    raw = text if isinstance(text, str) else ""
+    raw = _redact_bounded(raw, limit=limit).replace("\t", " ").replace("\n", " ")
     raw = " ".join(raw.split())
     if len(raw) > limit:
         raw = raw[: limit - 1] + "…"
@@ -129,9 +155,8 @@ def sanitize_failure_field(text: object, *, limit: int = _FIELD_LIMIT) -> str:
 
 def clean_failure_message(text: object, *, limit: int = _MESSAGE_LIMIT) -> str:
     """One failure message, with URL secrets removed and length capped."""
-    raw = _redact_display_text(text).strip()
-    if len(raw) > limit:
-        raw = raw[: limit - 1] + "…"
+    raw = text if isinstance(text, str) else ""
+    raw = _redact_bounded(raw, limit=limit).strip()
     return raw or "task failed"
 
 
@@ -367,7 +392,9 @@ def read_task_failures_log(path: str) -> str:
         text = b"".join(chunks).decode("utf-8", errors="replace")
         # The playbook can overwrite this file after the callback writes it.
         # Sanitize again at read time so quiet mode does not print raw bytes.
-        text = _redact_display_text(text)
+        # One line at a time, capped, so a single long line cannot make the
+        # suffix search scan the whole read.
+        text = _redact_log_lines(text)
         if truncated:
             text = text.rstrip() + "\n… failure log truncated\n"
     except OSError:
@@ -381,13 +408,34 @@ def read_task_failures_log(path: str) -> str:
     return text if text.strip() else ""
 
 
-def discard_empty_task_failure_log(path: str) -> None:
-    """Remove an unused log and its private directory."""
-    if not path or read_task_failures_log(path):
+def _redact_log_lines(text: str) -> str:
+    """Redact each line on its own, after cutting the line to the message cap."""
+    if not text:
+        return ""
+    pieces: list[str] = []
+    for line in text.splitlines(keepends=True):
+        ending = ""
+        body = line
+        if body.endswith("\r\n"):
+            body, ending = body[:-2], "\r\n"
+        elif body.endswith("\n") or body.endswith("\r"):
+            body, ending = body[:-1], body[-1]
+        pieces.append(_redact_bounded(body, limit=_MESSAGE_LIMIT) + ending)
+    return "".join(pieces)
+
+
+def discard_task_failure_log(path: str) -> None:
+    """Remove a failure log and its private directory after the CLI has read it.
+
+    The file exists so quiet mode can reprint what the callback displayed.
+    Once that reprint has happened, the directory is not a record we keep.
+    """
+    resolved = allowed_task_failures_path(path) if path else None
+    if resolved is None:
         return
-    parent = os.path.dirname(path)
+    parent = os.path.dirname(resolved)
     try:
-        os.unlink(path)
+        os.unlink(resolved)
     except OSError:
         return
     try:
@@ -395,3 +443,10 @@ def discard_empty_task_failure_log(path: str) -> None:
             os.rmdir(parent)
     except OSError:
         pass
+
+
+def discard_empty_task_failure_log(path: str) -> None:
+    """Remove an unused log and its private directory."""
+    if not path or read_task_failures_log(path):
+        return
+    discard_task_failure_log(path)

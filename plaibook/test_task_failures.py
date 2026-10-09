@@ -148,6 +148,55 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "S3CRET" not in empty_user
     assert "curl -u :***" in empty_user
     assert "curl --user=:***" in empty_user
+    clients = clean_failure_message('mysqldump -psecret && psql -p "secret"')
+    assert "secret" not in clients
+    assert "mysqldump -p***" in clients
+    assert "psql -p ***" in clients
+
+
+def test_clean_failure_message_keeps_ports_paths_and_ordinary_words():
+    text = clean_failure_message(
+        "mkdir -p /var/lib/plaibook/cache\n"
+        "ssh -p 2222\n"
+        "docker run -p 8080:80\n"
+        "find . -print0\n"
+        "monkey: banana\n"
+        "build-utils: version mismatch"
+    )
+    assert "mkdir -p /var/lib/plaibook/cache" in text
+    assert "ssh -p 2222" in text
+    assert "docker run -p 8080:80" in text
+    assert "find . -print0" in text
+    assert "monkey: banana" in text
+    assert "build-utils: version mismatch" in text
+
+
+def test_clean_failure_message_bounds_long_input():
+    samples = ("a_" * 8000, "key_a" * 3200)
+    for sample in samples:
+        started = time.monotonic()
+        text = clean_failure_message(sample)
+        elapsed = time.monotonic() - started
+        assert elapsed < 0.5, elapsed
+        assert len(text) == 800
+        assert text.endswith("…")
+
+
+def test_read_redacts_a_long_line_within_a_time_bound(tmp_path):
+    _parent, path = create_task_failures_log(directory=str(tmp_path))
+    payload = ("key_a" * 3200) + "\n"
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+    try:
+        os.write(fd, payload.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+    started = time.monotonic()
+    text = read_task_failures_log(path)
+    elapsed = time.monotonic() - started
+    assert elapsed < 0.5, elapsed
+    assert len(text.splitlines()[0]) == 800
+    assert text.splitlines()[0].endswith("…")
 
 
 def test_read_sanitizes_a_log_the_playbook_overwrote(tmp_path, monkeypatch):

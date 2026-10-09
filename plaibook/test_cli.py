@@ -177,8 +177,11 @@ def test_cmd_review_quiet_reprints_task_failure_log(tmp_path, monkeypatch, capsy
     home = tmp_path / "home"
     (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
 
+    seen: dict[str, str] = {}
+
     def fake_run(command, *, playbook_root, verbose, env=None):
         assert env and env.get("PLAIBOOK_TASK_FAILURES_LOG")
+        seen["log"] = env["PLAIBOOK_TASK_FAILURES_LOG"]
         Path(env["PLAIBOOK_TASK_FAILURES_LOG"]).write_text(
             "Task failures (1):\n- planned failure for the error log\n"
         )
@@ -205,6 +208,8 @@ def test_cmd_review_quiet_reprints_task_failure_log(tmp_path, monkeypatch, capsy
     assert "planned failure for the error log" in captured.err
     assert "HIDDEN ANSIBLE" not in captured.err
     assert "HIDDEN ANSIBLE" not in captured.out
+    assert not Path(seen["log"]).exists()
+    assert not Path(seen["log"]).parent.exists()
 
 
 def test_cmd_review_verbose_does_not_reprint_task_failure_log(tmp_path, monkeypatch, capsys):
@@ -215,9 +220,12 @@ def test_cmd_review_verbose_does_not_reprint_task_failure_log(tmp_path, monkeypa
     home = tmp_path / "home"
     (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
 
+    seen: dict[str, str] = {}
+
     def fake_run(command, *, playbook_root, verbose, env=None):
         assert verbose is True
         assert env and env.get("PLAIBOOK_TASK_FAILURES_LOG")
+        seen["log"] = env["PLAIBOOK_TASK_FAILURES_LOG"]
         Path(env["PLAIBOOK_TASK_FAILURES_LOG"]).write_text(
             "Task failures (1):\n- planned failure for the error log\n"
         )
@@ -244,6 +252,8 @@ def test_cmd_review_verbose_does_not_reprint_task_failure_log(tmp_path, monkeypa
     captured = capsys.readouterr()
     assert code == 0
     assert "planned failure for the error log" not in captured.err
+    assert not Path(seen["log"]).exists()
+    assert not Path(seen["log"]).parent.exists()
 
 
 def test_cmd_review_does_not_pass_controller_interpreter_as_extra_var(tmp_path, monkeypatch):

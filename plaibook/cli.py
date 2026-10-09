@@ -44,7 +44,7 @@ from plaibook.summary import (
 )
 from plaibook.task_failures import (
     create_task_failures_log,
-    discard_empty_task_failure_log,
+    discard_task_failure_log,
     read_task_failures_log,
 )
 from plaibook.wait import WaitSpinner, spinner_enabled
@@ -386,19 +386,17 @@ def _emit_task_failures(path: str, args: argparse.Namespace, *, captured_already
     """Reprint the failure log when quiet mode discarded callback display.
 
     Verbose runs already showed it. A dumped ansible transcript already
-    contains it. An empty log is removed so a clean review leaves no file.
+    contains it. The private directory is removed after this read: the
+    reprint is the last use of the file.
     """
     if not path:
         return
     text = read_task_failures_log(path)
-    if not text:
-        discard_empty_task_failure_log(path)
-        return
-    if captured_already_shown or ansible_verbosity(args) > 0:
-        return
-    sys.stderr.write(text)
-    if not text.endswith("\n"):
-        sys.stderr.write("\n")
+    if text and not captured_already_shown and ansible_verbosity(args) == 0:
+        sys.stderr.write(text)
+        if not text.endswith("\n"):
+            sys.stderr.write("\n")
+    discard_task_failure_log(path)
 
 
 def _emit_summary(document: dict, args: argparse.Namespace) -> None:
