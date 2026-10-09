@@ -148,10 +148,45 @@ def test_clean_failure_message_redacts_url_secrets_and_truncates():
     assert "S3CRET" not in empty_user
     assert "curl -u :***" in empty_user
     assert "curl --user=:***" in empty_user
-    clients = clean_failure_message('mysqldump -psecret && psql -p "secret"')
-    assert "secret" not in clients
+    clients = clean_failure_message("mysqldump -psecret && psql -p 5432")
     assert "mysqldump -p***" in clients
-    assert "psql -p ***" in clients
+    assert "psql -p 5432" in clients
+
+
+def test_short_keys_after_an_underscore_are_redacted():
+    text = clean_failure_message(
+        "DB_KEY=db-secret export SSH_KEY=ssh-secret STRIPE_KEY: stripe-secret APP_AUTH=app-secret"
+    )
+    for leaked in ("db-secret", "ssh-secret", "stripe-secret", "app-secret"):
+        assert leaked not in text, leaked
+    assert "DB_KEY=***" in text
+    assert "SSH_KEY=***" in text
+    assert "STRIPE_KEY: ***" in text
+    assert "APP_AUTH=***" in text
+    assert "monkey: banana" in clean_failure_message("monkey: banana")
+    assert clean_failure_message("PGPASSWORD=pg-secret") == "PGPASSWORD=***"
+
+
+def test_mysql_password_flag_after_other_options_is_redacted():
+    text = clean_failure_message(
+        "mysql -u root -psecret && mysql -h db.local -p secret && mariadb -psecret"
+    )
+    for leaked in ("secret", "-psecret"):
+        assert leaked not in text, leaked
+    assert "mysql -u root -p***" in text
+    assert "mysql -h db.local -p ***" in text
+    assert "mariadb -p***" in text
+    assert clean_failure_message("psql -p 5432") == "psql -p 5432"
+
+
+def test_pem_longer_than_the_message_cap_is_redacted():
+    body = "MIIB" * 400
+    header = "-----BEGIN " + "RSA PRIVATE KEY-----\n"
+    footer = "\n-----END " + "RSA PRIVATE KEY-----"
+    text = clean_failure_message(f"ssh failed: {header}{body}{footer}")
+    assert "MIIB" not in text
+    assert "PRIVATE KEY" not in text
+    assert text.startswith("ssh failed:")
 
 
 def test_clean_failure_message_keeps_ports_paths_and_ordinary_words():
@@ -180,6 +215,28 @@ def test_clean_failure_message_bounds_long_input():
         assert elapsed < 0.5, elapsed
         assert len(text) == 800
         assert text.endswith("…")
+
+
+def test_read_redacts_a_multiline_pem_block(tmp_path):
+    _parent, path = create_task_failures_log(directory=str(tmp_path))
+    body = "\n".join("MIIB" * 16 for _ in range(30))
+    payload = (
+        "ssh failed:\n-----BEGIN "
+        + "RSA PRIVATE KEY-----\n"
+        + body
+        + "\n-----END "
+        + "RSA PRIVATE KEY-----\n"
+    )
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+    try:
+        os.write(fd, payload.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+    text = read_task_failures_log(path)
+    assert "MIIB" not in text
+    assert "PRIVATE KEY" not in text
+    assert "ssh failed:" in text
 
 
 def test_read_redacts_a_long_line_within_a_time_bound(tmp_path):

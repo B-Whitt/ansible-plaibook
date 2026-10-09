@@ -21,15 +21,17 @@ _MESSAGE_LIMIT = 800
 _FIELD_LIMIT = 500
 # Userinfo may contain extra colons (user:p:ass). Stop at @, slash, or space.
 _USERINFO = re.compile(r"://[^@/\s]+@")
-# Longer keys first so api_key wins over key. Short keys take a word
-# boundary: "key" is inside "monkey", and "auth" is inside longer words.
+# Longer keys first so api_key wins over key. Short keys may follow an
+# underscore (DB_KEY, APP_AUTH). A letter before the key still excludes
+# "monkey". "_" is a word character, so \b does not see that break.
 _LONG_CREDENTIAL_KEYS = (
     "access_token|private_token|client_secret|id_token|refresh_token|api_key|"
     "password|passwd|signature|credential|secret|bearer|token"
 )
 _SHORT_CREDENTIAL_KEYS = "sig|auth|key"
 _CREDENTIAL_KEYS = f"{_LONG_CREDENTIAL_KEYS}|{_SHORT_CREDENTIAL_KEYS}"
-_ASSIGN_KEY = rf"(?:{_LONG_CREDENTIAL_KEYS}|\b(?:{_SHORT_CREDENTIAL_KEYS}))"
+_SHORT_KEY = rf"(?<![A-Za-z0-9])(?:{_SHORT_CREDENTIAL_KEYS})"
+_ASSIGN_KEY = rf"(?:{_LONG_CREDENTIAL_KEYS}|{_SHORT_KEY})"
 # A quoted value may contain spaces. \S+ stops at the first one, so
 # A quoted password containing a space used to leave the tail in the log. The quote
 # alternatives are disjoint (backslash vs not) and linear.
@@ -71,14 +73,15 @@ _DASH_USER_QUOTED = re.compile(
 _DASH_USER = re.compile(
     rf"(?i)({_DASH_USER_HEAD})([^\s:]*:\s*){_SECRET_VALUE}",
 )
-# mysql/mysqldump/psql -psecret, -p SECRET, and -p "secret". Other -p
-# uses are ports, paths, and flags (ssh -p 2222, mkdir -p, -print).
-_P_COMMAND = r"(?<![A-Za-z0-9-])(?:mysql|mysqldump|psql)"
+# mysql/mysqldump/mariadb -p, including options between the command and
+# -p (mysql -u root -psecret). psql -p is a port. The 800-character cap
+# runs first, so the gap between the command and -p stays cheap.
+_P_COMMAND = r"(?:mysql|mysqldump|mariadb)\b[^\n|;&]*?\s-[pP]"
 _SHORT_P_SEPARATED = re.compile(
-    rf"(?i)({_P_COMMAND}\s+-[pP]\s+){_SECRET_VALUE}",
+    rf"(?i)({_P_COMMAND}\s+){_SECRET_VALUE}",
 )
 _SHORT_P_ATTACHED = re.compile(
-    rf"(?i)({_P_COMMAND}\s+-[pP])(?:{_QUOTED_VALUE}|\S+)",
+    rf"(?i)({_P_COMMAND})(?:{_QUOTED_VALUE}|\S+)",
 )
 # --token SECRET and --password "alpha beta". Assignment form (--password=SECRET)
 # is already covered. Underscores in key names are also hyphens on the CLI.
@@ -86,7 +89,7 @@ _SHORT_P_ATTACHED = re.compile(
 # key already matches inside the flag.
 _CLI_LONG = _LONG_CREDENTIAL_KEYS.replace("_", "[-_]")
 _CLI_SECRET_OPT = re.compile(
-    rf"(?i)(--(?:{_CLI_LONG}|\b(?:{_SHORT_CREDENTIAL_KEYS})){_KEY_SUFFIX})"
+    rf"(?i)(--(?:{_CLI_LONG}|{_SHORT_KEY}){_KEY_SUFFIX})"
     rf"(\s+){_SECRET_VALUE}",
 )
 # A bare token or a PEM block has no assignment delimiter.
@@ -94,8 +97,12 @@ _PREFIX_TOKEN = re.compile(
     r"ghp_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|glpat-[A-Za-z0-9_\-]{8,}|"
     r"sk-ant-[A-Za-z0-9_\-]{8,}|AKIA[0-9A-Z]{16}"
 )
+_PEM_BEGIN = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+_PEM_END = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
+# END may have been cut off by the display cap. Hide through END, or
+# through the end of this text when the closer is not here.
 _PEM_BLOCK = re.compile(
-    r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)"
 )
 # CSI, OSC, and other ECMA-48 sequences, plus C1 CSI (U+009B).
 _ANSI = re.compile(
@@ -409,9 +416,15 @@ def read_task_failures_log(path: str) -> str:
 
 
 def _redact_log_lines(text: str) -> str:
-    """Redact each line on its own, after cutting the line to the message cap."""
+    """Redact each line on its own, after cutting the line to the message cap.
+
+    A PEM block is split across lines, so the BEGIN and END markers are
+    not on one line. After a BEGIN line, every line is redacted until
+    the END line.
+    """
     if not text:
         return ""
+    in_pem = False
     pieces: list[str] = []
     for line in text.splitlines(keepends=True):
         ending = ""
@@ -420,6 +433,13 @@ def _redact_log_lines(text: str) -> str:
             body, ending = body[:-2], "\r\n"
         elif body.endswith("\n") or body.endswith("\r"):
             body, ending = body[:-1], body[-1]
+        if in_pem:
+            if _PEM_END.search(body):
+                in_pem = False
+            pieces.append("***" + ending)
+            continue
+        if _PEM_BEGIN.search(body) and not _PEM_END.search(body):
+            in_pem = True
         pieces.append(_redact_bounded(body, limit=_MESSAGE_LIMIT) + ending)
     return "".join(pieces)
 
