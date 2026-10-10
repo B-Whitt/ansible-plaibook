@@ -198,6 +198,20 @@ def test_pip_install_holds_the_interpreter_lock(monkeypatch, tmp_path):
     assert sdk.provider_sdk_lock_path("/usr/bin/python3") != sdk.provider_sdk_lock_path("/other/bin/python3")
 
 
+def test_lock_path_follows_a_path_lookup(monkeypatch, tmp_path):
+    import stat
+
+    import plaibook.provider_sdk as sdk
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    exe = bindir / "pybin"
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", str(bindir))
+    assert sdk.provider_sdk_lock_path("pybin") == sdk.provider_sdk_lock_path(str(exe.resolve()))
+
+
 def test_hashed_files_pin_every_family_distribution():
     from plaibook.pip_hashed import pinned_versions
 

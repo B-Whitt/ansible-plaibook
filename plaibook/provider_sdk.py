@@ -16,6 +16,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
 from contextlib import contextmanager
@@ -85,10 +86,13 @@ def _exclusive_provider_sdk_lock(python: str):
 
 
 def _resolved_python(python: str) -> str:
+    """Absolute path of the interpreter, including a bare name on PATH."""
+    found = shutil.which(python)
+    candidate = found or python
     try:
-        return str(Path(python).resolve())
+        return str(Path(candidate).resolve())
     except OSError:
-        return python
+        return candidate
 
 
 def ensure_provider_sdk(
