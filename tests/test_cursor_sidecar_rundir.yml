@@ -34,3 +34,17 @@
           - review_cursor_bridge_rundir is regex('/\\.cache/ansible-cursor-sidecar/runB0123456789ab$')
           - rundir_a != (lookup('ansible.builtin.env', 'HOME') ~ '/.cache/ansible-cursor-sidecar')
           - review_cursor_bridge_rundir != (lookup('ansible.builtin.env', 'HOME') ~ '/.cache/ansible-cursor-sidecar')
+
+    - name: A path-escaping run id is not used as a directory name
+      ansible.builtin.set_fact:
+        last_run_id: ../escape
+
+    - name: Apply the rundir tasks for the escaping id
+      ansible.builtin.include_tasks: ../roles/review/tasks/cursor_sidecar_rundir.yml
+
+    - name: The escaping id stays inside the sidecar cache
+      ansible.builtin.assert:
+        that:
+          - review_cursor_bridge_rundir is regex('/\\.cache/ansible-cursor-sidecar/[A-Za-z0-9]+$')
+          - "'..' not in review_cursor_bridge_rundir"
+          - review_cursor_bridge_rundir != rundir_a
