@@ -21,7 +21,7 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TextIO
+from typing import Iterator, TextIO
 
 from packaging.requirements import Requirement
 
@@ -64,7 +64,7 @@ def provider_sdk_lock_path(python: str) -> Path:
 
 
 @contextmanager
-def _exclusive_provider_sdk_lock(python: str):
+def _exclusive_provider_sdk_lock(python: str) -> Iterator[None]:
     """Serialize check, pip, and the cursor HTTP/2 patch for one interpreter.
 
     POSIX ``fcntl.flock`` only. Windows is not a supported plaibook host.
