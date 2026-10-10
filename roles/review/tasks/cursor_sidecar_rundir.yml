@@ -6,11 +6,13 @@
     _cursor_sidecar_run: >-
       {{
         (
-          (last_run_id | default('', true) | trim)
-          if ((last_run_id | default('', true) | trim) is match('^[A-Za-z0-9_-]+$'))
-          else ''
+          (
+            (last_run_id | default('', true) | trim)
+            if ((last_run_id | default('', true) | trim) is match('^[A-Za-z0-9_-]+$'))
+            else 'run'
+          )
+          ~ '-' ~ lookup('password', '/dev/null length=16 chars=ascii_letters,digits')
         )
-        or lookup('password', '/dev/null length=16 chars=ascii_letters,digits')
       }}
 
 - name: Give this Cursor run its own sidecar directory
