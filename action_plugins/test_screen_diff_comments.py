@@ -336,6 +336,76 @@ def test_jinja_comments_in_markdown_without_j2_suffix():
     assert "Hello" in result["screened_diff"]
 
 
+def test_python_triple_backslash_newline_does_not_escape_the_closer():
+    """A backslash at the end of a physical line does not escape the next line.
+
+    Python removes the backslash-newline, so the following ``\"\"\"`` closes
+    the string. Later comments must still be blanked. With docstring
+    screening on, only a real docstring is blanked; the following statement
+    stays.
+    """
+    assignment = (
+        "diff --git a/mod.py b/mod.py\n"
+        "--- a/mod.py\n"
+        "+++ b/mod.py\n"
+        "@@ -0,0 +1,3 @@\n"
+        '+s = """text\\\n'
+        '+"""\n'
+        "+x = 1  # later comment\n"
+    )
+    for screen_docstrings in (False, True):
+        result = screen_unified_diff(assignment, screen_docstrings=screen_docstrings)
+        assert result["line_counts_match"] is True
+        assert "text" in result["screened_diff"]
+        assert "x = 1" in result["screened_diff"]
+        assert "later comment" not in result["screened_diff"]
+
+    docstring = (
+        "diff --git a/mod.py b/mod.py\n"
+        "--- a/mod.py\n"
+        "+++ b/mod.py\n"
+        "@@ -0,0 +1,3 @@\n"
+        '+"""text\\\n'
+        '+"""\n'
+        "+x = 1  # later comment\n"
+    )
+    kept = screen_unified_diff(docstring, screen_docstrings=False)
+    assert kept["line_counts_match"] is True
+    assert "text" in kept["screened_diff"]
+    assert "x = 1" in kept["screened_diff"]
+    assert "later comment" not in kept["screened_diff"]
+    stripped = screen_unified_diff(docstring, screen_docstrings=True)
+    assert stripped["line_counts_match"] is True
+    assert "text" not in stripped["screened_diff"]
+    assert "x = 1" in stripped["screened_diff"]
+    assert "later comment" not in stripped["screened_diff"]
+
+
+def test_yaml_quoted_key_with_colon_keeps_block_scalar_body():
+    """``\"script:name\": |`` is a block scalar. Its body is data, not a comment."""
+    diff = (
+        "diff --git a/play.yml b/play.yml\n"
+        "--- a/play.yml\n"
+        "+++ b/play.yml\n"
+        "@@ -0,0 +1,8 @@\n"
+        '+"script:name": |\n'
+        "+  # data shebang\n"
+        "+  echo quoted\n"
+        "+script: |\n"
+        "+  # data shebang\n"
+        "+  echo plain\n"
+        "+# real comment\n"
+        "+keep: visible\n"
+    )
+    result = screen_unified_diff(diff, screen_docstrings=False)
+    assert result["line_counts_match"] is True
+    assert result["screened_diff"].count("# data shebang") == 2
+    assert "echo quoted" in result["screened_diff"]
+    assert "echo plain" in result["screened_diff"]
+    assert "real comment" not in result["screened_diff"]
+    assert "keep: visible" in result["screened_diff"]
+
+
 def test_yaml_block_scalar_hash_is_data_not_comment():
     diff = (
         "diff --git a/roles/review/tasks/main.yml b/roles/review/tasks/main.yml\n"

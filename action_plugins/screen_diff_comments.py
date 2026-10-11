@@ -14,8 +14,6 @@ playbook: a unit test is not a substitute for the pipeline invariant.
 """
 from __future__ import annotations
 
-import re
-
 from ansible.plugins.action import ActionBase
 
 _DIFF_FILE_PREFIX = "diff --git "
@@ -188,7 +186,6 @@ class _ScreenState:
     __slots__ = (
         "py_triple",
         "py_triple_is_docstring",
-        "py_triple_escape",
         "py_quote",
         "jinja_comment",
         "html_comment",
@@ -202,7 +199,6 @@ class _ScreenState:
     def __init__(self) -> None:
         self.py_triple: str | None = None
         self.py_triple_is_docstring = False
-        self.py_triple_escape = False
         self.py_quote: str | None = None
         self.jinja_comment = False
         self.html_comment = False
@@ -271,19 +267,16 @@ def _screen_python_line(content: str, state: _ScreenState, screen_docstrings: bo
     while i < n:
         if state.py_triple:
             closer = state.py_triple
-            if state.py_triple_escape:
-                _emit_python_triple_char(content[i], state, screen_docstrings, out)
-                i += 1
-                state.py_triple_escape = False
-                continue
+            # Python deletes a backslash-newline before the next physical
+            # line is tokenized. Do not treat that next line's first
+            # character as escaped, or a closing quote stays inside the
+            # string and later comments are never screened.
             if content[i] == "\\":
                 _emit_python_triple_char("\\", state, screen_docstrings, out)
                 i += 1
                 if i < n:
                     _emit_python_triple_char(content[i], state, screen_docstrings, out)
                     i += 1
-                else:
-                    state.py_triple_escape = True
                 continue
             if content.startswith(closer, i):
                 if screen_docstrings and state.py_triple_is_docstring:
@@ -293,7 +286,6 @@ def _screen_python_line(content: str, state: _ScreenState, screen_docstrings: bo
                 i += len(closer)
                 state.py_triple = None
                 state.py_triple_is_docstring = False
-                state.py_triple_escape = False
                 continue
             _emit_python_triple_char(content[i], state, screen_docstrings, out)
             i += 1
@@ -325,7 +317,6 @@ def _screen_python_line(content: str, state: _ScreenState, screen_docstrings: bo
             is_doc = _python_docstring_prefix_ok(prefix)
             state.py_triple = quote
             state.py_triple_is_docstring = is_doc
-            state.py_triple_escape = False
             if screen_docstrings and is_doc:
                 out.append(" " * 3)
             else:
@@ -351,20 +342,132 @@ def _screen_python_line(content: str, state: _ScreenState, screen_docstrings: bo
     return "".join(out)
 
 
-_YAML_BLOCK_HEADER = re.compile(
-    r"^(?P<indent>[ \t]*)"
-    r"(?:"
-    r"(?:- [ \t]*)*(?:[^:#\n][^:\n]*:[ \t]*)"
-    r"|"
-    r"(?:- [ \t]*)"
-    r")"
-    # Tag (`!foo` / `!!str`) and/or anchor (`&id`), either order. Names
-    # cannot include `!` or `&`, and the group is bounded, so this cannot
-    # exponential-backtrack on `!!!!` / `!&!&`.
-    r"(?:(?:!!?[^\s!]+|&[^\s!&]+)[ \t]*){0,2}"
-    r"[>|](?:[+-](?:\d+)?|\d+[+-]?)?"
-    r"[ \t]*(?:#.*)?$"
-)
+def _yaml_skip_ws(content: str, i: int) -> int:
+    n = len(content)
+    while i < n and content[i] in " \t":
+        i += 1
+    return i
+
+
+def _yaml_scan_quoted(content: str, i: int, quote: str) -> int | None:
+    """Index just after a closing quote, or None when the quote never closes."""
+    n = len(content)
+    i += 1
+    if quote == "'":
+        while i < n:
+            if content[i] == "'":
+                if i + 1 < n and content[i + 1] == "'":
+                    i += 2
+                    continue
+                return i + 1
+            i += 1
+        return None
+    while i < n:
+        if content[i] == "\\":
+            i += 2 if i + 1 < n else 1
+            continue
+        if content[i] == '"':
+            return i + 1
+        i += 1
+    return None
+
+
+def _yaml_try_key(content: str, i: int) -> int | None:
+    """Index after ``key:`` and its trailing spaces, or None.
+
+    A quoted key may contain colons. A plain key stops at the first colon.
+    """
+    n = len(content)
+    if i >= n:
+        return None
+    if content[i] in "'\"":
+        end = _yaml_scan_quoted(content, i, content[i])
+        if end is None or end >= n or content[end] != ":":
+            return None
+        return _yaml_skip_ws(content, end + 1)
+    if content[i] in ":#":
+        return None
+    j = i + 1
+    while j < n and content[j] != ":":
+        j += 1
+    if j >= n or content[j] != ":":
+        return None
+    return _yaml_skip_ws(content, j + 1)
+
+
+def _yaml_try_tag_or_anchor(content: str, i: int) -> int | None:
+    """Index after one ``!name`` / ``!!name`` / ``&name`` token, or None.
+
+    Names exclude the marker characters, and at most two tokens are
+    accepted by the caller, so a run of ``!&`` cannot backtrack.
+    """
+    n = len(content)
+    if i >= n:
+        return None
+    if content[i] == "&":
+        j = i + 1
+        if j >= n or content[j].isspace() or content[j] in "!&":
+            return None
+        while j < n and not content[j].isspace() and content[j] not in "!&":
+            j += 1
+        return j
+    if content[i] != "!":
+        return None
+    j = i + 1
+    if j < n and content[j] == "!":
+        j += 1
+    if j >= n or content[j].isspace() or content[j] == "!":
+        return None
+    while j < n and not content[j].isspace() and content[j] != "!":
+        j += 1
+    return j
+
+
+def _yaml_rest_is_block_indicator(content: str, i: int) -> bool:
+    """True when ``content[i:]`` is ``|`` or ``>`` plus an optional chomp/indent."""
+    n = len(content)
+    if i >= n or content[i] not in ">|":
+        return False
+    i += 1
+    if i < n and content[i] in "+-":
+        i += 1
+        while i < n and content[i].isdigit():
+            i += 1
+    elif i < n and content[i].isdigit():
+        while i < n and content[i].isdigit():
+            i += 1
+        if i < n and content[i] in "+-":
+            i += 1
+    i = _yaml_skip_ws(content, i)
+    if i < n and content[i] == "#":
+        return True
+    return i >= n
+
+
+def _is_yaml_block_header(content: str) -> bool:
+    """True for a block-scalar header, including a quoted key that contains ``:``.
+
+    One forward scan. Sequence markers, the key, and at most two tag or
+    anchor tokens are consumed without retrying earlier choices.
+    """
+    i = _yaml_skip_ws(content, 0)
+    n = len(content)
+    saw_sequence = False
+    while i + 1 < n and content[i] == "-" and content[i + 1] == " ":
+        i = _yaml_skip_ws(content, i + 2)
+        saw_sequence = True
+    key_end = _yaml_try_key(content, i)
+    if key_end is None:
+        if not saw_sequence:
+            return False
+    else:
+        i = key_end
+    for _ in range(2):
+        token_end = _yaml_try_tag_or_anchor(content, i)
+        if token_end is None:
+            break
+        i = _yaml_skip_ws(content, token_end)
+    return _yaml_rest_is_block_indicator(content, i)
 
 
 def _yaml_leading_ws(content: str) -> int:
@@ -373,10 +476,6 @@ def _yaml_leading_ws(content: str) -> int:
     while i < n and content[i] in " \t":
         i += 1
     return i
-
-
-def _is_yaml_block_header(content: str) -> bool:
-    return _YAML_BLOCK_HEADER.match(content) is not None
 
 
 def _yaml_in_block_content(content: str, state: _ScreenState) -> bool:
