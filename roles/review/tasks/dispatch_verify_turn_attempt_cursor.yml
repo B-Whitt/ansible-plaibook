@@ -34,15 +34,17 @@
 # lens never called the tool on the last verify turn; mid-turns with
 # zero executes retry. Parent-only execute (GetDynamicTools /
 # tools: [mcp] fabrication) always fails closed.
-# A module fail_json (Cursor status=error with an empty body) is one
-# failed attempt. Rescue only that module call and retry. A nested
-# report_verdict on that failed return still binds, and its usage is
-# recorded even when a parent execute is also present. Do not abort the
-# playbook before persist. Nonce validation and named-lens selection
-# stay outside the rescue: a mismatch or a parent-only fabrication
-# fails the play, including on a non-final verify turn. Any other
-# module failure (auth, config, transport) is re-raised. Do not turn
-# it into end_turn.
+# A module fail_json is one failed attempt only for the documented empty
+# Cursor status-error shape: status is exactly error, text is missing
+# or whitespace, and structured_tool_calls is empty. Do not match the
+# words "status error" inside msg. Rescue only that module call and
+# retry. A nested report_verdict on a failed return still binds, and
+# its usage is recorded even when a parent execute is also present.
+# Do not abort the playbook before persist. Nonce validation and
+# named-lens selection stay outside the rescue: a mismatch or a
+# parent-only fabrication fails the play, including on a non-final
+# verify turn. A non-empty body, or any other module failure (auth,
+# config, transport), is re-raised. Do not turn it into end_turn.
 #
 # prompt_nonce is a cheap spawn canary after a nested execute. The
 # nested execute is the payload bind. Do not print .text in fail_msg.
@@ -134,7 +136,8 @@
                | list }}
           _verify_failed_status_error: >-
             {{ (_cursor_verify_failed_result.status | default('')) == 'error'
-               or ('status error' in (_cursor_verify_failed_result.msg | default('') | lower)) }}
+               and ((_cursor_verify_failed_result.text | default('', true) | string | trim) | length == 0)
+               and ((_cursor_verify_failed_result.structured_tool_calls | default([], true)) | length == 0) }}
 
       - name: "Cursor: re-raise a parent-only verify fabrication"
         when:

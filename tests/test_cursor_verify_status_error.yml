@@ -314,6 +314,164 @@
             fail_msg: "Non-status module failure did not re-raise: {{ ansible_failed_result.msg | default('') }}"
             success_msg: "A non-status module failure on a non-final turn is re-raised."
 
+    - name: Whitespace-only text with status=error is still the empty shape
+      block:
+        - name: Reset flags before the whitespace status=error
+          ansible.builtin.set_fact:
+            pipeline_agent_calls: []
+            verify_dispatch_valid: false
+            verify_dispatch_provider_error: false
+            verify_last_turn: false
+            verify_attempt_number: 1
+
+        - name: Write an empty-body status=error whose message lacks the phrase
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ _whitespace_error | to_json }}"
+          vars:
+            _whitespace_error:
+              failed: true
+              msg: "Cursor run finished (run_id=run-whitespace)"
+              status: error
+              resolved_model: gpt-5.6-luna
+              text: "  \n"
+              structured_tool_calls: []
+              usage_normalized:
+                input_tokens: 1
+                output_tokens: 0
+                cache_write_tokens: 0
+                cache_read_tokens: 0
+                thinking_tokens: 0
+                total_tokens: 1
+
+        - name: Dispatch the whitespace status=error
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_verify_turn_attempt_cursor.yml
+
+        - name: Confirm whitespace text is the retryable empty shape
+          ansible.builtin.assert:
+            that:
+              - verify_dispatch_provider_error | bool
+              - not (verify_dispatch_valid | bool)
+              - verify_turn_result.stop_reason == "error"
+              - verify_turn_result.tool_calls | length == 0
+              - pipeline_agent_calls | length == 1
+            fail_msg: >-
+              Whitespace status=error was not retryable.
+              error={{ verify_dispatch_provider_error | default('') }}
+              result={{ verify_turn_result | default({}) }}
+            success_msg: "Whitespace-only text with status=error stays retryable."
+
+    - name: A status=error phrase without status=error is re-raised
+      block:
+        - name: Reset the turn loop before the phrase-only failure
+          ansible.builtin.set_fact:
+            agent_family: cursor
+            review_verify_max_turns: 3
+            review_structured_output_max_attempts: 3
+            review_verify_model: unused
+            review_verify_claude_cli_model: unused
+            review_verify_openai_model: unused
+            review_verify_gemini_model: unused
+            pipeline_agent_calls: []
+            review_verify_done: false
+            verify_turn_count: 0
+            verify_last_turn: false
+            verify_messages: []
+            verify_dispatch_provider_error: false
+            verify_dispatch_valid: false
+            verify_result_status: ""
+            verify_result_rationale: ""
+            verify_turn_result:
+              stop_reason: unset
+
+        - name: Write a failure whose message mentions status error
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ _phrase_only | to_json }}"
+          vars:
+            _phrase_only:
+              failed: true
+              msg: "authentication failed after status error from the gateway"
+              status: finished
+              text: "authentication failed"
+              structured_tool_calls: []
+
+        - name: Run a non-final verify turn over the phrase-only failure
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: verify_turn.yml
+
+        - name: Fail the test if the phrase-only failure was retried
+          ansible.builtin.fail:
+            msg: "TEST BUG: a status-error phrase was treated as an empty status error"
+      rescue:
+        - name: Confirm the phrase-only failure aborted the turn
+          ansible.builtin.assert:
+            that:
+              - "'authentication failed' in (ansible_failed_result.msg | default(''))"
+              - "'TEST BUG' not in (ansible_failed_result.msg | default(''))"
+              - not (review_verify_done | bool)
+              - verify_result_status | default('') != 'inconclusive'
+              - verify_turn_result.stop_reason | default('') != 'end_turn'
+              - not (verify_dispatch_provider_error | default(false) | bool)
+            fail_msg: "Phrase-only failure was not re-raised: {{ ansible_failed_result.msg | default('') }}"
+            success_msg: "A status-error phrase without status=error is re-raised."
+
+    - name: A status=error with a non-empty body is re-raised
+      block:
+        - name: Reset the turn loop before the non-empty status=error
+          ansible.builtin.set_fact:
+            pipeline_agent_calls: []
+            review_verify_done: false
+            verify_turn_count: 0
+            verify_last_turn: false
+            verify_messages: []
+            verify_dispatch_provider_error: false
+            verify_dispatch_valid: false
+            verify_result_status: ""
+            verify_result_rationale: ""
+            verify_turn_result:
+              stop_reason: unset
+
+        - name: Write a status=error that still has a body
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ _nonempty_error | to_json }}"
+          vars:
+            _nonempty_error:
+              failed: true
+              msg: "provider returned an error body"
+              status: error
+              text: "rate limit exceeded"
+              structured_tool_calls: []
+
+        - name: Run a non-final verify turn over the non-empty status=error
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: verify_turn.yml
+
+        - name: Fail the test if the non-empty body was retried
+          ansible.builtin.fail:
+            msg: "TEST BUG: a non-empty status=error was treated as empty"
+      rescue:
+        - name: Confirm the non-empty status=error aborted the turn
+          ansible.builtin.assert:
+            that:
+              - "'error body' in (ansible_failed_result.msg | default(''))"
+              - "'TEST BUG' not in (ansible_failed_result.msg | default(''))"
+              - "'rate limit exceeded' not in (ansible_failed_result.msg | default(''))"
+              - not (review_verify_done | bool)
+              - verify_result_status | default('') != 'inconclusive'
+              - verify_turn_result.stop_reason | default('') != 'error'
+              - not (verify_dispatch_provider_error | default(false) | bool)
+            fail_msg: "Non-empty status=error was not re-raised: {{ ansible_failed_result.msg | default('') }}"
+            success_msg: "A status=error with a non-empty body is re-raised."
+
     - name: verify_turn retries a status error and then accepts a verdict
       block:
         - name: Reset the turn loop before the success sequence
