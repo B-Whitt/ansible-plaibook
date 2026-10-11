@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -21,6 +22,7 @@ from plaibook.config import (
 )
 from plaibook.openshell_sdk import OpenshellSdkError, reexec_sandbox_runtime
 from plaibook.playbook import (
+    PlaybookInterruptedError,
     PlaybookNotFoundError,
     PlaybookTimeoutError,
     ScratchDirError,
@@ -41,6 +43,35 @@ from plaibook.summary import (
     format_pretty,
     load_json,
     sanitize_display_line,
+)
+from plaibook.task_failures import (
+    create_task_failures_log,
+    discard_task_failure_log,
+    read_task_failures_log,
+)
+from plaibook.update import (
+    NetworkError,
+    UpdateError,
+    VersionError,
+    current_version,
+    fetch_pypi_latest_version,
+    pipx_install_git_ref,
+    pipx_install_pypi,
+    pipx_installed_version,
+    pipx_package_spec,
+    pipx_spec_is_pypi,
+    prompt_confirm,
+    recorded_spec_is_pypi,
+    running_install_kind,
+    spec_matches_git_ref,
+    uv_install_git_ref,
+    uv_install_pypi,
+    uv_installed_version,
+    uv_recorded_spec,
+    venv_install_git_ref,
+    venv_install_pypi,
+    venv_installed_version,
+    venv_recorded_spec,
 )
 from plaibook.wait import WaitSpinner, spinner_enabled
 
@@ -98,6 +129,10 @@ Examples:
   plai review org/repo/123 -f
   plai review org/repo/123 --provider cursor
   plai review org/repo/123 --no-sandbox
+  plai update
+  plai update --check
+  plai update --branch main
+  plai update --branch v0.1.26
 """
 
 
@@ -197,7 +232,7 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
     review.add_argument(
         "--notes",
         dest="review_extra_notes",
-        help="Trusted operator notes for this run (JSON extra-vars, colons are safe).",
+        help="Trusted operator notes for this run. A colon in the text is kept.",
     )
     review.add_argument(
         "--post",
@@ -247,6 +282,40 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         dest="playbook_root",
         help="Use a local playbook checkout instead of this pip install.",
     )
+
+    update = sub.add_parser(
+        "update",
+        help="Upgrade the plaibook install that is running (or install a GitHub ref).",
+        description=(
+            "Upgrade the plaibook install that is running: pipx, uv tool, "
+            "or a virtualenv. An editable checkout is left alone. "
+            "With no flags this installs the current PyPI release. "
+            "--branch installs that git ref and checks the recorded spec. "
+            "--check compares versions and does not install. "
+            "Without a terminal, pass --yes."
+        ),
+    )
+    update.add_argument(
+        "--branch",
+        metavar="REF",
+        help=(
+            "Install this GitHub ref into the running install "
+            "(pipx, uv tool, or the current virtualenv; branch, tag, or commit SHA) "
+            "instead of the PyPI release."
+        ),
+    )
+    update.add_argument(
+        "--check",
+        action="store_true",
+        help="Check for updates without installing.",
+    )
+    update.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt.",
+    )
+
     return parser
 
 
@@ -367,6 +436,51 @@ def _apply_sandbox_fallback(args: argparse.Namespace, extras: dict) -> str | Non
     )
 
 
+def _playbook_env(failures_path: str, extra: dict[str, str] | None = None) -> dict[str, str] | None:
+    """Env for ansible-playbook. Empty means leave the subprocess env unchanged."""
+    env: dict[str, str] = {}
+    if failures_path:
+        env["PLAIBOOK_TASK_FAILURES_LOG"] = failures_path
+    if extra:
+        env.update(extra)
+    return env or None
+
+
+_FAILURE_LOG_UNAVAILABLE = (
+    "task-failure log unavailable; rerun with -v to see failed tasks\n"
+)
+
+
+def _emit_task_failures(
+    path: str,
+    args: argparse.Namespace,
+    *,
+    captured_already_shown: bool,
+    playbook_rc: int = 0,
+    log_unavailable: bool = False,
+) -> None:
+    """Reprint the failure log when quiet mode discarded callback display.
+
+    Verbose runs already showed it. A dumped ansible transcript already
+    contains it. The private directory is removed after this read: the
+    reprint is the last use of the file. Quiet mode does not fall back
+    to that transcript. It says the log is unavailable instead.
+    """
+    quiet = ansible_verbosity(args) == 0
+    if log_unavailable or not path:
+        if quiet and (log_unavailable or playbook_rc != 0):
+            sys.stderr.write(_FAILURE_LOG_UNAVAILABLE)
+        return
+    text = read_task_failures_log(path)
+    if text and not captured_already_shown and quiet:
+        sys.stderr.write(text)
+        if not text.endswith("\n"):
+            sys.stderr.write("\n")
+    elif quiet and playbook_rc != 0 and not text:
+        sys.stderr.write(_FAILURE_LOG_UNAVAILABLE)
+    discard_task_failure_log(path)
+
+
 def _emit_summary(document: dict, args: argparse.Namespace) -> None:
     if args.as_json:
         dump_json(document, sys.stdout)
@@ -469,11 +583,23 @@ def cmd_review(args: argparse.Namespace) -> int:
 
     structured = args.as_json or args.as_yaml
     inherit_tty = (not structured) and ansible_verbosity(args) > 0
+    failures_path = ""
+    log_unavailable = False
+    try:
+        _, failures_path = create_task_failures_log(directory=str(runtime_tmp_dir()))
+    except (OSError, ScratchDirError):
+        failures_path = ""
+        log_unavailable = True
     try:
         if inherit_tty:
             sys.stderr.write(_progress_line(args))
             sys.stderr.flush()
-            result = run_ansible_playbook(command, playbook_root=root, verbose=True)
+            result = run_ansible_playbook(
+                command,
+                playbook_root=root,
+                verbose=True,
+                env=_playbook_env(failures_path),
+            )
         elif spinner_enabled(sys.stderr):
             progress_dir, progress_path = create_progress_file(directory=str(runtime_tmp_dir()))
             try:
@@ -486,7 +612,7 @@ def cmd_review(args: argparse.Namespace) -> int:
                         command,
                         playbook_root=root,
                         verbose=False,
-                        env={"PLAIBOOK_PROGRESS_FILE": progress_path},
+                        env=_playbook_env(failures_path, {"PLAIBOOK_PROGRESS_FILE": progress_path}),
                     )
             finally:
                 Path(progress_path).unlink(missing_ok=True)
@@ -498,28 +624,57 @@ def cmd_review(args: argparse.Namespace) -> int:
             if not structured:
                 sys.stderr.write(_progress_line(args))
                 sys.stderr.flush()
-            result = run_ansible_playbook(command, playbook_root=root, verbose=False)
+            result = run_ansible_playbook(
+                command,
+                playbook_root=root,
+                verbose=False,
+                env=_playbook_env(failures_path),
+            )
+    except PlaybookInterruptedError:
+        # On the spinner path, WaitSpinner.__exit__ has already restored
+        # the terminal. Drop the unused failure log and exit 128+SIGINT.
+        if failures_path:
+            discard_task_failure_log(failures_path)
+        return 130
     except (PlaybookTimeoutError, ScratchDirError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
+        _emit_task_failures(
+            failures_path,
+            args,
+            captured_already_shown=False,
+            playbook_rc=2,
+            log_unavailable=log_unavailable,
+        )
         return 2
     captured = "" if inherit_tty else ((result.stderr or "") + (result.stdout or ""))
+    showed_structured_capture = False
     if structured and ansible_verbosity(args) > 0 and captured.strip():
         sys.stderr.write(captured)
         if not captured.endswith("\n"):
             sys.stderr.write("\n")
         captured = ""
+        showed_structured_capture = True
     # Always last_run.<run_id>.json — never last_run.json. The playbook
     # always-block writes both (including same-commit cache hits); the
     # canonical path is last-write-wins and can belong to another run.
     summary_file = last_run_path(run_id)
     if not summary_file.is_file():
+        showed_capture = False
         if captured.strip():
             sys.stderr.write(captured)
             if not captured.endswith("\n"):
                 sys.stderr.write("\n")
+            showed_capture = True
         print(
             f"ansible-playbook exited {result.returncode} without writing {summary_file}",
             file=sys.stderr,
+        )
+        _emit_task_failures(
+            failures_path,
+            args,
+            captured_already_shown=showed_capture or showed_structured_capture,
+            playbook_rc=result.returncode,
+            log_unavailable=log_unavailable,
         )
         return result.returncode if result.returncode else 2
 
@@ -527,18 +682,346 @@ def cmd_review(args: argparse.Namespace) -> int:
         document = enrich_last_run(load_json(summary_file), last_run_file=summary_file)
     except SummaryError as exc:
         print(str(exc), file=sys.stderr)
+        _emit_task_failures(
+            failures_path,
+            args,
+            captured_already_shown=showed_structured_capture,
+            playbook_rc=result.returncode,
+            log_unavailable=log_unavailable,
+        )
         return 2
     _emit_summary(document, args)
+    _emit_task_failures(
+        failures_path,
+        args,
+        captured_already_shown=showed_structured_capture,
+        playbook_rc=result.returncode,
+        log_unavailable=log_unavailable,
+    )
     return result.returncode
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(list(argv) if argv is not None else None)
-    if args.command != "review":
-        parser.print_help()
+def _print_pipx_output(result: subprocess.CompletedProcess[str]) -> None:
+    text = (result.stdout or "").strip()
+    if text:
+        print(text, file=sys.stderr)
+
+
+def _pipx_failed(result: subprocess.CompletedProcess[str], label: str = "pipx") -> int:
+    print(f"{label} failed:", file=sys.stderr)
+    for stream in (result.stderr, result.stdout):
+        tail = (stream or "")[-2000:].strip()
+        if tail:
+            print(tail, file=sys.stderr)
+    return 2
+
+
+def _confirmed(args: argparse.Namespace, message: str) -> bool:
+    """Confirm an install. A non-interactive run must pass --yes."""
+    if args.yes:
+        return True
+    if not sys.stdin.isatty():
+        print("Pass --yes to update without a prompt.", file=sys.stderr)
+        return False
+    return prompt_confirm(message)
+
+
+def _editable_refusal() -> int:
+    print(
+        "This plai is an editable install. plai update will not replace that checkout.",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _unknown_install_refusal() -> int:
+    print(
+        "plai update does not know how this plaibook was installed. "
+        "Use `pipx install plaibook` or `uv tool install plaibook`.",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    """Upgrade the install that is running, or install a GitHub ref into it."""
+    kind = running_install_kind()
+    if kind == "editable" and not args.check:
+        return _editable_refusal()
+    if kind == "unknown" and not args.check:
+        return _unknown_install_refusal()
+    if kind == "uv":
+        return _cmd_update_uv(args)
+    if kind == "venv":
+        return _cmd_update_venv(args)
+    return _cmd_update_pipx(args)
+
+
+def _cmd_update_pipx(args: argparse.Namespace) -> int:
+    """Upgrade the pipx install, or install a GitHub ref into pipx."""
+    current = current_version()
+
+    # Check mode: just report available version
+    if args.check:
+        if args.branch:
+            print(f"Current version: {current}", file=sys.stderr)
+            print(
+                f"--check with --branch would install from GitHub ref: {args.branch}",
+                file=sys.stderr,
+            )
+            return 0
+
+        try:
+            latest = fetch_pypi_latest_version()
+        except NetworkError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+
+        print(f"Current version: {current}", file=sys.stderr)
+        print(f"Latest version:  {latest}", file=sys.stderr)
+        if current == latest:
+            print("plaibook is already up to date.", file=sys.stderr)
+            return 0
+        else:
+            print(f"Update available: {current} → {latest}", file=sys.stderr)
+            return 0
+
+    # GitHub branch install (issue #61: use git+https, not tarball)
+    if args.branch:
+        try:
+            if not _confirmed(args, f"Install plaibook from git ref '{args.branch}'?"):
+                print("Update cancelled.", file=sys.stderr)
+                return 1
+
+            print(f"Installing plaibook from git ref: {args.branch}", file=sys.stderr)
+            print(
+                "(pipx install --force --pip-args=--no-cache-dir "
+                "git+https://github.com/aknochow/ansible-plaibook.git)",
+                file=sys.stderr,
+            )
+
+            from plaibook.update import _exclusive_update_lock
+            with _exclusive_update_lock():
+                result = pipx_install_git_ref(args.branch)
+                if result.returncode != 0:
+                    return _pipx_failed(result)
+                recorded = pipx_package_spec()
+                _print_pipx_output(result)
+                if not spec_matches_git_ref(recorded, args.branch):
+                    print(
+                        f"pipx recorded {recorded or 'no spec'}, expected git ref '{args.branch}'.",
+                        file=sys.stderr,
+                    )
+                    return 2
+                print(
+                    f"Successfully installed plaibook from '{args.branch}' with pipx",
+                    file=sys.stderr,
+                )
+                return 0
+
+        except (UpdateError, NetworkError, VersionError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+
+    # PyPI install (default)
+    try:
+        latest = fetch_pypi_latest_version()
+    except NetworkError as exc:
+        print(str(exc), file=sys.stderr)
+        print(
+            "Cannot check for updates. Use --branch to install from GitHub instead.",
+            file=sys.stderr,
+        )
         return 2
-    return cmd_review(args)
+
+    try:
+        # Hold the lock across the spec read and the install. A concurrent
+        # --branch must not land between "already PyPI" and the return.
+        from plaibook.update import _exclusive_update_lock
+        with _exclusive_update_lock():
+            # The process version can match PyPI while the pipx venv is older
+            # or still a git spec. Read that venv before skipping.
+            installed_now = pipx_installed_version() if current == latest else None
+            spec = pipx_package_spec() if current == latest else None
+            if (
+                current == latest
+                and installed_now == latest
+                and pipx_spec_is_pypi(spec)
+            ):
+                print(f"plaibook is already up to date ({installed_now}).", file=sys.stderr)
+                return 0
+            if current != latest:
+                print(f"Update available: {current} → {latest}", file=sys.stderr)
+                prompt = f"Update plaibook from {current} to {latest}?"
+            elif spec is not None and not pipx_spec_is_pypi(spec):
+                print(
+                    f"plaibook {installed_now or current} is installed from a git ref. "
+                    f"Reinstalling {latest} from PyPI.",
+                    file=sys.stderr,
+                )
+                prompt = f"Replace the git install of plaibook {current} with the PyPI release?"
+            elif spec is None:
+                print(
+                    f"plaibook {current} is not installed with pipx. "
+                    f"Installing {latest} from PyPI.",
+                    file=sys.stderr,
+                )
+                prompt = f"Install plaibook {latest} into pipx from PyPI?"
+            else:
+                print(f"Update available: {installed_now} → {latest}", file=sys.stderr)
+                prompt = f"Update plaibook from {installed_now} to {latest}?"
+            if not _confirmed(args, prompt):
+                print("Update cancelled.", file=sys.stderr)
+                return 1
+
+            print(f"Installing plaibook {latest} from PyPI with pipx...", file=sys.stderr)
+            result = pipx_install_pypi(latest)
+            if result.returncode != 0:
+                return _pipx_failed(result)
+            installed = pipx_installed_version()
+            _print_pipx_output(result)
+            if installed != latest:
+                print(
+                    f"pipx reports plaibook {installed or 'unknown'}, expected {latest}.",
+                    file=sys.stderr,
+                )
+                return 2
+            print(f"Successfully updated plaibook to {latest}", file=sys.stderr)
+            return 0
+
+    except (UpdateError, NetworkError, VersionError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+
+def _cmd_update_uv(args: argparse.Namespace) -> int:
+    """Upgrade the uv tool install that is running."""
+    return _cmd_update_tool(
+        args,
+        installer=uv_install_pypi,
+        git_installer=uv_install_git_ref,
+        version_of=uv_installed_version,
+        spec_of=uv_recorded_spec,
+        label="uv tool",
+    )
+
+
+def _cmd_update_venv(args: argparse.Namespace) -> int:
+    """Upgrade the virtualenv pip install that is running."""
+    return _cmd_update_tool(
+        args,
+        installer=venv_install_pypi,
+        git_installer=venv_install_git_ref,
+        version_of=venv_installed_version,
+        spec_of=venv_recorded_spec,
+        label="virtualenv",
+    )
+
+
+def _cmd_update_tool(args, installer, git_installer, version_of, spec_of, label: str) -> int:
+    """Shared PyPI and git-ref update for uv tool and virtualenv installs."""
+    current = version_of() or current_version()
+    if args.check:
+        if args.branch:
+            print(f"Current version: {current}", file=sys.stderr)
+            print(
+                f"--check with --branch would install from GitHub ref: {args.branch}",
+                file=sys.stderr,
+            )
+            return 0
+        try:
+            latest = fetch_pypi_latest_version()
+            recorded = spec_of()
+        except (UpdateError, NetworkError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(f"Current version: {current}", file=sys.stderr)
+        print(f"Latest version:  {latest}", file=sys.stderr)
+        if current == latest and recorded_spec_is_pypi(recorded):
+            print("plaibook is already up to date.", file=sys.stderr)
+        elif not recorded_spec_is_pypi(recorded):
+            print(
+                f"plaibook {current} is installed from {recorded}, not PyPI.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"Update available: {current} → {latest}", file=sys.stderr)
+        return 0
+
+    try:
+        if args.branch:
+            if not _confirmed(args, f"Install plaibook from git ref '{args.branch}'?"):
+                print("Update cancelled.", file=sys.stderr)
+                return 1
+            from plaibook.update import _exclusive_update_lock
+            with _exclusive_update_lock():
+                result = git_installer(args.branch)
+                if result.returncode != 0:
+                    return _pipx_failed(result, label)
+                recorded = spec_of()
+                if not spec_matches_git_ref(recorded, args.branch):
+                    print(
+                        f"{label} recorded {recorded or 'no spec'}, "
+                        f"expected git ref '{args.branch}'.",
+                        file=sys.stderr,
+                    )
+                    return 2
+                print(
+                    f"Successfully installed plaibook from '{args.branch}' with {label}",
+                    file=sys.stderr,
+                )
+                return 0
+
+        latest = fetch_pypi_latest_version()
+        recorded = spec_of()
+        if current == latest and recorded_spec_is_pypi(recorded):
+            print(f"plaibook is already up to date ({current}).", file=sys.stderr)
+            return 0
+        if not recorded_spec_is_pypi(recorded):
+            print(
+                f"plaibook {current} is installed from {recorded}. "
+                f"Reinstalling {latest} from PyPI.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"Update available: {current} → {latest}", file=sys.stderr)
+        if not _confirmed(args, f"Update plaibook from {current} to {latest}?"):
+            print("Update cancelled.", file=sys.stderr)
+            return 1
+        from plaibook.update import _exclusive_update_lock
+        with _exclusive_update_lock():
+            result = installer(latest)
+            if result.returncode != 0:
+                return _pipx_failed(result, label)
+            installed = version_of()
+            if installed != latest:
+                print(
+                    f"{label} reports plaibook {installed or 'unknown'}, expected {latest}.",
+                    file=sys.stderr,
+                )
+                return 2
+            print(f"Successfully updated plaibook to {latest} with {label}", file=sys.stderr)
+            return 0
+    except (UpdateError, NetworkError, VersionError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        parser = build_parser()
+        args = parser.parse_args(list(argv) if argv is not None else None)
+        if args.command == "review":
+            return cmd_review(args)
+        elif args.command == "update":
+            return cmd_update(args)
+        else:
+            parser.print_help()
+            return 2
+    except PlaybookInterruptedError:
+        return 130
+    except KeyboardInterrupt:
+        return 130
 
 
 if __name__ == "__main__":

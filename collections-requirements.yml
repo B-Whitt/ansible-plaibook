@@ -9,10 +9,8 @@
 collections:
   - name: https://github.com/aknochow/ansible-openshell.git
     type: git
-    # exec() on openshell 0.1 requires workspace. This SHA is
-    # cursor/openshell-exec-workspace-41b9; plaibook fetches the commit
-    # directly, so it does not have to be on main yet.
-    version: 742002497fc5320ad149bf10837a5a6c4948a5a3
+    # SHA is ansible-openshell #36 on main (openshell>=0.1.3,<0.2).
+    version: 494420ce471eb81f88e5860ad2155e13bd3cda97
   - name: https://github.com/aknochow/ansible-claude.git
     type: git
     # SHA is ansible-claude #30 on main (anthropic 1.11.0, claude-agent-sdk 0.2.163).
@@ -36,8 +34,8 @@ collections:
     # / mcp coupling, playbook-owned sidecar, structured_tool_calls with
     # parent vs nested caller, WaitLiveRun-after-drain flake fix). Moving
     # main can silently change module arguments. SHA is ansible-cursor
-    # #26 on main (cursor-sdk 1.0.35 contract; includes #22).
-    version: de54465e89d2cd214a333bf5b98eb942181b1b98
+    # #30 on main (serialize starts that share a cwd; includes #26 and #22).
+    version: 26a87c80ff79fa4106d72151afb34ac40a777b27
   # GitHub clones, not Galaxy FQCNs. version is the commit SHA of a
   # release tag (tags move). First-run install uses git + ansible-galaxy
   # install --no-deps and never calls galaxy.ansible.com (Python OpenSSL
