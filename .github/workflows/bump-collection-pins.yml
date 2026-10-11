@@ -93,7 +93,7 @@ jobs:
           git add collections-requirements.yml
           git commit -s -m "chore(deps): bump SHA-pinned git collections"
           gh auth setup-git
-          git fetch origin chore/bump-collection-git-pins || true
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
           git push --force-with-lease origin chore/bump-collection-git-pins
           # REST: gh pr list uses GraphQL.
           existing="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?head=${GITHUB_REPOSITORY_OWNER}:chore/bump-collection-git-pins&state=open" --jq '.[0].number // empty')"
