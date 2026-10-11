@@ -12,7 +12,8 @@ every time, invocable from a terminal, a git hook, or an AAP job
 template. Expect more playbooks here over time as other harness skills
 get the same treatment.
 
-Locally, **`pipx install plaibook`** then **`plai review`**. Homebrew and
+Locally, **`pipx install plaibook`** then **`plai review`**. Upgrade that
+install with **`plai update`**. Homebrew and
 Debian system Pythons refuse `pip install` into that interpreter
 ([PEP 668](https://peps.python.org/pep-0668/)). Inside a virtualenv you
 already manage, `pip install plaibook` is the same install. The package
@@ -28,6 +29,13 @@ review.yml` remains the AAP path. Until this version is on PyPI, the
 same wheel is `pip install .` from this checkout. Put that venv under
 `$HOME`, not `/tmp` (macOS XProtect). Contributors still
 `uv sync --extra dev` — see [CONTRIBUTING](CONTRIBUTING.md).
+
+## Dependencies
+
+Plaibook pins provider collections, Python SDKs, the OpenShell
+gateway, and the review workflow in different files. Those numbers
+are not interchangeable. The map, and the order a bump has to follow,
+is [docs/dependency-map.md](docs/dependency-map.md).
 
 ## Why Ansible?
 
@@ -149,7 +157,15 @@ working tree.
 plai review --commit
 plaibook review --commit
 plai review --commit --sha abc1234 --repo /path/to/repo
+plai review --commit --sha abc1234..def5678
 ```
+
+`--sha BASE..TIP` reviews that contiguous range as one diff
+(`git diff BASE TIP`). `BASE` must be an ancestor of `TIP`. The same
+commit on both sides reviews nothing: quiet `plai review` prints
+`NOTHING_TO_REVIEW` and the range, and exits 0. It does not print
+`status: ok`. Three-dot `BASE...TIP` is rejected; a merge-base diff
+of a whole branch is `review_type: branch`.
 
 Unlike `review_type: pr`/`branch` (which never fail the Ansible run
 based on verdict, a `NEEDS_CHANGES` review is still a "successful"
@@ -234,28 +250,42 @@ on. Not yet merged.
 
 ## Running it in AAP
 
-`execution-environment.yml` builds a purpose-built EE with both sibling
-collections and their Python dependencies baked in, plus `gh`/`glab`
-for PR/MR API access. This design has already run as a real AAP Job
-Template against real MRs. The maintainer publishes a prebuilt image at
-`quay.io/aknochow/plaibook-ee` (a CI pipeline to build and publish it
-automatically is coming in a follow-up PR); to build and host your own
-instead, tag and push to a registry you control:
+`execution-environment.yml` builds `ghcr.io/aknochow/plaibook-ee`, a
+multi-arch (linux/amd64 and linux/arm64) execution environment. It
+carries every collection pinned in `collections-requirements.yml`, the
+Python dependencies those collections need, and `gh`/`glab` for PR/MR
+API access. A pin bump on `main` rebuilds the image. This playbook has
+already run as a real AAP Job Template against real MRs.
+
+Use a version tag for AAP Job Templates. `:<version>` matches a
+plaibook release (`:0.1.26` is the image for tag `v0.1.26`). `:main`
+and `:latest` follow `main` and can be ahead of the newest PyPI
+release.
+
+OpenShell `ssh_proxy.py` and certs are not in the image. Supply them
+at job-run time if a review needs them.
+
+Verify a published tag before using it:
 
 ```bash
-ansible-builder build -t <your-registry>/plaibook-ee:latest -f execution-environment.yml
+cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity-regexp '^https://github.com/aknochow/ansible-plaibook/\.github/workflows/ee-publish\.yml@refs/(heads/main|tags/v.+)$' ghcr.io/aknochow/plaibook-ee:0.1.26
+```
+
+To build and host your own, from a clean checkout. `--squash all` is the same flag CI uses. The build process, the layer count, and why `new` does not fix a local Podman mount are in [Execution environment](docs/execution-environment.md).
+
+```bash
+ansible-builder build --squash all -t <your-registry>/plaibook-ee:latest -f execution-environment.yml
 podman push <your-registry>/plaibook-ee:latest
 ```
 
 Credentials (GitHub/GitLab tokens, OpenShell mTLS) are injected via
 AAP credentials at job-run time, never baked into the image.
 
-Vertex/Gemini job templates do not need `aknochow.cursor` in the EE.
-`review.yml` loads that collection only when `agent_family=cursor`
-actually starts the sidecar. Rebuild the EE when you change
-`build/collections/*.tar.gz` or `execution-environment.yml`; a
-Vertex-only parse failure is a playbook bug, not a missing Cursor
-tarball.
+The image includes `aknochow.cursor`. `review.yml` loads that
+collection only when `agent_family=cursor` starts the sidecar. Rebuild
+when `collections-requirements.yml` or `execution-environment.yml`
+changes. A Vertex-only parse failure is a playbook bug, not a missing
+collection.
 
 
 ## Verified so far
@@ -283,12 +313,10 @@ tarball.
   Don't assume a sandbox can reach an internal GitLab or an arbitrary
   API just because a provider is attached; check the gateway's network
   policy.
-- **EE collection tarballs are pinned, not live.** `execution-environment.yml`
-  bakes in `build/collections/*.tar.gz` snapshots of the sibling
-  collections, not their live git state. Rebuild both
-  (`ansible-galaxy collection build ~/code/ansible-openshell --output-path build/collections -f`,
-  same for `ansible-claude`) and rebuild/push the EE whenever either
-  collection changes, or AAP jobs will run against stale module code.
+- **EE collections follow `collections-requirements.yml`.** The image
+  installs those git pins. It does not contain OpenShell `ssh_proxy.py`
+  or certs. A change to that file on `main` rebuilds
+  `ghcr.io/aknochow/plaibook-ee:main` and `:latest`.
 - **The review uses the openshell CLI's selected gateway.** The
   gateway name defaults to `openshell`. When
   `~/.config/openshell/gateways/openshell/metadata.json` exists, its

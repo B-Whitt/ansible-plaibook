@@ -11,6 +11,10 @@ import pytest
 import yaml
 
 from plaibook.cli import (
+    _FAILURE_LOG_UNAVAILABLE,
+    _emit_task_failures,
+    _parse_extra_var,
+    _progress_line,
     _validate_review_args,
     ansible_verbosity,
     build_parser,
@@ -27,6 +31,7 @@ from plaibook.playbook import (
     last_run_path,
 )
 from plaibook.summary import enrich_last_run, format_pretty
+from plaibook.task_failures import create_task_failures_log, write_task_failures
 
 
 @pytest.fixture(autouse=True)
@@ -127,6 +132,16 @@ def test_extra_vars_commit_and_pr_and_notes():
         "repo_path": "/tmp/repo",
         "commit_sha": "abc1234",
     }
+    ranged = extra_vars_from_args(
+        _args(commit=True, commit_sha="abc1234..def5678"),
+        "runId0123456789",
+    )
+    assert ranged["review_type"] == "commit"
+    assert ranged["commit_sha"] == "abc1234..def5678"
+    assert "Reviewing commits abc1234..def5678" in _progress_line(
+        _args(commit=True, commit_sha="abc1234..def5678", repo_path="repo")
+    )
+    assert "Reviewing commit HEAD" in _progress_line(_args(commit=True))
     pr = extra_vars_from_args(
         _args(target="org/repo/123", review_extra_notes="Note: intentional", post=True),
         "runId0123456789",
@@ -135,6 +150,16 @@ def test_extra_vars_commit_and_pr_and_notes():
     assert pr["review_targets_raw"] == "org/repo/123"
     assert pr["review_extra_notes"] == "Note: intentional"
     assert pr["post_results"] is True
+    noted = build_parser(prog="plai").parse_args(
+        ["review", "org/repo/1", "--notes", "Note: this is intentional"]
+    )
+    assert noted.review_extra_notes == "Note: this is intentional"
+    assert _parse_extra_var("review_extra_notes=Note: this is intentional") == (
+        "review_extra_notes",
+        "Note: this is intentional",
+    )
+    with pytest.raises(ValueError, match="must be KEY=VALUE"):
+        _parse_extra_var('{"review_extra_notes": "Note: this is intentional"}')
     branch = extra_vars_from_args(_args(branch_target="org/repo@main"), "abc")
     assert branch["review_type"] == "branch"
     assert branch["branch_review_target"] == "org/repo@main"
@@ -156,6 +181,245 @@ def test_extra_vars_sandbox_and_passthrough():
         "runId0123456789",
     )
     assert extras["use_sandbox"] is True
+
+
+def test_cmd_review_quiet_reprints_task_failure_log(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
+
+    seen: dict[str, str] = {}
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        assert env and env.get("PLAIBOOK_TASK_FAILURES_LOG")
+        seen["log"] = env["PLAIBOOK_TASK_FAILURES_LOG"]
+        Path(env["PLAIBOOK_TASK_FAILURES_LOG"]).write_text(
+            "Task failures (1):\n- planned failure for the error log\n"
+        )
+        extras = json.loads(command[command.index("-e") + 1])
+        path = last_run_path(extras["last_run_id"], home=home)
+        path.write_text(json.dumps({"run_id": extras["last_run_id"], "status": "ok", "targets": []}))
+        return SimpleNamespace(returncode=0, stdout="HIDDEN ANSIBLE", stderr="")
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.openshell_available", lambda: True)
+    monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
+    monkeypatch.setattr("plaibook.cli.reexec_sandbox_runtime", lambda **kwargs: None)
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr("plaibook.cli.runtime_tmp_dir", lambda home=None: home or tmp_path)
+
+    code = cmd_review(_args(target="org/repo/1", playbook_root=str(checkout), use_sandbox=False))
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "planned failure for the error log" in captured.err
+    assert "HIDDEN ANSIBLE" not in captured.err
+    assert "HIDDEN ANSIBLE" not in captured.out
+    assert not Path(seen["log"]).exists()
+    assert not Path(seen["log"]).parent.exists()
+
+
+def test_cmd_review_json_verbose_prints_the_failure_log_once(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
+    line = "planned failure for the error log"
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        assert env and env.get("PLAIBOOK_TASK_FAILURES_LOG")
+        Path(env["PLAIBOOK_TASK_FAILURES_LOG"]).write_text(f"Task failures (1):\n- {line}\n")
+        extras = json.loads(command[command.index("-e") + 1])
+        path = last_run_path(extras["last_run_id"], home=home)
+        path.write_text(json.dumps({"run_id": extras["last_run_id"], "status": "ok", "targets": []}))
+        return SimpleNamespace(returncode=0, stdout=f"TASK [failed]\n{line}\n", stderr="")
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.openshell_available", lambda: True)
+    monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
+    monkeypatch.setattr("plaibook.cli.reexec_sandbox_runtime", lambda **kwargs: None)
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr("plaibook.cli.runtime_tmp_dir", lambda home=None: home or tmp_path)
+
+    code = cmd_review(
+        _args(
+            target="org/repo/1",
+            playbook_root=str(checkout),
+            use_sandbox=False,
+            as_json=True,
+            verbose=True,
+        )
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert captured.err.count(line) == 1
+
+
+def test_cmd_review_verbose_does_not_reprint_task_failure_log(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
+
+    seen: dict[str, str] = {}
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        assert verbose is True
+        assert env and env.get("PLAIBOOK_TASK_FAILURES_LOG")
+        seen["log"] = env["PLAIBOOK_TASK_FAILURES_LOG"]
+        Path(env["PLAIBOOK_TASK_FAILURES_LOG"]).write_text(
+            "Task failures (1):\n- planned failure for the error log\n"
+        )
+        extras = json.loads(command[command.index("-e") + 1])
+        path = last_run_path(extras["last_run_id"], home=home)
+        path.write_text(json.dumps({"run_id": extras["last_run_id"], "status": "ok", "targets": []}))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.openshell_available", lambda: True)
+    monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
+    monkeypatch.setattr("plaibook.cli.reexec_sandbox_runtime", lambda **kwargs: None)
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr("plaibook.cli.runtime_tmp_dir", lambda home=None: home or tmp_path)
+
+    code = cmd_review(
+        _args(target="org/repo/1", playbook_root=str(checkout), use_sandbox=False, verbose=True)
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "planned failure for the error log" not in captured.err
+    assert not Path(seen["log"]).exists()
+    assert not Path(seen["log"]).parent.exists()
+
+
+def _summary_for(command, home: Path) -> None:
+    extras = json.loads(command[command.index("-e") + 1])
+    path = last_run_path(extras["last_run_id"], home=home)
+    path.write_text(
+        json.dumps(
+            {
+                "run_id": extras["last_run_id"],
+                "status": "ok",
+                "cost_usd": 0.0,
+                "targets": [
+                    {
+                        "target": "local@HEAD",
+                        "verdict": "READY_FOR_HUMAN_REVIEW",
+                        "score": 100.0,
+                    }
+                ],
+            }
+        )
+    )
+
+
+def _patch_commit_review(tmp_path, monkeypatch, fake_run):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    (home / ".cache" / "ansible-plaibook").mkdir(parents=True)
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+    monkeypatch.setattr("plaibook.cli.runtime_tmp_dir", lambda home=None: tmp_path)
+    return checkout, home
+
+
+def test_quiet_mode_warns_when_the_failure_log_is_unavailable(tmp_path, capsys):
+    parent, path = create_task_failures_log(directory=str(tmp_path))
+    _emit_task_failures(path, _args(), captured_already_shown=False, playbook_rc=2)
+    assert capsys.readouterr().err == _FAILURE_LOG_UNAVAILABLE
+    assert not Path(path).exists()
+    assert not Path(parent).exists()
+
+    _emit_task_failures("", _args(), captured_already_shown=False, playbook_rc=0, log_unavailable=True)
+    assert capsys.readouterr().err == _FAILURE_LOG_UNAVAILABLE
+
+    _emit_task_failures(
+        "",
+        _args(verbose=True),
+        captured_already_shown=False,
+        playbook_rc=2,
+        log_unavailable=True,
+    )
+    assert capsys.readouterr().err == ""
+
+    parent, path = create_task_failures_log(directory=str(tmp_path))
+    _emit_task_failures(path, _args(), captured_already_shown=False, playbook_rc=0)
+    assert capsys.readouterr().err == ""
+    assert not Path(path).exists()
+
+    parent, path = create_task_failures_log(directory=str(tmp_path))
+    assert write_task_failures(path, "planned failure\n")
+    _emit_task_failures(path, _args(), captured_already_shown=False, playbook_rc=2)
+    err = capsys.readouterr().err
+    assert "planned failure" in err
+    assert _FAILURE_LOG_UNAVAILABLE not in err
+    assert not Path(path).exists()
+    assert not Path(parent).exists()
+
+
+def test_quiet_review_warns_when_failure_log_creation_fails(tmp_path, monkeypatch, capsys):
+    def broken_log(*, directory=None):
+        raise OSError("temp unavailable")
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        _summary_for(command, home)
+        return SimpleNamespace(returncode=0, stdout="TASK [noisy]\n", stderr="")
+
+    checkout, home = _patch_commit_review(tmp_path, monkeypatch, fake_run)
+    monkeypatch.setattr("plaibook.cli.create_task_failures_log", broken_log)
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout)))
+    captured = capsys.readouterr()
+    assert code == 0
+    assert _FAILURE_LOG_UNAVAILABLE in captured.err
+    assert "TASK [noisy]" not in captured.err
+    assert "READY_FOR_HUMAN_REVIEW" in captured.out
+
+
+def test_quiet_review_warns_when_a_failed_play_leaves_an_empty_log(tmp_path, monkeypatch, capsys):
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        assert env and env.get("PLAIBOOK_TASK_FAILURES_LOG")
+        _summary_for(command, home)
+        return SimpleNamespace(returncode=2, stdout="TASK [noisy]\n", stderr="")
+
+    checkout, home = _patch_commit_review(tmp_path, monkeypatch, fake_run)
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout)))
+    captured = capsys.readouterr()
+    assert code == 2
+    assert _FAILURE_LOG_UNAVAILABLE in captured.err
+    assert "TASK [noisy]" not in captured.err
+
+    code = cmd_review(_args(commit=True, playbook_root=str(checkout), verbose=True))
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "task-failure log unavailable" not in captured.err
 
 
 def test_cmd_review_does_not_pass_controller_interpreter_as_extra_var(tmp_path, monkeypatch):
@@ -753,6 +1017,91 @@ def test_pretty_explains_ci_preflight_skip_without_full_report():
     assert "full rendered skip report should stay behind --full" in full
 
 
+def test_pretty_empty_commit_range_is_not_status_ok():
+    pretty = format_pretty(
+        {
+            "status": "ok",
+            "cost_usd": 0,
+            "targets": [
+                {
+                    "target": "abc1234..abc1234",
+                    "verdict": "NOTHING_TO_REVIEW",
+                    "range_empty": True,
+                    "skip_reason": "Commit range abc1234..abc1234 is empty; nothing to review.",
+                    "report": "Commit range abc1234..abc1234 is empty; nothing to review.",
+                }
+            ],
+        }
+    )
+    assert pretty.startswith("NOTHING_TO_REVIEW  abc1234..abc1234\n")
+    assert "Commit range abc1234..abc1234 is empty; nothing to review." in pretty
+    assert "status: ok" not in pretty
+    assert "READY_FOR_HUMAN_REVIEW" not in pretty
+    assert "%" not in pretty
+
+
+def test_cmd_review_empty_commit_range_names_the_range(tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    home = tmp_path / "home"
+    cache = home / ".cache" / "ansible-plaibook"
+    cache.mkdir(parents=True)
+    sha = "abc1234..abc1234"
+    reason = f"Commit range {sha} is empty; nothing to review."
+
+    def fake_run(command, *, playbook_root, verbose, env=None):
+        extras = json.loads(command[command.index("-e") + 1])
+        path = last_run_path(extras["last_run_id"], home=home)
+        path.write_text(
+            json.dumps(
+                {
+                    "run_id": extras["last_run_id"],
+                    "status": "ok",
+                    "cost_usd": 0.0,
+                    "targets": [
+                        {
+                            "target": sha,
+                            "verdict": "NOTHING_TO_REVIEW",
+                            "range_empty": True,
+                            "skip_reason": reason,
+                            "report": reason,
+                        }
+                    ],
+                }
+            )
+        )
+        return SimpleNamespace(returncode=0, stdout="TASK [debug]\n" + reason + "\n", stderr="")
+
+    monkeypatch.setattr("plaibook.cli.find_playbook_root", lambda: checkout)
+    monkeypatch.setattr(
+        "plaibook.cli.build_ansible_command",
+        lambda **kwargs: build_ansible_command(ansible_bin="ansible-playbook", **kwargs),
+    )
+    monkeypatch.setattr("plaibook.cli.run_ansible_playbook", fake_run)
+    monkeypatch.setattr("plaibook.cli.last_run_path", lambda run_id: last_run_path(run_id, home=home))
+
+    code = cmd_review(_args(commit=True, commit_sha=sha, playbook_root=str(checkout)))
+    out = capsys.readouterr()
+    assert code == 0
+    assert "TASK [debug]" not in out.out
+    assert reason not in out.err
+    assert out.out.startswith(f"NOTHING_TO_REVIEW  {sha}\n")
+    assert reason in out.out
+    assert "status: ok" not in out.out
+    assert "READY_FOR_HUMAN_REVIEW" not in out.out
+
+    capsys.readouterr()
+    code = cmd_review(_args(commit=True, commit_sha=sha, playbook_root=str(checkout), as_json=True))
+    out = capsys.readouterr()
+    assert code == 0
+    payload = json.loads(out.out)
+    assert payload["status"] == "ok"
+    assert payload["targets"][0]["verdict"] == "NOTHING_TO_REVIEW"
+    assert payload["targets"][0]["skip_reason"] == reason
+
+
 def test_pretty_skip_falls_back_to_report_when_structured_fields_missing():
     pretty = format_pretty(
         {
@@ -1126,16 +1475,57 @@ def test_format_elapsed_and_spinner_gate(monkeypatch):
     assert spinner_enabled(tty) is False
 
 
-def test_spinner_rgb_walks_the_hue_circle():
-    from plaibook.wait import hsv_to_rgb, spinner_rgb
+def test_terminal_columns_keeps_a_narrow_width(monkeypatch):
+    from plaibook.wait import terminal_columns
 
-    assert hsv_to_rgb(0.0) == (255, 0, 0)
-    assert hsv_to_rgb(1.0 / 3.0) == (0, 255, 0)
-    assert hsv_to_rgb(2.0 / 3.0) == (0, 0, 255)
-    blue = spinner_rgb(0.0)
-    later = spinner_rgb(1.5)
-    assert blue == (0, 0, 255)
-    assert later != blue
+    class Size:
+        columns = 10
+        lines = 24
+
+    monkeypatch.setattr("plaibook.wait.os.get_terminal_size", lambda fd: Size())
+
+    class Stream:
+        def fileno(self) -> int:
+            return 1
+
+    assert terminal_columns(Stream()) == 10
+
+
+def test_spinner_lines_fit_a_narrow_terminal():
+    from plaibook.wait import spinner_lines, visible_width
+
+    label = "Reviewing https://gitlab.example.com/org/repo/-/merge_requests/285"
+    line1, line2 = spinner_lines("⠋", label, "0s", "checkout", 10)
+    assert visible_width(line1) <= 9
+    assert visible_width(line2) <= 9
+    assert line1.endswith("0s")
+    assert "…" in line1
+    assert label not in line1
+
+    tiny1, tiny2 = spinner_lines("⠋", label, "0s", "checkout", 2)
+    assert visible_width(tiny1) <= 1
+    assert visible_width(tiny2) <= 1
+
+
+def test_spinner_uses_ansible_teal():
+    from plaibook.wait import _ANSIBLE_TEAL, _color_line
+
+    colored = _color_line("⠋ review  0s", "⠋", "0s")
+    assert colored.startswith(_ANSIBLE_TEAL)
+    assert "38;2;91;189;191" in colored
+
+
+def test_status_pulse_walks_the_darker_teal():
+    from plaibook.wait import _ANSIBLE_TEAL_DEEP, pulse_status, visible_width
+
+    text = "  setup"
+    first = pulse_status(text, 0)
+    second = pulse_status(text, 1)
+    assert visible_width(first) == len(text)
+    assert visible_width(second) == len(text)
+    assert f"{_ANSIBLE_TEAL_DEEP}s" in first
+    assert f"{_ANSIBLE_TEAL_DEEP}e" in second
+    assert f"{_ANSIBLE_TEAL_DEEP}s" not in second
 
 
 def test_wait_spinner_writes_frames_on_tty(monkeypatch):
@@ -1188,7 +1578,7 @@ def test_wait_spinner_strips_controls_from_label(monkeypatch):
     assert "Reviewing org/repo#1" in text
 
 
-def test_wait_spinner_truecolor_when_color_enabled(monkeypatch):
+def test_wait_spinner_uses_ansible_teal_when_color_enabled(monkeypatch):
     import time
 
     from plaibook.wait import WaitSpinner
@@ -1214,7 +1604,19 @@ def test_wait_spinner_truecolor_when_color_enabled(monkeypatch):
     with WaitSpinner("Reviewing org/repo#1", stream=stream):
         time.sleep(0.2)
     text = "".join(stream.buf)
-    assert "38;2;" in text
+    assert "\033[38;2;91;189;191m" in text
+    assert "\033[38;2;63;139;147m" in text
+
+
+def test_wait_spinner_keeps_last_stage_when_progress_file_is_empty(tmp_path):
+    from plaibook.wait import WaitSpinner
+
+    progress = tmp_path / "progress.txt"
+    progress.write_text("lenses\n")
+    spinner = WaitSpinner("Reviewing org/repo#1", progress_file=progress)
+    assert spinner._read_detail() == "lenses"
+    progress.write_text("")
+    assert spinner._read_detail() == "lenses"
 
 
 def test_wait_spinner_reads_progress_file(tmp_path, monkeypatch):
@@ -1236,15 +1638,23 @@ def test_wait_spinner_reads_progress_file(tmp_path, monkeypatch):
         def flush(self) -> None:
             return None
 
+    def wait_until(predicate, timeout=5.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.01)
+        raise AssertionError("spinner did not show the progress stage in time: " + "".join(stream.buf))
+
     progress = tmp_path / "progress.txt"
     progress.write_text("lenses\n")
     stream = Tty()
     monkeypatch.delenv("PLAIBOOK_SPINNER", raising=False)
     monkeypatch.setenv("NO_COLOR", "1")
     with WaitSpinner("Reviewing org/repo#1", stream=stream, progress_file=progress):
-        time.sleep(0.2)
+        wait_until(lambda: "  lenses" in "".join(stream.buf))
         progress.write_text("explore\n")
-        time.sleep(0.2)
+        wait_until(lambda: "  explore" in "".join(stream.buf))
     text = "".join(stream.buf)
     assert "  lenses" in text
     assert "  explore" in text
@@ -1479,6 +1889,232 @@ def test_run_ansible_playbook_times_out(tmp_path, monkeypatch):
         assert "timeout" in str(exc)
     else:
         raise AssertionError("expected PlaybookTimeoutError")
+
+
+def _pid_is_dead(pid: int, timeout: float = 2.0) -> bool:
+    import os
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        time.sleep(0.02)
+    return False
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+def test_run_ansible_playbook_keyboard_interrupt_kills_process_group(tmp_path, monkeypatch, verbose):
+    """Ctrl-C during communicate kills the playbook group and does not chain KeyboardInterrupt."""
+    import os
+    import signal
+    import subprocess
+    import time
+    import traceback
+
+    from plaibook.playbook import PlaybookInterruptedError, run_ansible_playbook
+
+    leader_file = tmp_path / "leader.pid"
+    child_file = tmp_path / "child.pid"
+    holder: dict[str, int] = {}
+    killpg_calls: list[tuple[int, int]] = []
+    real_killpg = os.killpg
+
+    def spy_killpg(pid: int, sig: int) -> None:
+        killpg_calls.append((pid, sig))
+        real_killpg(pid, sig)
+
+    real_popen = subprocess.Popen
+
+    def wrapping_popen(**kwargs):
+        assert kwargs.get("start_new_session") is True
+        proc = real_popen(**kwargs)
+        holder["pid"] = proc.pid
+
+        def communicate(timeout=None):
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if leader_file.is_file() and child_file.is_file():
+                    leader_txt = leader_file.read_text().strip()
+                    child_txt = child_file.read_text().strip()
+                    if leader_txt and child_txt:
+                        holder["leader"] = int(leader_txt)
+                        holder["child"] = int(child_txt)
+                        break
+                time.sleep(0.01)
+            else:
+                raise AssertionError("playbook process group did not record its pids")
+            assert os.getpgid(holder["leader"]) == holder["leader"]
+            assert os.getpgid(holder["child"]) == holder["leader"]
+            assert holder["leader"] != os.getpgrp()
+            raise KeyboardInterrupt
+
+        proc.communicate = communicate
+        return proc
+
+    monkeypatch.setenv("PLAIBOOK_PLAYBOOK_TIMEOUT", "5")
+    monkeypatch.setattr("plaibook.playbook.os.killpg", spy_killpg)
+    monkeypatch.setattr("plaibook.playbook.subprocess.Popen", wrapping_popen)
+    (tmp_path / "ansible.cfg").write_text("[defaults]\n")
+    command = [
+        "bash",
+        "-c",
+        'echo $$ > "$1"; sleep 30 & echo $! > "$2"; wait',
+        "bash",
+        str(leader_file),
+        str(child_file),
+    ]
+    try:
+        try:
+            run_ansible_playbook(command, playbook_root=tmp_path, verbose=verbose, home=tmp_path / "home")
+        except PlaybookInterruptedError as exc:
+            interrupted = exc
+        except KeyboardInterrupt:
+            pytest.fail("KeyboardInterrupt escaped run_ansible_playbook")
+        else:
+            pytest.fail("expected PlaybookInterruptedError")
+
+        assert holder["leader"] == holder["pid"]
+        assert killpg_calls == [(holder["leader"], signal.SIGKILL)]
+        assert _pid_is_dead(holder["leader"])
+        assert _pid_is_dead(holder["child"])
+        assert interrupted.command == command
+        assert interrupted.__cause__ is None
+        assert interrupted.__suppress_context__ is True
+        rendered = "".join(traceback.format_exception(type(interrupted), interrupted, interrupted.__traceback__))
+        assert "KeyboardInterrupt" not in rendered
+    finally:
+        pid = holder.get("pid")
+        if pid:
+            try:
+                real_killpg(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        for extra in (holder.get("leader"), holder.get("child"), holder.get("pid")):
+            if not extra:
+                continue
+            try:
+                os.kill(extra, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+class _CapturedStream:
+    def __init__(self, tty: bool) -> None:
+        self._tty = tty
+        self.buf: list[str] = []
+
+    def isatty(self) -> bool:
+        return self._tty
+
+    def write(self, data: str) -> int:
+        self.buf.append(data)
+        return len(data)
+
+    def flush(self) -> None:
+        return None
+
+    def text(self) -> str:
+        return "".join(self.buf)
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "tty"),
+    [
+        pytest.param([], True, id="spinner"),
+        pytest.param([], False, id="quiet"),
+        pytest.param(["-v"], False, id="verbose"),
+    ],
+)
+def test_review_ctrl_c_exits_130_without_traceback(tmp_path, monkeypatch, extra_args, tty):
+    """KeyboardInterrupt in communicate kills the child and the CLI exits 130."""
+    import os
+    import signal
+    import subprocess
+
+    home = tmp_path / "home"
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    holder: dict[str, int] = {}
+    killpg_calls: list[tuple[int, int]] = []
+    real_killpg = os.killpg
+    real_popen = subprocess.Popen
+
+    def spy_killpg(pid: int, sig: int) -> None:
+        killpg_calls.append((pid, sig))
+        real_killpg(pid, sig)
+
+    def wrapping_popen(**kwargs):
+        assert kwargs.get("start_new_session") is True
+        proc = real_popen(**kwargs)
+        holder["pid"] = proc.pid
+
+        def communicate(timeout=None):
+            raise KeyboardInterrupt
+
+        proc.communicate = communicate
+        return proc
+
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setenv("ANSIBLE_REVIEW_AGENT_FAMILY", "cursor")
+    monkeypatch.setenv("PLAIBOOK_PLAYBOOK_TIMEOUT", "5")
+    monkeypatch.delenv("PLAIBOOK_SPINNER", raising=False)
+    monkeypatch.setattr("plaibook.playbook.os.killpg", spy_killpg)
+    monkeypatch.setattr("plaibook.playbook.subprocess.Popen", wrapping_popen)
+    monkeypatch.setattr("plaibook.cli.build_ansible_command", lambda **kwargs: ["sleep", "30"])
+    stderr = _CapturedStream(tty)
+    monkeypatch.setattr("plaibook.cli.sys.stderr", stderr)
+    monkeypatch.setattr("plaibook.cli.sys.stdout", _CapturedStream(False))
+
+    class _Stdin:
+        def isatty(self) -> bool:
+            return False
+
+    monkeypatch.setattr("plaibook.cli.sys.stdin", _Stdin())
+    try:
+        code = main(["review", "--commit", "--no-sandbox", "--root", str(checkout), *extra_args])
+        text = stderr.text()
+        assert code == 130
+        assert "Traceback" not in text
+        assert "KeyboardInterrupt" not in text
+        assert killpg_calls == [(holder["pid"], signal.SIGKILL)]
+        assert _pid_is_dead(holder["pid"])
+        scratch = home / ".cache" / "ansible-plaibook" / "tmp"
+        names = [path.name for path in scratch.iterdir()] if scratch.is_dir() else []
+        assert not any(name.startswith("plaibook-task-failures-") for name in names)
+        assert not any(name.startswith("plaibook-progress-") for name in names)
+        if tty and not extra_args:
+            assert "\033[?25l" in text
+            assert "\033[?25h" in text
+        if extra_args == ["-v"] or not tty:
+            assert "\033[?25h" not in text
+    finally:
+        pid = holder.get("pid")
+        if pid:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def test_main_keyboard_interrupt_returns_130_without_traceback(monkeypatch, capsys):
+    def boom(args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("plaibook.cli.cmd_review", boom)
+    code = main(["review", "--commit"])
+    captured = capsys.readouterr()
+    assert code == 130
+    assert "Traceback" not in captured.err
+    assert "KeyboardInterrupt" not in captured.err
+    assert captured.out == ""
 
 
 def test_extra_vars_rejects_last_run_id_override():

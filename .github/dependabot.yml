@@ -22,3 +22,12 @@ updates:
       uv-lock:
         patterns:
           - "*"
+        exclude-patterns:
+          - "cursor-sdk"
+          - "openshell"
+      cursor-sdk:
+        patterns:
+          - "cursor-sdk"
+      openshell:
+        patterns:
+          - "openshell"

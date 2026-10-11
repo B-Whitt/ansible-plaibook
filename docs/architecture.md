@@ -18,6 +18,33 @@ duplicating the pipeline three times.
 
 ## The review pass
 
+```mermaid
+flowchart TD
+  subgraph parallel ["Parallel phase"]
+    guardian[Guardian scan]
+    security[Security lens]
+    quality[Review lens]
+  end
+  merge[Merge and score]
+  explore[Explore turns]
+  verify[Verify findings]
+  guardian --> merge
+  security --> merge
+  quality --> merge
+  merge --> explore --> verify
+```
+
+Guardian, Security, and Review do not read each other's output, so they
+are one phase. Explore reads the merged findings, and verify reads the
+explored set, so those stay in order. Explore turns and verify findings
+stay sequential because each one consumes the previous result.
+
+Security and Review use the same dispatch shape for every agent family:
+both calls start, then the play waits for both. A family can be chosen
+per lens. `agent_family` is the default for both.
+`review_security_agent_family` and `review_quality_agent_family` override
+one lens without changing the other.
+
 Two independent lens agents run on the same diff: **Security** and
 **Functionality/Quality**. Each gets its own system prompt
 (`security_agent_prompt.j2` / `review_agent_prompt.j2`), its own

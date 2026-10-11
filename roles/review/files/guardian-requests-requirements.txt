@@ -1,5 +1,6 @@
-# Pinned version + hash for guardian_scan.yml's self-install-when-missing
-# step (sandboxed reviews only) -- requests plus its full transitive
+# Pinned version + hash for guardian_scan.yml's controller-side
+# self-install when ai-guardian is not already on PATH. requests plus
+# its full transitive
 # dependency chain, explicitly (pip's --require-hashes mode refuses to
 # resolve any unpinned/unhashed dependency, which is the whole point:
 # every wheel that ends up in the sandbox is verified against a hash

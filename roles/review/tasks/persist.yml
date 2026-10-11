@@ -17,8 +17,16 @@
 # history, not a CI artifact). Left ungitignored by design: this
 # pipeline shouldn't mutate a repo it's reviewing beyond a plain file
 # write; wire artifacts/ into your own repo's .gitignore if needed.
+#
+# Skipped when review_delegate_host is set. That path's review_repo_path
+# is inside the guest, so this write is two SSH sessions (mkdir, then
+# copy) into a tree teardown deletes. The controller history copy below
+# is the one that survives. An unsandboxed CI job still gets the file
+# in its own workspace.
 - name: Write the findings report as a CI-consumable artifact in the checkout
-  when: review_write_artifact | bool
+  when:
+    - review_write_artifact | bool
+    - review_delegate_host | default('') | trim | length == 0
   block:
     - name: Ensure the artifacts directory exists in the checkout
       ansible.builtin.file:
@@ -78,7 +86,7 @@
 # constructed.
 - name: Set the findings path fact
   ansible.builtin.set_fact:
-    review_findings_path: "{{ review_output_base }}/{{ review_org_repo }}/{{ review_branch }}/{{ review_today_date }}-{{ review_short_sha }}/findings.md"
+    review_findings_path: "{{ review_output_base }}/{{ review_org_repo }}/{{ review_branch }}/{{ review_today_date }}-{{ review_artifact_id | default(review_short_sha) }}/findings.md"
 
 - name: Ensure the findings directory exists
   ansible.builtin.file:
@@ -212,13 +220,16 @@
     pipeline_findings_reports: >-
       {{ pipeline_findings_reports + [{
         'target': review_org_repo + '#' + review_number,
+        'title': (_pr_context.title | default('')) if (review_type == 'pr' and _pr_context is defined) else '',
+        'url': (_pr_context.url | default('')) if (review_type == 'pr' and _pr_context is defined) else '',
         'report': review_final_report,
         'verdict': review_verdict,
         'score': score_overall | float,
         'summary_path': review_summary_path,
         'findings_path': review_findings_path,
         'summary_run_scoped_path': review_summary_run_scoped_path,
-        'findings_run_scoped_path': review_findings_run_scoped_path
+        'findings_run_scoped_path': review_findings_run_scoped_path,
+        'cache_hit': false
       }] }}
 
 - name: Append this review execution to the directory runs ledger

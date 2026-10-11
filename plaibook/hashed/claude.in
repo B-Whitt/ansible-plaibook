@@ -1,4 +1,4 @@
-# Collection range: anthropic[vertex]>=0.84.0, claude-agent-sdk>=0.2.144
+# Collection lock: anthropic 1.11.0, claude-agent-sdk 0.2.163 (ansible-claude #30).
 # Compile: scripts/compile-hashed-sdks.sh
-anthropic[vertex]>=0.84.0
-claude-agent-sdk>=0.2.144
+anthropic[vertex]==1.11.0
+claude-agent-sdk==0.2.163

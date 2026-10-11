@@ -26,6 +26,8 @@ already manage). After the env is on PATH, the commands are
 ### Running Tests:
 ```bash
 uv run pytest                                      # Python unit test suite (action plugins, modules, filters, scripts)
+uv run ruff check                                  # same ruff CI runs
+uv run ansible-lint --offline                      # profile is min, not production; see .ansible-lint
 uv run ./scripts/run_playbook_tests.sh             # Offline Ansible playbook test suite
 uv run ansible-playbook review.yml --syntax-check  # Playbook syntax check
 ```
@@ -49,6 +51,11 @@ or `plaibook/openshell_sdk.py`.
 
 ## Collection pins
 
+The cross-project matrix is [docs/dependency-map.md](docs/dependency-map.md).
+Update the matching row in the same commit as the pin. The map is the
+list a dependency check should read. Do not copy it into another
+repository.
+
 `collections-requirements.yml` is git sources at commit SHAs: aknochow
 interface pins (`aknochow.cursor`, `aknochow.openai`, and the other
 family collections) plus ansible-collections release commits.
@@ -59,13 +66,47 @@ either bump the SHA by hand or run:
 uv run python scripts/bump_collection_pins.py --write
 ```
 
-`.github/workflows/bump-collection-pins.yml` does the same weekly (and
-on `workflow_dispatch`) and opens a PR. ansible-collections release SHAs stay on the tagged
-commit — the bumper does not float those to default-branch HEAD.
+`.github/workflows/bump-collection-pins.yml` does the same weekly, on
+`workflow_dispatch`, and on `repository_dispatch` type
+`collection-pin-bump`. GitHub Actions cannot subscribe to another
+repository's events, and a GitHub webhook cannot POST
+`repository_dispatch` itself (wrong payload). Sibling default-branch
+pushes notify plaibook by calling
+`.github/workflows/notify-plaibook-pin-bump.yml` with secret
+`PLAIBOOK_DISPATCH_TOKEN` (fine-grained PAT or GitHub App installation
+token with `actions:write` on `aknochow/ansible-plaibook`). ansible-collections
+release SHAs stay on the tagged commit — the bumper does not float those
+to default-branch HEAD.
+
+To watch every family repo without a workflow in each one, point a
+GitHub App (push events) at Event-Driven Ansible. The starter rulebook
+is `eda/collection-pin-bump.yml`; it still needs an AAP event stream
+URL, webhook HMAC secret, and a job template that runs the same bumper.
+
+
+## Branch names
+
+The branch name says what the change is. Use one conventional prefix and a short description:
+
+| Prefix | Use for | Example |
+|---|---|---|
+| `feat/` | a new capability | `feat/commit-range-review` |
+| `fix/` | a bugfix | `fix/spinner-no-wrap` |
+| `docs/` | documentation only | `docs/branch-names` |
+| `test/` | tests only | `test/commit-range` |
+| `chore/` | tooling, dependencies, maintenance | `chore/lockfile` |
+| `refactor/` | a behavior-preserving restructure | `refactor/commit-context` |
+
+Do not name a branch after the tool that opened it. `cursor/`, `claude/`, `codex/`, and any other agent or product prefix do not describe the change. Do not append a generated id (`-1bbb`, `-edab`, and the like) to force the name to be unique.
+
+Name the branch correctly before opening its pull request: renaming a branch closes any open pull request from it. If a pull request is already open on a misnamed branch, leave it and merge it as is. Do not open a second pull request for the same change.
 
 ## Commit Standards
 
-- Sign off all commits (`git commit -s`).
+- `git commit -s` is the DCO trailer (`Signed-off-by`).
+- `git commit -S` with `CURSOR_SIGNING_KEY` is what makes GitHub show
+  the commit as Verified. The key is the GitHub SSH signing key titled
+  `cursor-signing`, and the committer email is `aknochow@redhat.com`.
 - Include AI assistance attribution via trailer when applicable:
   `Assisted-by: Provider (model)`, using the actual provider/tool and exact
   model that performed the work (for example,
@@ -79,13 +120,15 @@ automatically. Verify these yourself before pushing:
 
 - **Credentials, tokens, API keys**: covered by `ai-guardian`'s
   `secret_scanning` (gitleaks + built-in patterns), which runs as part
-  of every review (`roles/review/tasks/guardian_scan.yml`) **when the
-  binary is installed**. Unsandboxed reviews (`use_sandbox=false`) do
-  not self-install; a missing binary is reported as
-  `ai-guardian not installed` and the scan is skipped — treat that as
-  "not scanned," not "nothing found." If you have `ai-guardian`
-  installed locally, `ai-guardian scan --diff` before pushing catches
-  most of this category automatically.
+  of every review (`roles/review/tasks/guardian_scan.yml`). The scan
+  runs on the controller. If `ai-guardian` is not already on `PATH`,
+  the review installs the pinned wheels into
+  `~/.cache/ansible-plaibook/ai-guardian` and reuses that prefix only
+  when its pin, ownership, and wheel hashes still match. A failed
+  install is reported as `ai-guardian install failed`. A test that
+  overrides `review_guardian_binary` does not install; a missing
+  binary is then `ai-guardian not installed`. Treat either skip as
+  "not scanned," not "nothing found."
 - **Internal hostnames, project IDs, tool/service names**: **NOT**
   covered by `ai-guardian`. A hostname or GCP project ID isn't a
   "secret" in gitleaks' pattern sense, so it won't fire that scan even

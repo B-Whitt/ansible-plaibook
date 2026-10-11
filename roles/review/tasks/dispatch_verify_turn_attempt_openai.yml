@@ -35,6 +35,7 @@
     base_url: "{{ openai_base_url }}"
     api_key: "{{ openai_api_key | default(omit, true) }}"
     model: "{{ review_verify_openai_model }}"
+    reasoning_effort: "{{ 'none' if (review_verify_openai_model | lower) is match('^gpt-6-luna($|-)') else omit }}"
     max_completion_tokens: "{{ review_openai_max_completion_tokens }}"
     timeout: "{{ openai_timeout }}"
     llama_server_mode: false

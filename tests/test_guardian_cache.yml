@@ -1,0 +1,179 @@
+---
+# The controller prefix is rebuilt from pinned wheels, reused only when
+# the pin, ownership, and wheel hashes match, and a pip failure is not
+# reported as a missing binary.
+#
+# Usage:
+#   ansible-playbook tests/test_guardian_cache.yml
+
+- name: Test guardian cache reuse and install failure
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    review_delegate_host: sandbox-must-not-be-contacted
+    review_guardian_binary: ai-guardian
+    review_guardian_scan_enabled: true
+    review_full_diff: "diff --git a/a b/a\n"
+    review_context: ""
+    review_guardian_prefix: "{{ prefix_dir.path }}"
+    review_guardian_ai_requirements: "{{ layout.path }}/ai.txt"
+    review_guardian_requests_requirements: "{{ layout.path }}/requests.txt"
+
+  tasks:
+    - name: Create fixture directories
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: "{{ item }}"
+      loop:
+        - guardian-cache-prefix-
+        - guardian-cache-layout-
+        - guardian-cache-bin-
+      register: fixture_dirs
+
+    - name: Name the fixture directories
+      ansible.builtin.set_fact:
+        prefix_dir: "{{ fixture_dirs.results[0] }}"
+        layout: "{{ fixture_dirs.results[1] }}"
+        fake_bin: "{{ fixture_dirs.results[2] }}"
+
+    - name: Install the fake pip and the scan stub
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/files/{{ item.name }}"
+        dest: "{{ fake_bin.path }}/{{ item.dest }}"
+        mode: "0755"
+      loop:
+        - {name: fake_pip3.py, dest: pip3}
+        - {name: fake_ai_guardian.sh, dest: fake-ai-guardian.sh}
+
+    - name: Write wheels whose hashes the requirements will pin
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/files/write_cache_wheels.py"
+          - "{{ layout.path }}"
+      changed_when: true
+
+    - name: Create the pip call log
+      ansible.builtin.copy:
+        dest: "{{ layout.path }}/pip.log"
+        content: ""
+        mode: "0644"
+
+    - name: Install into an empty prefix
+      ansible.builtin.include_role:
+        name: review
+        tasks_from: guardian_scan.yml
+      vars:
+        review_guardian_prefix: "{{ prefix_dir.path }}"
+        review_guardian_pip: "{{ fake_bin.path }}/pip3"
+        review_guardian_pip_environment:
+          FAKE_PIP_LOG: "{{ layout.path }}/pip.log"
+          FAKE_PIP_FAIL: "0"
+          FAKE_WHEEL_SRC: "{{ layout.path }}/wheels"
+          FAKE_GUARDIAN: "{{ fake_bin.path }}/fake-ai-guardian.sh"
+
+    - name: Read the pip log after the first install
+      ansible.builtin.slurp:
+        path: "{{ layout.path }}/pip.log"
+      register: _pip_log_first
+
+    - name: Assert the first run installed and scanned
+      vars:
+        _calls: "{{ (_pip_log_first.content | b64decode).splitlines() }}"
+      ansible.builtin.assert:
+        that:
+          - _calls | select('equalto', 'download') | list | length == 2
+          - _calls | select('equalto', 'install') | list | length == 2
+          - guardian_scan_available | bool
+          - guardian_scan_skip_reason == ''
+
+    - name: Reuse the verified prefix
+      ansible.builtin.include_role:
+        name: review
+        tasks_from: guardian_scan.yml
+      vars:
+        review_guardian_prefix: "{{ prefix_dir.path }}"
+        review_guardian_pip: "{{ fake_bin.path }}/pip3"
+        review_guardian_pip_environment:
+          FAKE_PIP_LOG: "{{ layout.path }}/pip.log"
+          FAKE_PIP_FAIL: "0"
+          FAKE_WHEEL_SRC: "{{ layout.path }}/wheels"
+          FAKE_GUARDIAN: "{{ fake_bin.path }}/fake-ai-guardian.sh"
+
+    - name: Read the pip log after reuse
+      ansible.builtin.slurp:
+        path: "{{ layout.path }}/pip.log"
+      register: _pip_log_reuse
+
+    - name: Assert reuse did not call pip again
+      vars:
+        _calls: "{{ (_pip_log_reuse.content | b64decode).splitlines() }}"
+      ansible.builtin.assert:
+        that:
+          - _calls | select('equalto', 'download') | list | length == 2
+          - _calls | select('equalto', 'install') | list | length == 2
+          - guardian_scan_available | bool
+
+    - name: Corrupt the requirements pin
+      ansible.builtin.copy:
+        dest: "{{ prefix_dir.path }}/.pin"
+        content: "not-the-pin\n"
+        mode: "0600"
+
+    - name: Rebuild after the pin no longer matches
+      ansible.builtin.include_role:
+        name: review
+        tasks_from: guardian_scan.yml
+      vars:
+        review_guardian_prefix: "{{ prefix_dir.path }}"
+        review_guardian_pip: "{{ fake_bin.path }}/pip3"
+        review_guardian_pip_environment:
+          FAKE_PIP_LOG: "{{ layout.path }}/pip.log"
+          FAKE_PIP_FAIL: "0"
+          FAKE_WHEEL_SRC: "{{ layout.path }}/wheels"
+          FAKE_GUARDIAN: "{{ fake_bin.path }}/fake-ai-guardian.sh"
+
+    - name: Read the pip log after the pin mismatch
+      ansible.builtin.slurp:
+        path: "{{ layout.path }}/pip.log"
+      register: _pip_log_rebuild
+
+    - name: Assert a pin mismatch rebuilds from pip
+      vars:
+        _calls: "{{ (_pip_log_rebuild.content | b64decode).splitlines() }}"
+      ansible.builtin.assert:
+        that:
+          - _calls | select('equalto', 'download') | list | length == 4
+          - guardian_scan_available | bool
+
+    - name: Remove the prefix before the failing install
+      ansible.builtin.file:
+        path: "{{ prefix_dir.path }}"
+        state: absent
+
+    - name: Report a pip failure instead of a missing binary
+      ansible.builtin.include_role:
+        name: review
+        tasks_from: guardian_scan.yml
+      vars:
+        review_guardian_prefix: "{{ prefix_dir.path }}"
+        review_guardian_pip: "{{ fake_bin.path }}/pip3"
+        review_guardian_pip_environment:
+          FAKE_PIP_LOG: "{{ layout.path }}/pip.log"
+          FAKE_PIP_FAIL: "1"
+          FAKE_WHEEL_SRC: "{{ layout.path }}/wheels"
+          FAKE_GUARDIAN: "{{ fake_bin.path }}/fake-ai-guardian.sh"
+
+    - name: Assert the install failure is visible
+      ansible.builtin.assert:
+        that:
+          - not (guardian_scan_available | bool)
+          - guardian_scan_skip_reason == 'ai-guardian install failed'
+
+    - name: Clean up the cache fixtures
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ fixture_dirs.results }}"

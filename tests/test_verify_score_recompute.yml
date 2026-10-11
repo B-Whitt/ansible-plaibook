@@ -26,6 +26,7 @@
         lens: "Quality"
         evidence: "e"
         fix: "a real fix"
+        replacement: "value = checked\n"
         description: "a real minor issue"
 
   tasks:
