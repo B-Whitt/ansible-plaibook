@@ -508,6 +508,34 @@ def test_json_wrapped_reference_is_placeholder_and_unknown_type_warns():
     assert records == ["unrecognized ai-guardian secret type"]
 
 
+def test_blocking_guardian_findings_drops_valueless_informational_env_variable():
+    mod = _filter()
+    finding = {
+        "rule_id": "SECRET-001",
+        "message": "Secret detected: Environment Variable",
+        "details": {"secret_type": "Environment Variable"},
+        "snippet": None,
+    }
+    blocking = mod.blocking_guardian_findings(
+        [finding],
+        ["SECRET-001"],
+        ["env-variable"],
+    )
+    assert blocking == []
+    prefixed = {
+        "rule_id": "SECRET-001",
+        "message": "Secret detected: Environment Variable",
+        "details": {"secret_type": "Environment Variable", "match": "ghp_x"},
+        "snippet": None,
+    }
+    assert mod.finding_has_prefix_token(prefixed)
+    assert mod.blocking_guardian_findings(
+        [prefixed],
+        ["SECRET-001"],
+        ["env-variable"],
+    ) == [prefixed]
+
+
 def test_blocking_guardian_findings_uses_message_when_details_missing():
     mod = _filter()
     findings = [

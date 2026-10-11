@@ -328,6 +328,20 @@
 
     - name: "Case 9: env-variable SECRET-001 stays informational and does not force the verdict"
       block:
+        # include_role defaults stay inside the role unless public is
+        # set, so the fixture classification below would not see
+        # review_guardian_blocking_rule_ids.
+        - name: Expose review defaults for the fixture classification
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: guardian_scan_enforce_verdict.yml
+            public: true
+          vars:
+            review_verdict: "READY_FOR_HUMAN_REVIEW"
+            guardian_scan_available: true
+            guardian_findings: []
+            guardian_blocking_findings: []
+
         - name: Classify an env-variable SECRET-001 the same way guardian_scan.yml does
           ansible.builtin.set_fact:
             review_verdict: "READY_FOR_HUMAN_REVIEW"
