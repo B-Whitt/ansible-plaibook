@@ -79,11 +79,11 @@ SHA.
 
 | Id | Collection | SHA | Which change |
 |---|---|---|---|
-| `collection.openshell` | ansible-openshell | `5956e3d679bd739f6a58e84699f18b5a1128aec0` | ansible-openshell #34. Exec and SSH already speak the 0.1 shapes. The SDK range inside this commit is still `openshell>=0.0.116,<0.0.120`. |
-| `collection.claude` | ansible-claude | `92c3faef91f9f10e9c7d57aafde6e4e03cba9e1e` | ansible-claude #30. `anthropic` 1.11.0, `claude-agent-sdk` 0.2.163. |
-| `collection.gemini` | ansible-gemini | `e5a6a70acf26baa6b877dfb1afad267bdf14c603` | ansible-gemini #22. `google-genai` 2.27.0. |
-| `collection.openai` | ansible-openai | `79c1ab3ce5b3a047ca88e30f23422f9fadbdb401` | ansible-openai #25. `openai` 3.23.0. |
-| `collection.cursor` | ansible-cursor | `26a87c80ff79fa4106d72151afb34ac40a777b27` | ansible-cursor #30. Serialized starts that share a working directory. `cursor-sdk` 1.0.35. |
+| `collection.openshell` | ansible-openshell | `213d2bd1efb0a40d7df13b3443ee90811617126a` | ansible-openshell #37. Notify dispatch on main. SDK range is still `openshell>=0.1.3,<0.2` from #36. |
+| `collection.claude` | ansible-claude | `288d2be05acbc9059752254d9829dc30d81dcfe7` | ansible-claude #33. Notify dispatch on main. SDK pins are still `anthropic` 1.11.0 and `claude-agent-sdk` 0.2.163 from #30. |
+| `collection.gemini` | ansible-gemini | `9c75960832656ab58aa91e2ba6e7f38b44e7b012` | ansible-gemini #26. Notify dispatch on main. `google-genai` 2.27.0 is still the pin from #22. |
+| `collection.openai` | ansible-openai | `d38fefbca72185c81b651affa097f1be53332070` | ansible-openai #29. Notify dispatch on main. `openai` 3.23.0 is still the pin from #25. |
+| `collection.cursor` | ansible-cursor | `407669d619c2d0d59561042286fa01249928c822` | ansible-cursor #32. Notify dispatch on main. `cursor-sdk` 1.0.35 and the serialized starts from #30 are unchanged. |
 | `collection.community.general` | community.general | `049524674b13ad9782849c427266935c8ec61954` | Release 13.4.0. Do not float to the default branch. |
 | `collection.kubernetes.core` | kubernetes.core | `0f472b53e2ee73e11b5f9067ab0826d76183c157` | Release 6.5.0. Do not float to the default branch. |
 | `collection.ansible.posix` | ansible.posix | `e98d9a0756458be1ac710988498000973889075c` | Release 2.2.2. Do not float to the default branch. |
@@ -103,14 +103,7 @@ head start.
 | `sdk.gemini` | google-genai | `google-genai>=1.0.0` | same floor, via the collection | `google-genai==2.27.0` | `plaibook/hashed/gemini-requirements.txt` |
 | `sdk.openai` | openai | `openai>=1.58.0` | same floor, via the collection | `openai==3.23.0` | `plaibook/hashed/openai-requirements.txt` |
 | `sdk.cursor` | cursor-sdk | `cursor-sdk>=1.0.31,<2.0.0` | `cursor-sdk>=1.0.31,<2.0.0` in `pyproject.toml` | `cursor-sdk==1.0.35` | `plaibook/hashed/cursor-requirements.txt` and `sandbox-runtime-requirements.txt` |
-| `sdk.openshell` | openshell | `openshell>=0.0.116,<0.0.120` at the SHA above | `openshell>=0.1.3,<0.2` in `pyproject.toml` and `plaibook/openshell_sdk.py` | `openshell==0.1.3` | `plaibook/hashed/openshell-requirements.txt` |
-
-`sdk.openshell` does not satisfy its collection range.
-`openshell==0.1.3` is outside `>=0.0.116,<0.0.120`.
-ansible-openshell #36 moves that range to `openshell>=0.1.3,<0.2`.
-After that pull request merges, replace `collection.openshell` with
-the merge commit and drop this paragraph. Until then, do not treat
-the hashed pin as compatible with the collection SHA.
+| `sdk.openshell` | openshell | `openshell>=0.1.3,<0.2` | `openshell>=0.1.3,<0.2` in `pyproject.toml` and `plaibook/openshell_sdk.py` | `openshell==0.1.3` | `plaibook/hashed/openshell-requirements.txt` |
 
 Direct inputs for the hashed files are `plaibook/hashed/*.in`.
 `scripts/compile-hashed-sdks.sh` writes the `*-requirements.txt`
@@ -121,7 +114,7 @@ the plaibook package itself.
 
 | Id | What it is | Current pin | Where |
 |---|---|---|---|
-| `sdk.openshell` | Python package imported by the collection and by plaibook | `openshell==0.1.3`, range `openshell>=0.1.3,<0.2` | Hashed file and `plaibook/openshell_sdk.py`. The collection range at `collection.openshell` is still the 0.0.116 line. |
+| `sdk.openshell` | Python package imported by the collection and by plaibook | `openshell==0.1.3`, range `openshell>=0.1.3,<0.2` | Hashed file, `plaibook/openshell_sdk.py`, and the collection at `collection.openshell`. |
 | `openshell.gateway` | CLI and local gateway the review workflow starts | `OPENSHELL_VERSION=v0.1.2`. Installer source commit `6648bd0c290efbc41ba131ee9831ee45cd431f94`. sha256 `5c98a86a4b811c471b212219cb2a62d458244220ffa71ac8e3baf3700b17b871` | `.github/workflows/plai-review-run.yml` |
 | `openshell.sandbox-image` | Guest image the review runs inside | `ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e` | `.github/workflows/plai-review-run.yml` (`SANDBOX_IMAGE`) |
 
@@ -130,8 +123,7 @@ not share a patch number. Bumping the SDK to 0.1.3 does not by itself
 move the installer or the image digest.
 
 The image lock pins `openshell==0.1.3`. That matches the plaibook
-hashed install. It does not match the range inside
-`collection.openshell` until that SHA moves.
+hashed install and the collection range at `collection.openshell`.
 
 ## Execution environment pins
 

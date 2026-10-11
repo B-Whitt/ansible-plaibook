@@ -17,6 +17,10 @@ plai review
 plai update
 ```
 
+`plai --version` prints `plaibook 0.1.26` for that PyPI install. A git
+install of the same tree prints the revision and a short commit, for
+example `plaibook 0.1.26 (dev, main@664b8e1d39ac)`.
+
 `plai update` upgrades the install that is running. A pipx install
 uses `pipx install --force --pip-args=--no-cache-dir plaibook==VERSION`.
 A `uv tool` install uses `uv tool install --force --no-cache`. A

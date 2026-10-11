@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from plaibook import __version__
+from plaibook import version_text
 from plaibook.collections import CollectionInstallError, ensure_collections
 from plaibook.config import (
     FAMILIES,
@@ -154,7 +154,7 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
     parser.add_argument(
         "--version",
         action="version",
-        version=f"plaibook {__version__}",
+        version=version_text(),
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -232,7 +232,7 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
     review.add_argument(
         "--notes",
         dest="review_extra_notes",
-        help="Trusted operator notes for this run (JSON extra-vars, colons are safe).",
+        help="Trusted operator notes for this run. A colon in the text is kept.",
     )
     review.add_argument(
         "--post",
