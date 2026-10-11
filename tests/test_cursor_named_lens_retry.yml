@@ -14,6 +14,9 @@
 #       is not billed as a lens call
 #   (9) fail_json miss after a stale cursor_lens_fail_var records this
 #       attempt's module error, not the previous attempt's text
+#   (10) a finished async result passed as cursor_lens_preregistered_raw
+#       still binds. The skipped live dispatch must not register over it.
+#   (11) a preregistered job that failed to start is dispatched again.
 #
 # (7), (8), and (9) require tests/library/cursor_agent_stub.py on ANSIBLE_LIBRARY
 # and CURSOR_AGENT_STUB_FILE (scripts/run_playbook_tests.sh sets both).
@@ -509,3 +512,432 @@
               valid={{ security_cursor_lens_valid | default('') }}
               fail={{ security_cursor_lens_last_fail | default('') }}
             success_msg: "Retry miss recorded this attempt's error, not a stale fail_msg."
+
+    - name: Finished async result must survive the skipped live dispatch
+      block:
+        - name: Reset preregistered bind flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Bind the already finished Security lens
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_preregistered_raw:
+              finished: true
+              status: finished
+              resolved_model: gpt-5.6-luna
+              usage_normalized:
+                input_tokens: 30
+                output_tokens: 4
+                cache_write_tokens: 0
+                cache_read_tokens: 0
+                thinking_tokens: 0
+                total_tokens: 34
+              structured_tool_calls:
+                - name: report_findings
+                  caller: nested
+                  agent_id:
+                  args: "{{ _nested_lens_args }}"
+                - name: report_findings
+                  caller: parent
+                  agent_id: parent-1
+                  args: "{{ _parent_fabricated_args }}"
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+
+        - name: Confirm the finished result bound and was billed
+          ansible.builtin.assert:
+            that:
+              - security_cursor_lens_valid | bool
+              - _cursor_security_lens.findings[0].file == "lens.py"
+              - _cursor_security_raw.structured_tool_calls | length == 2
+              - pipeline_agent_calls | length == 1
+              - pipeline_agent_calls[0].usage.input_tokens | int == 30
+            fail_msg: >-
+              A finished async result must bind. The skipped dispatch
+              registered over it.
+              valid={{ security_cursor_lens_valid | default('') }}
+              raw_skipped={{ _cursor_security_raw.skipped | default(false) }}
+              calls={{ pipeline_agent_calls | default([]) }}
+            success_msg: "Finished async result bound; the skipped dispatch did not replace it."
+
+    - name: A lens that failed to start is dispatched again
+      block:
+        - name: Reset failed-start bind flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Write a successful stub for the redispatched lens
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ _restart_stub | to_json }}"
+          vars:
+            _restart_stub:
+              status: finished
+              resolved_model: gpt-5.6-luna
+              usage_normalized:
+                input_tokens: 7
+                output_tokens: 1
+                cache_write_tokens: 0
+                cache_read_tokens: 0
+                thinking_tokens: 0
+                total_tokens: 8
+              structured_tool_calls:
+                - name: report_findings
+                  caller: nested
+                  agent_id:
+                  args: "{{ _nested_lens_args }}"
+
+        - name: Bind after the async job failed to start
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_preregistered_raw:
+              failed: true
+              finished: true
+              msg: "Cursor agent failed to start: internal: database is locked"
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+
+        - name: Confirm the failed start was replaced by a new dispatch
+          ansible.builtin.assert:
+            that:
+              - security_cursor_lens_valid | bool
+              - _cursor_security_lens.findings[0].file == "lens.py"
+              - (_cursor_security_raw.stub | default(false) | bool) or (_cursor_security_raw.status | default('') == 'finished')
+              - "'database is locked' not in (_cursor_security_raw.msg | default(''))"
+              - pipeline_agent_calls | length == 1
+              - pipeline_agent_calls[0].usage.input_tokens | int == 7
+            fail_msg: >-
+              A job that failed to start must be dispatched again.
+              valid={{ security_cursor_lens_valid | default('') }}
+              raw={{ _cursor_security_raw | default({}) }}
+            success_msg: "Failed start was dispatched again and bound."
+
+    - name: A finished failure that already has a nested execute is not dispatched again
+      block:
+        - name: Reset post-start bind flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            security_cursor_lens_hold: false
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Write a stub that must not run
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ {'failed': true, 'msg': 'stub must not run'} | to_json }}"
+
+        - name: Bind a failed module result that already has the nested execute
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_preregistered_raw:
+              failed: true
+              finished: true
+              msg: "Cursor run finished with status error (run_id=run-kept)"
+              status: error
+              resolved_model: gpt-5.6-luna
+              usage_normalized:
+                input_tokens: 30
+                output_tokens: 4
+                cache_write_tokens: 0
+                cache_read_tokens: 0
+                thinking_tokens: 0
+                total_tokens: 34
+              structured_tool_calls:
+                - name: report_findings
+                  caller: nested
+                  agent_id:
+                  args: "{{ _nested_lens_args }}"
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+            cursor_lens_hold_var: security_cursor_lens_hold
+
+        - name: Confirm the original nested execute was kept
+          ansible.builtin.assert:
+            that:
+              - security_cursor_lens_valid | bool
+              - _cursor_security_lens.findings[0].file == "lens.py"
+              - not (_cursor_security_raw.stub | default(false) | bool)
+              - "'stub must not run' not in (_cursor_security_raw.msg | default(''))"
+              - pipeline_agent_calls | length == 1
+              - pipeline_agent_calls[0].usage.input_tokens | int == 30
+              - not (security_cursor_lens_hold | bool)
+            fail_msg: >-
+              A failed result that already has a nested execute must bind.
+              valid={{ security_cursor_lens_valid | default('') }}
+              raw_msg={{ _cursor_security_raw.msg | default('') }}
+              calls={{ pipeline_agent_calls | default([]) }}
+            success_msg: "Post-start failure kept its nested execute."
+
+    - name: A wait that times out does not start another agent
+      block:
+        - name: Reset timeout bind flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            security_cursor_lens_hold: false
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Write a stub that must not run for a timeout
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ {'status': 'finished', 'msg': 'stub must not run'} | to_json }}"
+
+        - name: Bind a wait that ended while the job was still running
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_preregistered_raw:
+              failed: true
+              finished: false
+              msg: "async wait exhausted"
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+            cursor_lens_hold_var: security_cursor_lens_hold
+
+        - name: Confirm the timeout did not dispatch
+          ansible.builtin.assert:
+            that:
+              - not (security_cursor_lens_valid | bool)
+              - security_cursor_lens_hold | bool
+              - not (_cursor_security_raw.stub | default(false) | bool)
+              - "'async wait exhausted' in (_cursor_security_raw.msg | default(''))"
+              - "'stub must not run' not in (_cursor_security_raw.msg | default(''))"
+              - pipeline_agent_calls | default([]) | length == 0
+            fail_msg: >-
+              A still-running job must not be replaced by a new dispatch.
+              valid={{ security_cursor_lens_valid | default('') }}
+              hold={{ security_cursor_lens_hold | default(false) }}
+              raw_msg={{ _cursor_security_raw.msg | default('') }}
+            success_msg: "Timed-out wait did not start another agent."
+
+    - name: A network start failure is kept and not launched again
+      block:
+        - name: Reset network-start bind flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            security_cursor_lens_hold: false
+            security_cursor_lens_last_fail: ""
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Write a stub that must not run for a network failure
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ {'status': 'finished', 'msg': 'stub must not run'} | to_json }}"
+
+        - name: Bind a start that failed with a network error
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_preregistered_raw:
+              failed: true
+              finished: true
+              msg: "Cursor agent failed to start: internal: Network request failed"
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+            cursor_lens_hold_var: security_cursor_lens_hold
+
+        - name: Confirm the network failure was not retried
+          ansible.builtin.assert:
+            that:
+              - not (security_cursor_lens_valid | bool)
+              - security_cursor_lens_hold | bool
+              - not (_cursor_security_raw.stub | default(false) | bool)
+              - "'Network request failed' in (security_cursor_lens_last_fail | default(''))"
+              - "'stub must not run' not in (security_cursor_lens_last_fail | default(''))"
+              - "'no nested' not in (security_cursor_lens_last_fail | default('') | lower)"
+              - pipeline_agent_calls | default([]) | length == 0
+            fail_msg: >-
+              A network start failure must be reported once, not launched again.
+              valid={{ security_cursor_lens_valid | default('') }}
+              hold={{ security_cursor_lens_hold | default(false) }}
+              fail={{ security_cursor_lens_last_fail | default('') }}
+            success_msg: "Network start failure was kept and not launched again."
+
+    - name: A post-start miss does not hold the retry
+      block:
+        - name: Reset post-start miss flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            security_cursor_lens_hold: false
+            security_cursor_lens_last_fail: ""
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Bind a finished failure that has usage and no nested execute
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_preregistered_raw:
+              failed: true
+              finished: true
+              msg: "Cursor run finished with status error (run_id=run-miss)"
+              status: error
+              resolved_model: gpt-5.6-luna
+              usage_normalized:
+                input_tokens: 11
+                output_tokens: 1
+                cache_write_tokens: 0
+                cache_read_tokens: 0
+                thinking_tokens: 0
+                total_tokens: 12
+              structured_tool_calls: []
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+            cursor_lens_hold_var: security_cursor_lens_hold
+
+        - name: Confirm the miss did not hold retries
+          ansible.builtin.assert:
+            that:
+              - not (security_cursor_lens_valid | bool)
+              - not (security_cursor_lens_hold | bool)
+              - "'no nested' in (security_cursor_lens_last_fail | default('') | lower)"
+              - pipeline_agent_calls | length == 1
+              - pipeline_agent_calls[0].usage.input_tokens | int == 11
+            fail_msg: >-
+              A post-start miss must stay retryable.
+              valid={{ security_cursor_lens_valid | default('') }}
+              hold={{ security_cursor_lens_hold | default('') }}
+              fail={{ security_cursor_lens_last_fail | default('') }}
+            success_msg: "Post-start miss did not hold the retry."
+
+    - name: A msg-only dispatch failure holds retries
+      block:
+        - name: Reset msg-only dispatch flags
+          ansible.builtin.set_fact:
+            security_cursor_lens_valid: false
+            security_cursor_lens_hold: false
+            security_cursor_lens_last_fail: ""
+            _cursor_security_lens: {}
+            _cursor_security_raw: {}
+            pipeline_agent_calls: []
+
+        - name: Write a stub that fails before it produces a module result
+          ansible.builtin.copy:
+            dest: "{{ cursor_agent_stub_file }}"
+            mode: "0600"
+            content: "{{ {'failed': true, 'msg': 'Cursor agent failed to start: bridge down'} | to_json }}"
+
+        - name: Dispatch a start that returns only a message
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: dispatch_cursor_lens_attempt
+          vars:
+            cursor_lens_attempt_number: 1
+            cursor_lens_agent_id: security_lens
+            cursor_lens_description: stub security lens
+            cursor_lens_prompt: stub security prompt
+            cursor_lens_schema: { type: object }
+            cursor_lens_tool_description: Submit the security findings.
+            cursor_nonce_lens_label: "Security lens"
+            cursor_lens_valid_var: security_cursor_lens_valid
+            cursor_lens_args_var: _cursor_security_lens
+            cursor_lens_fail_var: security_cursor_lens_last_fail
+            cursor_lens_raw_var: _cursor_security_raw
+            cursor_lens_stats_name: security
+            cursor_agent_module: cursor_agent_stub
+            cursor_lens_hold_var: security_cursor_lens_hold
+
+        - name: Confirm the msg-only dispatch failure held retries
+          ansible.builtin.assert:
+            that:
+              - not (security_cursor_lens_valid | bool)
+              - security_cursor_lens_hold | bool
+              - "'bridge down' in (security_cursor_lens_last_fail | default(''))"
+              - pipeline_agent_calls | default([]) | length == 0
+            fail_msg: >-
+              A dispatch that fails before it returns usage or status must
+              hold. valid={{ security_cursor_lens_valid | default('') }}
+              hold={{ security_cursor_lens_hold | default(false) }}
+              fail={{ security_cursor_lens_last_fail | default('') }}
+            success_msg: "Msg-only dispatch failure held the retry."

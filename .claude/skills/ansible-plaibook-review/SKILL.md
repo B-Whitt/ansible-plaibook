@@ -137,11 +137,10 @@ ansible-playbook review.yml -e review_targets_raw=org/repo/123
   posting the review back to the real PR/MR is a write to shared state
   and needs explicit opt-in (`plai review org/repo/123 --post`, or
   `-e post_results=true`).
-- Use `plai review ... --notes "..."` (JSON extra-vars, colons are
-  safe) or the playbook JSON form `-e '{"review_extra_notes": "..."}'`
-  to give the reviewer free-text, run-only operator context — see
-  "review_extra_notes" below. Bare `-e review_extra_notes="Note: ..."`
-  still truncates at the first colon.
+- Use `plai review ... --notes "..."` to give the reviewer free-text,
+  run-only operator context — see "review_extra_notes" below. A JSON
+  object passed to `plai -e`, such as `-e '{"review_extra_notes": "..."}'`,
+  is rejected with `must be KEY=VALUE` and the review does not start.
 
 ### `review_type: commit` — fast local single-commit check
 
@@ -200,8 +199,19 @@ structured summary the playbook already wrote — verdict, scores,
 findings, cost, `run_id`, paths — not ansible stdout. Quiet mode hides
 the playbook wall; `-v` shows it.
 
-If you invoked `ansible-playbook review.yml` directly (AAP / EE), every
-run prints two clean debug lines at the end:
+If you invoked `ansible-playbook review.yml` directly (AAP / EE), the
+playbook prints a **Review Summary after PLAY RECAP**. It lists each
+PR/MR title and target, the findings report path, and
+the reason for any failed or skipped review. A failed run that stops
+before summary data is written gets a sanitized failure-task fallback.
+
+The summary is printed by the `plaibook_review_summary` aggregate
+callback. Local runs load it from this checkout's `ansible.cfg`. For an
+AAP Job Template, add `plaibook_review_summary` to **Ansible Callback
+Plugins** and make this repository's `callback_plugins/` directory
+available as the callback plugin path. The existing end-of-run paths
+remain available as debug lines:
+
 - `RESULT_SUMMARY_RUN_SCOPED: ~/.cache/ansible-plaibook/last_run.<run_id>.json`
   — **read this one. Always.** It's this invocation's own result, named
   after the run's own `run_id`, immune to being overwritten by any other
@@ -335,7 +345,7 @@ fraction.
 - **`review_extra_notes` is free-text, run-only, trusted operator
   context — not a findings override.** Set it to tell a re-review
   something it keeps getting wrong, e.g.
-  `-e review_extra_notes="the always-visible dropdown is an intentional design decision, not a bug"`.
+  `plai review ... --notes "the always-visible dropdown is an intentional design decision, not a bug"`.
   It's threaded into every LENS's system prompt as TRUSTED input
   (unlike the diff/PR description, which are explicitly untrusted), and
   applies uniformly to every target in a multi-target `review.yml` run.
@@ -372,13 +382,13 @@ fraction.
     this" over "get_generated()/_coerce_to_datetime()'s behavior is
     fine" — describe the user-visible behavior you've accepted, not just
     the code that produces it.
-  - **Passing it via `-e key=value` truncates at the first colon, silently.**
-    `-e review_extra_notes="Note: this is intentional"` actually sets
-    the note to `"Note"` — Ansible's legacy `-e key=value` CLI parsing
-    does this with no error or warning. Any note phrased like a label
-    ("Note:", "Context:", a URL, "See PR #3: ...") is at risk. Use the
-    JSON-list form instead whenever the note might contain a colon:
-    `-e '{"review_extra_notes": "Note: this is intentional"}'`.
+  - **Pass notes with `--notes`.** `plai review --notes "Note: this is intentional"`
+    keeps the colon. `plai` splits an `-e` value on the first `=` only, so
+    `-e review_extra_notes="Note: this is intentional"` also keeps the colon.
+    Do not pass a JSON object to `plai -e`. `-e '{"review_extra_notes": "..."}'`
+    has no `KEY=VALUE` shape, `plai` exits with `must be KEY=VALUE`, and the
+    review does not start. `ansible-playbook review.yml -e key=value` is a
+    different parser: that one still truncates at the first colon.
   - **Unsure whether your note actually reached the agent, or where it
     landed in the prompt?** Set `-e review_debug_dump_prompts=true` —
     every rendered lens/explore/verify system prompt gets written to

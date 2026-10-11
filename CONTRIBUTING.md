@@ -51,6 +51,11 @@ or `plaibook/openshell_sdk.py`.
 
 ## Collection pins
 
+The cross-project matrix is [docs/dependency-map.md](docs/dependency-map.md).
+Update the matching row in the same commit as the pin. The map is the
+list a dependency check should read. Do not copy it into another
+repository.
+
 `collections-requirements.yml` is git sources at commit SHAs: aknochow
 interface pins (`aknochow.cursor`, `aknochow.openai`, and the other
 family collections) plus ansible-collections release commits.
@@ -94,7 +99,7 @@ The branch name says what the change is. Use one conventional prefix and a short
 
 Do not name a branch after the tool that opened it. `cursor/`, `claude/`, `codex/`, and any other agent or product prefix do not describe the change. Do not append a generated id (`-1bbb`, `-edab`, and the like) to force the name to be unique.
 
-When a branch name is wrong, rename that branch and leave the existing pull request in place. Do not open a second pull request for the same change.
+Name the branch correctly before opening its pull request: renaming a branch closes any open pull request from it. If a pull request is already open on a misnamed branch, leave it and merge it as is. Do not open a second pull request for the same change.
 
 ## Commit Standards
 

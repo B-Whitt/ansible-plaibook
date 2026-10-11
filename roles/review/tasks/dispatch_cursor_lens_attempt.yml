@@ -23,15 +23,94 @@
           {{ review_structured_output_max_attempts }}
           (agent_family=cursor)
 
+    # Rescue holds a start failure only while this is true. The dispatch
+    # task sets it, and the next task clears it, so a later bind miss
+    # does not hold. A task rename must not change that.
+    - name: "Cursor: clear the {{ cursor_nonce_lens_label }} dispatch mark"
+      ansible.builtin.set_fact:
+        _cursor_lens_in_dispatch: false
+
+    # A start with no module payload is not a missing tool call.
+    # "database is locked" is the two-bridge collision: dispatch once
+    # more now that the other lens is done. Any other start failure
+    # (Network request failed) is the Cursor process, not the model.
+    # Do not spend the structured-output attempts on it.
+    # A result that already has status, usage, or structured_tool_calls
+    # is the original job: bind it. finished=false means the wait gave
+    # up while that job is still running.
+    # The wait task must not use failed_when: false — that conditional
+    # overwrites failed and a msg-only start error is then bound as the
+    # lens result.
+    - name: "Cursor: decide whether {{ cursor_nonce_lens_label }} failed before it produced a result"
+      ansible.builtin.set_fact:
+        _cursor_lens_start_failure: >-
+          {{
+            cursor_lens_preregistered_raw is defined
+            and (cursor_lens_preregistered_raw.failed | default(false) | bool)
+            and (cursor_lens_preregistered_raw.finished | default(true) | bool)
+            and cursor_lens_preregistered_raw.usage_normalized is not defined
+            and cursor_lens_preregistered_raw.status is not defined
+            and cursor_lens_preregistered_raw.structured_tool_calls is not defined
+          }}
+
+    - name: "Cursor: decide whether {{ cursor_nonce_lens_label }} still needs an agent"
+      ansible.builtin.set_fact:
+        _cursor_lens_needs_dispatch: >-
+          {{
+            cursor_lens_preregistered_raw is not defined
+            or (
+              (_cursor_lens_start_failure | bool)
+              and ('database is locked' in (cursor_lens_preregistered_raw.msg | default('')))
+            )
+          }}
+
+    # One decision for keep, hold, and skip-bind. A later edit of one
+    # copy used to leave the others behind.
+    - name: "Cursor: decide whether to keep the original {{ cursor_nonce_lens_label }} failure"
+      ansible.builtin.set_fact:
+        _cursor_lens_keep_original: >-
+          {{
+            (
+              (_cursor_lens_start_failure | bool)
+              and not (_cursor_lens_needs_dispatch | bool)
+            ) or (
+              cursor_lens_preregistered_raw is defined
+              and (cursor_lens_preregistered_raw.failed | default(false) | bool)
+              and not (cursor_lens_preregistered_raw.finished | default(true) | bool)
+            )
+          }}
+
+    - name: "Cursor: keep {{ cursor_nonce_lens_label }} start failure instead of launching again"
+      when: _cursor_lens_keep_original | bool
+      ansible.builtin.set_fact:
+        _cursor_lens_attempt_raw: "{{ cursor_lens_preregistered_raw }}"
+        "{{ cursor_lens_valid_var }}": false
+        "{{ cursor_lens_fail_var }}": "{{ cursor_lens_preregistered_raw.msg | default('Cursor agent failed to start') }}"
+
+    - name: "Cursor: do not spend more attempts on a {{ cursor_nonce_lens_label }} start failure"
+      when:
+        - cursor_lens_hold_var is defined
+        - _cursor_lens_keep_original | bool
+      ansible.builtin.set_fact:
+        "{{ cursor_lens_hold_var }}": true
+
     - name: "Cursor: use the already finished {{ cursor_nonce_lens_label }} agent"
-      when: cursor_lens_preregistered_raw is defined
+      when: not (_cursor_lens_needs_dispatch | bool)
       ansible.builtin.set_fact:
         _cursor_lens_attempt_raw: "{{ cursor_lens_preregistered_raw }}"
 
+    # register outranks set_fact. A skipped dispatch still registers, so
+    # this name must not be _cursor_lens_attempt_raw or the finished
+    # async result is replaced by the skip.
+    - name: "Cursor: mark the {{ cursor_nonce_lens_label }} dispatch"
+      when: _cursor_lens_needs_dispatch | bool
+      ansible.builtin.set_fact:
+        _cursor_lens_in_dispatch: true
+
     - name: "Cursor: dispatch the {{ cursor_nonce_lens_label }} agent"
-      when: cursor_lens_preregistered_raw is not defined
-      action:
-        module: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
+      when: _cursor_lens_needs_dispatch | bool
+      action: "{{ cursor_agent_module | default('aknochow.cursor.agent') }}"
+      args:
         api_key: "{{ review_cursor_api_key }}"
         prompt: >-
           Spawn the {{ cursor_lens_agent_id }} subagent with the Task / Subagent tool.
@@ -47,7 +126,16 @@
           name: report_findings
           description: "{{ cursor_lens_tool_description }}"
           input_schema: "{{ cursor_lens_schema }}"
-      register: _cursor_lens_attempt_raw
+      register: _cursor_lens_dispatch_raw
+
+    - name: "Cursor: keep the live {{ cursor_nonce_lens_label }} dispatch"
+      when: _cursor_lens_needs_dispatch | bool
+      ansible.builtin.set_fact:
+        _cursor_lens_attempt_raw: "{{ _cursor_lens_dispatch_raw }}"
+
+    - name: "Cursor: the {{ cursor_nonce_lens_label }} dispatch finished"
+      ansible.builtin.set_fact:
+        _cursor_lens_in_dispatch: false
 
     # Remember the module payload, then bill unless the return is
     # parent-only. A miss used to abort the play here, which skipped
@@ -63,6 +151,7 @@
         cursor_attempt_raw: "{{ _cursor_lens_attempt_raw }}"
 
     - name: "Cursor: bind {{ cursor_nonce_lens_label }} named-lens execute"
+      when: not (_cursor_lens_keep_original | bool)
       ansible.builtin.include_tasks: bind_cursor_named_lens.yml
       vars:
         cursor_raw: "{{ _cursor_lens_attempt_raw }}"
@@ -103,3 +192,17 @@
       ansible.builtin.set_fact:
         "{{ cursor_lens_valid_var }}": false
         "{{ cursor_lens_fail_var }}": "{{ ansible_failed_result.msg | default('named lens dispatch failed') }}"
+
+    # Only while the dispatch task is the one that failed. A bind miss
+    # is an ansible.builtin.fail with none of those module fields;
+    # holding that would skip the structured-output retries. The mark
+    # is cleared as soon as the dispatch task returns.
+    - name: "Cursor: do not repeat a {{ cursor_nonce_lens_label }} start failure"
+      when:
+        - cursor_lens_hold_var is defined
+        - _cursor_lens_in_dispatch | default(false) | bool
+        - ansible_failed_result.usage_normalized is not defined
+        - ansible_failed_result.status is not defined
+        - ansible_failed_result.structured_tool_calls is not defined
+      ansible.builtin.set_fact:
+        "{{ cursor_lens_hold_var }}": true

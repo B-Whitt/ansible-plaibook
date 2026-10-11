@@ -1,0 +1,33 @@
+---
+# Two loop items against a closed local port. Each is unreachable.
+# The loop summary must not add a third line.
+
+- name: Add a host whose SSH port is closed
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Register a closed SSH port
+      ansible.builtin.add_host:
+        name: closed-port
+        groups: closed_ssh
+        ansible_host: 127.0.0.1
+        ansible_port: 1
+        ansible_connection: ssh
+        ansible_ssh_common_args: >-
+          -o BatchMode=yes
+          -o StrictHostKeyChecking=no
+          -o UserKnownHostsFile=/dev/null
+          -o ConnectTimeout=1
+        ansible_user: nobody
+
+- name: Record each unreachable loop item
+  hosts: closed_ssh
+  gather_facts: false
+  tasks:
+    - name: Ping each unreachable item
+      ansible.builtin.ping:
+      loop:
+        - one
+        - two
+      ignore_unreachable: true
