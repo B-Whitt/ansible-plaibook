@@ -16,9 +16,11 @@ name: Bump collection git pins
 # the dispatch payload; that adapter is either the sibling workflow or
 # EDA (eda/collection-pin-bump.yml).
 #
-# PRs opened with GITHUB_TOKEN do not trigger new workflow runs. This job
-# only rewrites SHAs; merge after a human retriggers CI or reviews the
-# compare links. The branch below is bot-owned — do not commit onto it.
+# The push and the pull request use a plai-crew installation token from
+# the plaibook-crew environment, not GITHUB_TOKEN. GITHUB_TOKEN cannot
+# open the pull request under this repo's Actions settings, and a pull
+# request it did open would not run CI. The branch below is bot-owned —
+# do not commit onto it.
 
 on:
   schedule:
@@ -28,8 +30,7 @@ on:
     types: [collection-pin-bump]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: bump-collection-git-pins
@@ -39,13 +40,32 @@ jobs:
   bump:
     name: Bump SHA-pinned git collections
     runs-on: ubuntu-latest
+    environment: plaibook-crew
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Mint a plai-crew installation token
+        id: crew
+        env:
+          PLAI_CREW_APP_ID: ${{ vars.PLAI_CREW_APP_ID }}
+          PLAI_CREW_PRIVATE_KEY: ${{ secrets.PLAI_CREW_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          token="$(python3 scripts/github_app_token.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --id-env PLAI_CREW_APP_ID \
+            --key-env PLAI_CREW_PRIVATE_KEY \
+            --permission contents=write \
+            --permission pull_requests=write)"
+          echo "::add-mask::${token}"
+          echo "token=${token}" >> "$GITHUB_OUTPUT"
 
       - name: Refresh SHA pins
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.crew.outputs.token }}
         run: python3 scripts/bump_collection_pins.py --write --pr-body /tmp/collection-pin-pr.md
 
       - name: Record dispatch source
@@ -58,7 +78,7 @@ jobs:
 
       - name: Open or update the pin bump PR
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.crew.outputs.token }}
         run: |
           if git diff --quiet -- collections-requirements.yml; then
             echo "No SHA pin moved."
@@ -67,12 +87,13 @@ jobs:
             fi
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "plai-crew[bot]"
+          git config user.email "5277323+plai-crew[bot]@users.noreply.github.com"
           git checkout -B chore/bump-collection-git-pins
           git add collections-requirements.yml
           git commit -s -m "chore(deps): bump SHA-pinned git collections"
           git fetch origin chore/bump-collection-git-pins || true
+          gh auth setup-git
           git push --force-with-lease origin chore/bump-collection-git-pins
           # REST: gh pr list uses GraphQL.
           existing="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?head=${GITHUB_REPOSITORY_OWNER}:chore/bump-collection-git-pins&state=open" --jq '.[0].number // empty')"
