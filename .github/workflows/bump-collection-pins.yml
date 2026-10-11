@@ -91,7 +91,7 @@ jobs:
           git config user.email "5277323+plai-crew[bot]@users.noreply.github.com"
           git checkout -B chore/bump-collection-git-pins
           git add collections-requirements.yml
-          git commit -s -m "chore(deps): bump SHA-pinned git collections"
+          gh auth setup-git
           git fetch origin chore/bump-collection-git-pins || true
           gh auth setup-git
           git push --force-with-lease origin chore/bump-collection-git-pins
