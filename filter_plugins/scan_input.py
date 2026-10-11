@@ -275,11 +275,13 @@ def _snippet_scalars_are_placeholder(text: str) -> bool | None:
 
 
 def secret_value_is_placeholder(finding: dict) -> bool:
-    """True when the captured secret is a variable reference.
+    """True when every captured secret is a variable reference.
 
-    No captured text is not a placeholder: a credential-shaped rule with
-    no value still blocks. A later JSON or YAML field is inspected, not
-    only the first colon in the snippet.
+    Missing captured text is not a placeholder. A valueless hit does not
+    block on its own when the secret_type is informational; a prefix
+    token still blocks, and so does a type that is not informational.
+    A later JSON or YAML field is inspected, not only the first colon
+    in the snippet.
     """
     texts = _candidate_texts(finding)
     if not texts:
@@ -302,11 +304,12 @@ def blocking_guardian_findings(
     """Findings whose rule_id is configured to force NEEDS_CHANGES.
 
     SECRET-001 is one engine-agnostic bucket. Subtype alone does not
-    demote a finding. A hit is informational only when the captured
-    value is a placeholder or a variable reference. Prefix-backed
-    tokens and PEM keys block even when the value sits in an env
-    assignment or a long blob. ``informational_secret_types`` is
-    accepted for callers and is not an unconditional bypass.
+    demote a finding. A hit is informational when its secret_type is
+    configured as informational and the captured value is a placeholder,
+    a variable reference, or missing. Prefix-backed tokens and PEM keys
+    block first, including when the snippet is null. Git URL credentials
+    stay blocking, including a credential added and then deleted.
+    ``informational_secret_types`` is not an unconditional bypass.
     """
     ids = {str(item) for item in (rule_ids or []) if item}
     noisy = {_secret_type_slug(item) for item in (informational_secret_types or []) if item}
@@ -322,7 +325,9 @@ def blocking_guardian_findings(
             out.append(finding)
             continue
         secret_type = guardian_secret_type(finding)
-        if secret_type and secret_type in noisy and secret_value_is_placeholder(finding):
+        if secret_type and secret_type in noisy and (
+            not _candidate_texts(finding) or secret_value_is_placeholder(finding)
+        ):
             continue
         out.append(finding)
     return out
