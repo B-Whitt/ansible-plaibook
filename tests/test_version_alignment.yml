@@ -1,11 +1,12 @@
 ---
-# The review skill's frontmatter version, the package version, and
-# plaibook/__init__.py __version__ are one string.
+# The review skill's frontmatter version, the package version,
+# plaibook/__init__.py __version__, and the README image example are
+# one string.
 #
 # Usage:
 #   ansible-playbook tests/test_version_alignment.yml
 
-- name: Skill, package, and module versions are the same string
+- name: Skill, package, module, and README image versions are the same string
   hosts: localhost
   connection: local
   gather_facts: false
@@ -15,6 +16,8 @@
     skill_version_pattern: '(?m)^version:\s*"([^"]+)"'
     package_version_pattern: '(?m)^version\s*=\s*"([^"]+)"'
     module_version_pattern: '(?m)^__version__\s*=\s*"([^"]+)"'
+    readme_image_pattern: 'ghcr\.io/aknochow/plaibook-ee:([0-9]+\.[0-9]+\.[0-9]+)'
+    readme_prose_pattern: '`:([0-9]+\.[0-9]+\.[0-9]+)` is the image for tag `v([0-9]+\.[0-9]+\.[0-9]+)`'
 
   tasks:
     - name: Read the skill frontmatter
@@ -32,17 +35,29 @@
         src: "{{ repo_root }}/plaibook/__init__.py"
       register: module_file
 
-    - name: Skill, package, and module versions are the same string
+    - name: Read the README image example
+      ansible.builtin.slurp:
+        src: "{{ repo_root }}/README.md"
+      register: readme_file
+
+    - name: Skill, package, module, and README image versions are the same string
       vars:
         skill_version: "{{ (skill_file.content | b64decode) | regex_findall(skill_version_pattern) | first }}"
         package_version: "{{ (package_file.content | b64decode) | regex_findall(package_version_pattern) | first }}"
         module_version: "{{ (module_file.content | b64decode) | regex_findall(module_version_pattern) | first }}"
+        readme_image: "{{ (readme_file.content | b64decode) | regex_findall(readme_image_pattern) | first }}"
+        readme_prose: "{{ (readme_file.content | b64decode) | regex_findall(readme_prose_pattern) | first }}"
       ansible.builtin.assert:
         that:
           - skill_version == package_version
           - skill_version == module_version
+          - skill_version == readme_image
+          - readme_prose.0 == package_version
+          - readme_prose.1 == package_version
         fail_msg: >-
           Expected one version string.
           skill={{ skill_version | default('') }}
           package={{ package_version | default('') }}
           module={{ module_version | default('') }}
+          image={{ readme_image | default('') }}
+          prose={{ readme_prose | default([]) }}

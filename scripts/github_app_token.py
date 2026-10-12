@@ -26,13 +26,16 @@ _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 Fetch = Callable[[str, str, str, dict[str, Any] | None], tuple[int, Any]]
 
 
-def app_credentials() -> tuple[str, str] | None:
-    app_id = os.environ.get("PLAI_GITHUB_APP_ID", "").strip()
-    raw_key = os.environ.get("PLAI_GITHUB_APP_PRIVATE_KEY", "")
+def app_credentials(
+    app_id_var: str = "PLAI_GITHUB_APP_ID",
+    key_var: str = "PLAI_GITHUB_APP_PRIVATE_KEY",
+) -> tuple[str, str] | None:
+    app_id = os.environ.get(app_id_var, "").strip()
+    raw_key = os.environ.get(key_var, "")
     if not app_id or not raw_key.strip():
         return None
     if not app_id.isdigit():
-        raise RuntimeError("PLAI_GITHUB_APP_ID must be numeric")
+        raise RuntimeError(f"{app_id_var} must be numeric")
     return app_id, normalize_pem(raw_key)
 
 
@@ -91,9 +94,13 @@ def mint_installation_token(
     repo: str,
     fetch: Fetch,
     now: int | None = None,
+    permissions: dict[str, str] | None = None,
 ) -> str:
     if not _REPO.fullmatch(repo):
         raise RuntimeError("repository must be owner/name")
+    requested = {"pull_requests": "write"} if permissions is None else dict(permissions)
+    if not requested:
+        raise RuntimeError("GitHub App token permissions must not be empty")
     owner_repo = repo.split("/", 1)
     jwt = build_jwt(app_id, pem, now=now)
     status, payload = fetch("GET", f"https://api.github.com/repos/{repo}/installation", jwt, None)
@@ -104,12 +111,24 @@ def mint_installation_token(
         "POST",
         f"https://api.github.com/app/installations/{installation_id}/access_tokens",
         jwt,
-        {"repositories": [owner_repo[1]], "permissions": {"pull_requests": "write"}},
+        {"repositories": [owner_repo[1]], "permissions": requested},
     )
     token = payload.get("token") if status in (200, 201) and isinstance(payload, dict) else ""
     if not isinstance(token, str) or not token:
         raise RuntimeError(f"unable to mint a GitHub App installation token ({status})")
     return token
+
+
+def _parse_permissions(raw: list[str] | None) -> dict[str, str] | None:
+    if not raw:
+        return None
+    permissions: dict[str, str] = {}
+    for item in raw:
+        scope, separator, level = item.partition("=")
+        if not separator or not scope or not level or "=" in level:
+            raise RuntimeError(f"permission must be scope=level, not {item!r}")
+        permissions[scope] = level
+    return permissions
 
 
 def _installation_id(payload: Any) -> int | None:
@@ -157,8 +176,17 @@ def _fetch(method: str, url: str, jwt: str, payload: dict[str, Any] | None) -> t
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Mint a plai-review GitHub App installation token")
     parser.add_argument("--repo", required=True)
+    parser.add_argument(
+        "--permission",
+        action="append",
+        default=None,
+        metavar="SCOPE=LEVEL",
+        help="Installation token permission. Repeat for more than one. "
+        "The default is pull_requests=write.",
+    )
     args = parser.parse_args(argv)
     try:
+        permissions = _parse_permissions(args.permission)
         creds = app_credentials()
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
@@ -168,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     app_id, pem = creds
     try:
-        token = mint_installation_token(app_id, pem, args.repo, _fetch)
+        token = mint_installation_token(app_id, pem, args.repo, _fetch, permissions=permissions)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1

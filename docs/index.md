@@ -34,6 +34,7 @@ and tested like any other piece of infrastructure.
 - **[Reference](reference.md)**: every variable that controls a run.
 - **[Dependency map](dependency-map.md)**: collection SHAs, Python SDK pins, the OpenShell gateway, and the review-workflow SHAs. Update the row in the same commit as the pin.
 - **[Execution environment](execution-environment.md)**: `ghcr.io/aknochow/plaibook-ee` and the `ansible-builder build` command that produces it.
+- **[Release](release.md)**: bump the version, cut a GitHub Release, and let `publish.yml` upload it.
 
 ## Why "deterministic" matters here
 
