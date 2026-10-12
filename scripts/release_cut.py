@@ -16,8 +16,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from github_app_token import Fetch, app_credentials, mint_installation_token
 from github_app_token import _fetch as fetch_jwt
-from github_app_token import app_credentials, mint_installation_token
 from release_version import parse_version, read_version
 
 _UNSET = (
@@ -46,7 +46,7 @@ def release_payload(version: str, sha: str) -> dict[str, Any]:
     }
 
 
-def cut_release(repo: str, version: str, sha: str, token: str, fetch) -> str:
+def cut_release(repo: str, version: str, sha: str, token: str, fetch: Fetch) -> str:
     tag = release_tag(version)
     status, payload = fetch("GET", f"https://api.github.com/repos/{repo}/git/ref/tags/{tag}", token, None)
     if status == 200:
