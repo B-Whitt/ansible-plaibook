@@ -15,6 +15,7 @@ from github_app_token import (
     main,
     mint_installation_token,
     normalize_pem,
+    parse_permissions,
 )
 
 
@@ -111,7 +112,17 @@ def test_mint_requests_pull_request_write_and_returns_only_the_token(app_pem):
     assert calls[1][3] == {"repositories": ["repo"], "permissions": {"pull_requests": "write"}}
 
 
-def test_mint_can_request_contents_write_for_a_release(app_pem):
+def test_parse_permissions_defaults_to_review_and_rejects_junk():
+    assert parse_permissions(None) == {"pull_requests": "write"}
+    assert parse_permissions(["contents=write", "pull_requests=write"]) == {
+        "contents": "write",
+        "pull_requests": "write",
+    }
+    with pytest.raises(RuntimeError, match="name=read or name=write"):
+        parse_permissions(["contents"])
+
+
+def test_mint_can_request_contents_write(app_pem):
     calls = []
 
     def fetch(method, url, jwt, payload):
@@ -120,7 +131,7 @@ def test_mint_can_request_contents_write_for_a_release(app_pem):
             return 200, {"id": 42}
         return 201, {"token": "ghs_example"}
 
-    token = mint_installation_token(
+    mint_installation_token(
         "12345",
         app_pem,
         "acme/repo",
@@ -128,8 +139,7 @@ def test_mint_can_request_contents_write_for_a_release(app_pem):
         now=1_700_000_000,
         permissions={"contents": "write"},
     )
-    assert token == "ghs_example"
-    assert calls[1] == {"repositories": ["repo"], "permissions": {"contents": "write"}}
+    assert calls[1]["permissions"] == {"contents": "write"}
 
 
 def test_main_prints_only_the_token(monkeypatch, capsys, app_pem):

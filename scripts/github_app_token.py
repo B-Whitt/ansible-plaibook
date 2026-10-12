@@ -27,15 +27,15 @@ Fetch = Callable[[str, str, str, dict[str, Any] | None], tuple[int, Any]]
 
 
 def app_credentials(
-    app_id_var: str = "PLAI_GITHUB_APP_ID",
-    key_var: str = "PLAI_GITHUB_APP_PRIVATE_KEY",
+    id_env: str = "PLAI_GITHUB_APP_ID",
+    key_env: str = "PLAI_GITHUB_APP_PRIVATE_KEY",
 ) -> tuple[str, str] | None:
-    app_id = os.environ.get(app_id_var, "").strip()
-    raw_key = os.environ.get(key_var, "")
+    app_id = os.environ.get(id_env, "").strip()
+    raw_key = os.environ.get(key_env, "")
     if not app_id or not raw_key.strip():
         return None
     if not app_id.isdigit():
-        raise RuntimeError(f"{app_id_var} must be numeric")
+        raise RuntimeError(f"{id_env} must be numeric")
     return app_id, normalize_pem(raw_key)
 
 
@@ -88,6 +88,28 @@ def _sign_rs256(signing_input: bytes, pem: str) -> str:
     return _b64url(result.stdout)
 
 
+# Review publishing asks only for pull request writes. Callers that push
+# or dispatch ask for the permissions that app's installation already has.
+_REVIEW_PERMISSIONS = {"pull_requests": "write"}
+
+
+def parse_permissions(items: list[str] | None) -> dict[str, str]:
+    """Turn ``name=read|write`` repeats into the installation-token map.
+
+    No items means the review default. An unknown access level is refused
+    before any request is sent.
+    """
+    if not items:
+        return dict(_REVIEW_PERMISSIONS)
+    permissions: dict[str, str] = {}
+    for item in items:
+        name, separator, access = item.partition("=")
+        if not separator or not name or access not in ("read", "write"):
+            raise RuntimeError("permission must be name=read or name=write")
+        permissions[name] = access
+    return permissions
+
+
 def mint_installation_token(
     app_id: str,
     pem: str,
@@ -98,37 +120,23 @@ def mint_installation_token(
 ) -> str:
     if not _REPO.fullmatch(repo):
         raise RuntimeError("repository must be owner/name")
-    requested = {"pull_requests": "write"} if permissions is None else dict(permissions)
-    if not requested:
-        raise RuntimeError("GitHub App token permissions must not be empty")
     owner_repo = repo.split("/", 1)
     jwt = build_jwt(app_id, pem, now=now)
     status, payload = fetch("GET", f"https://api.github.com/repos/{repo}/installation", jwt, None)
     installation_id = _installation_id(payload) if status == 200 else None
     if installation_id is None:
         raise RuntimeError(f"unable to find the GitHub App installation ({status})")
+    granted = dict(_REVIEW_PERMISSIONS if permissions is None else permissions)
     status, payload = fetch(
         "POST",
         f"https://api.github.com/app/installations/{installation_id}/access_tokens",
         jwt,
-        {"repositories": [owner_repo[1]], "permissions": requested},
+        {"repositories": [owner_repo[1]], "permissions": granted},
     )
     token = payload.get("token") if status in (200, 201) and isinstance(payload, dict) else ""
     if not isinstance(token, str) or not token:
         raise RuntimeError(f"unable to mint a GitHub App installation token ({status})")
     return token
-
-
-def _parse_permissions(raw: list[str] | None) -> dict[str, str] | None:
-    if not raw:
-        return None
-    permissions: dict[str, str] = {}
-    for item in raw:
-        scope, separator, level = item.partition("=")
-        if not separator or not scope or not level or "=" in level:
-            raise RuntimeError(f"permission must be scope=level, not {item!r}")
-        permissions[scope] = level
-    return permissions
 
 
 def _installation_id(payload: Any) -> int | None:
@@ -174,25 +182,26 @@ def _fetch(method: str, url: str, jwt: str, payload: dict[str, Any] | None) -> t
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Mint a plai-review GitHub App installation token")
+    parser = argparse.ArgumentParser(description="Mint a GitHub App installation token")
     parser.add_argument("--repo", required=True)
     parser.add_argument(
         "--permission",
         action="append",
         default=None,
-        metavar="SCOPE=LEVEL",
-        help="Installation token permission. Repeat for more than one. "
-        "The default is pull_requests=write.",
+        metavar="NAME=read|write",
+        help="installation-token permission (repeatable). Default: pull_requests=write",
     )
+    parser.add_argument("--id-env", default="PLAI_GITHUB_APP_ID")
+    parser.add_argument("--key-env", default="PLAI_GITHUB_APP_PRIVATE_KEY")
     args = parser.parse_args(argv)
     try:
-        permissions = _parse_permissions(args.permission)
-        creds = app_credentials()
+        creds = app_credentials(args.id_env, args.key_env)
+        permissions = parse_permissions(args.permission)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
     if creds is None:
-        print("PLAI_GITHUB_APP_ID and PLAI_GITHUB_APP_PRIVATE_KEY are unset", file=sys.stderr)
+        print(f"{args.id_env} and {args.key_env} are unset", file=sys.stderr)
         return 1
     app_id, pem = creds
     try:

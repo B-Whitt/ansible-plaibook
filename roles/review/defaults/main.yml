@@ -607,12 +607,13 @@ review_guardian_pip_timeout_seconds: 60
 # uses the same SECRET-001 message.
 #
 # Subtype alone does not demote a SECRET-001 hit. A finding is
-# informational only when the captured value is a placeholder or a
-# variable reference (${VAR}, lookup('env', 'NAME'), os.environ.NAME).
-# A literal env assignment, password assignment, hex/base64 blob,
-# bearer header, or JSON/YAML credential still blocks. Prefix-backed
-# tokens (ghp_, glpat-, sk-ant-, AKIA, PEM private keys) block even
-# when the surrounding text is an env assignment.
+# informational when its secret_type is listed below and the captured
+# value is a placeholder, a variable reference (${VAR},
+# lookup('env', 'NAME'), os.environ.NAME), or missing. A literal env
+# assignment, password assignment, hex/base64 blob, bearer header, or
+# JSON/YAML credential still blocks. Prefix-backed tokens (ghp_,
+# glpat-, sk-ant-, AKIA, PEM private keys) block even when the snippet
+# is null.
 #
 # A list, not a single hardcoded value, so adding another confirmed-
 # reliable blocking category later is a config change, not a code
