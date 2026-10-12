@@ -18,8 +18,8 @@ The package version stays in four places: `pyproject.toml`,
 
 Run **Open a release pull request** (`release-bump.yml`) from `main`.
 The input is `patch`, `minor`, `major`, or an explicit `X.Y.Z`.
-The workflow writes that version, runs the alignment playbook, and
-opens `chore/release-<version>`. It does not tag.
+The workflow writes that version, refreshes `uv.lock`, runs the
+alignment playbook, and opens `chore/release-<version>`. It does not tag.
 
 The release GitHub App opens the pull request. The job token can push
 the branch, and this repository does not allow that token to create

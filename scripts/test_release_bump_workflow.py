@@ -34,3 +34,6 @@ def test_release_bump_opens_the_pull_request_with_the_release_app():
     assert "--permission contents=read" in step["run"]
     assert "--permission pull_requests=write" in step["run"]
     assert 'GH_TOKEN="$token" gh pr create' in step["run"]
+    assert "uv.lock" in step["run"]
+    refresh = next(item for item in job["steps"] if item.get("name") == "Refresh the lockfile")
+    assert refresh["run"] == "uv lock"
