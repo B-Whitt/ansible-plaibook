@@ -9,7 +9,7 @@ from importlib.metadata import PackageNotFoundError, distribution
 
 __all__ = ["__version__", "version_text"]
 
-__version__ = "0.1.26"
+__version__ = "0.1.27"
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _REVISION = re.compile(r"^[A-Za-z0-9._/-]{1,80}$")
