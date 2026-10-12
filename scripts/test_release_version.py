@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from release_cut import _UNSET, cut_release, release_payload, release_tag
 from release_cut import main as cut_main
+from release_version import main as version_main
 from release_version import next_version, read_version, write_version
 
-ROOT = Path(__file__).parents[1]
 SHA = "a" * 40
 
 
@@ -56,8 +56,18 @@ def test_write_version_updates_the_four_release_files_only(tmp_path: Path):
     assert "plai update --branch v0.1.26" in readme
 
 
-def test_this_repository_stays_on_0_1_26():
-    assert read_version(ROOT) == "0.1.26"
+def test_print_current_does_not_require_a_bump(tmp_path: Path, capsys):
+    root = _tree(tmp_path)
+    assert version_main(["--print-current", "--root", str(root)]) == 0
+    assert capsys.readouterr().out.strip() == "0.1.26"
+    assert read_version(root) == "0.1.26"
+
+
+def test_write_without_bump_is_an_error(tmp_path: Path):
+    root = _tree(tmp_path)
+    with pytest.raises(SystemExit):
+        version_main(["--root", str(root)])
+    assert read_version(root) == "0.1.26"
 
 
 def test_release_payload_is_not_a_prerelease():

@@ -116,7 +116,7 @@ def write_version(root: Path, new: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Set the plaibook release version in the four release files")
-    parser.add_argument("--bump", required=True, help="patch, minor, major, or an explicit X.Y.Z")
+    parser.add_argument("--bump", help="patch, minor, major, or an explicit X.Y.Z")
     parser.add_argument("--root", type=Path, default=Path("."))
     parser.add_argument("--print-current", action="store_true", help="Print the current version and do not write")
     args = parser.parse_args(argv)
@@ -125,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.print_current:
             print(current)
             return 0
+        if not args.bump:
+            parser.error("--bump is required unless --print-current")
         new = next_version(current, args.bump)
         write_version(args.root, new)
     except (OSError, ValueError) as exc:
