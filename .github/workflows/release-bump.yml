@@ -82,7 +82,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --id-env RELEASE_GITHUB_APP_ID \
             --key-env RELEASE_GITHUB_APP_PRIVATE_KEY \
-            --permission contents=write \
+            --permission contents=read \
             --permission pull_requests=write)"
           echo "::add-mask::${token}"
           git config user.name "github-actions[bot]"
