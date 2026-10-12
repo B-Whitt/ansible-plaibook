@@ -3,8 +3,8 @@ name: Open a release pull request
 # workflow_dispatch only. Does not tag and does not publish.
 # Input is patch, minor, major, or an explicit X.Y.Z. The job writes that
 # version into pyproject.toml, plaibook/__init__.py, the review skill, and
-# the README image example, runs tests/test_version_alignment.yml, and
-# opens chore/release-<version>.
+# the README image example, refreshes uv.lock, runs
+# tests/test_version_alignment.yml, and opens chore/release-<version>.
 #
 # The job token pushes the branch. The release GitHub App opens the pull
 # request: this repository does not allow GitHub Actions to create pull
@@ -60,6 +60,9 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "next version ${version}"
 
+      - name: Refresh the lockfile
+        run: uv lock
+
       - name: Version files agree
         env:
           ANSIBLE_CONFIG: ${{ github.workspace }}/ansible.cfg
@@ -88,11 +91,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$branch"
-          git add pyproject.toml plaibook/__init__.py .claude/skills/ansible-plaibook-review/SKILL.md README.md
+          git add pyproject.toml plaibook/__init__.py .claude/skills/ansible-plaibook-review/SKILL.md README.md uv.lock
           git commit -s -m "chore: set version to ${RELEASE_VERSION}"
           git push origin "HEAD:${branch}"
           {
-            printf 'Sets %s in pyproject.toml, plaibook/__init__.py, the review skill, and the README image example.\n\n' "$RELEASE_VERSION"
+            printf 'Sets %s in pyproject.toml, plaibook/__init__.py, the review skill, the README image example, and uv.lock.\n\n' "$RELEASE_VERSION"
             printf 'This pull request does not tag. After it merges, run the Cut a GitHub release workflow. That creates tag v%s and a non-prerelease Release, which starts publish.yml and ee-publish.yml.\n\n' "$RELEASE_VERSION"
             printf '%s\n' "tests/test_version_alignment.yml passed in the bump job. The release GitHub App opened this pull request, so CI runs here."
           } > /tmp/release-pr.md
