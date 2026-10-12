@@ -1,0 +1,92 @@
+name: Open a release pull request
+
+# workflow_dispatch only. Does not tag and does not publish.
+# Input is patch, minor, major, or an explicit X.Y.Z. The job writes that
+# version into pyproject.toml, plaibook/__init__.py, the review skill, and
+# the README image example, runs tests/test_version_alignment.yml, and
+# opens chore/release-<version>.
+#
+# The pull request is opened with GITHUB_TOKEN, so it does not start other
+# workflows. The alignment playbook in this job is the check that the four
+# files match. publish.yml stays on release: published. Cutting the tag is
+# release-cut.yml, after this pull request is merged.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: patch, minor, major, or an explicit X.Y.Z
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Open chore/release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4.2.2
+        with:
+          ref: main
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install plaibook
+        run: uv sync
+
+      - name: Write the next version
+        id: bump
+        env:
+          RELEASE_BUMP: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="$(python3 scripts/release_version.py --bump "$RELEASE_BUMP")"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "next version ${version}"
+
+      - name: Version files agree
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/ansible.cfg
+        run: uv run ansible-playbook tests/test_version_alignment.yml
+
+      - name: Open the release pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          set -euo pipefail
+          branch="chore/release-${RELEASE_VERSION}"
+          remote_branch="$(git ls-remote origin "refs/heads/${branch}")"
+          if [ -n "${remote_branch}" ]; then
+            echo "branch ${branch} already exists; not overwriting it" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add pyproject.toml plaibook/__init__.py .claude/skills/ansible-plaibook-review/SKILL.md README.md
+          git commit -s -m "chore: set version to ${RELEASE_VERSION}"
+          git push origin "HEAD:${branch}"
+          {
+            printf 'Sets %s in pyproject.toml, plaibook/__init__.py, the review skill, and the README image example.\n\n' "$RELEASE_VERSION"
+            printf 'This pull request does not tag. After it merges, run the Cut a GitHub release workflow. That creates tag v%s and a non-prerelease Release, which starts publish.yml and ee-publish.yml.\n\n' "$RELEASE_VERSION"
+            printf '%s\n' "tests/test_version_alignment.yml passed in the bump job. This pull request was opened with GITHUB_TOKEN, so it does not start other workflows."
+          } > /tmp/release-pr.md
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore: set version to ${RELEASE_VERSION}" \
+            --body-file /tmp/release-pr.md
