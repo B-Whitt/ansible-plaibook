@@ -52,8 +52,8 @@
           - skill_version == package_version
           - skill_version == module_version
           - skill_version == readme_image
-          - readme_prose.0 == package_version
-          - readme_prose.1 == package_version
+          - readme_prose[0] == package_version
+          - readme_prose[1] == package_version
         fail_msg: >-
           Expected one version string.
           skill={{ skill_version | default('') }}
