@@ -21,8 +21,10 @@ The input is `patch`, `minor`, `major`, or an explicit `X.Y.Z`.
 The workflow writes that version, runs the alignment playbook, and
 opens `chore/release-<version>`. It does not tag.
 
-The pull request is opened with `GITHUB_TOKEN`, so it does not start
-other workflows. The alignment playbook already ran in the bump job.
+The release GitHub App opens the pull request. The job token can push
+the branch, and this repository does not allow that token to create
+pull requests. CI runs on the pull request. The alignment playbook
+already ran in the bump job.
 
 ## Cut
 
