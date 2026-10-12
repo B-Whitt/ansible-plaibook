@@ -69,7 +69,8 @@ jobs:
         run: |
           set -euo pipefail
           branch="chore/release-${RELEASE_VERSION}"
-          if git ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1; then
+          remote_branch="$(git ls-remote origin "refs/heads/${branch}")"
+          if [ -n "${remote_branch}" ]; then
             echo "branch ${branch} already exists; not overwriting it" >&2
             exit 1
           fi
