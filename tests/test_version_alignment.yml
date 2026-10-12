@@ -17,7 +17,8 @@
     package_version_pattern: '(?m)^version\s*=\s*"([^"]+)"'
     module_version_pattern: '(?m)^__version__\s*=\s*"([^"]+)"'
     readme_image_pattern: 'ghcr\.io/aknochow/plaibook-ee:([0-9]+\.[0-9]+\.[0-9]+)'
-    readme_prose_pattern: '`:([0-9]+\.[0-9]+\.[0-9]+)` is the image for tag `v([0-9]+\.[0-9]+\.[0-9]+)`'
+    readme_shown_pattern: '`:([0-9]+\.[0-9]+\.[0-9]+)` is the image for tag'
+    readme_tag_pattern: 'is the image for tag `v([0-9]+\.[0-9]+\.[0-9]+)`'
 
   tasks:
     - name: Read the skill frontmatter
@@ -46,18 +47,20 @@
         package_version: "{{ (package_file.content | b64decode) | regex_findall(package_version_pattern) | first }}"
         module_version: "{{ (module_file.content | b64decode) | regex_findall(module_version_pattern) | first }}"
         readme_image: "{{ (readme_file.content | b64decode) | regex_findall(readme_image_pattern) | first }}"
-        readme_prose: "{{ (readme_file.content | b64decode) | regex_findall(readme_prose_pattern) | first }}"
+        readme_shown: "{{ (readme_file.content | b64decode) | regex_findall(readme_shown_pattern) | first }}"
+        readme_tag: "{{ (readme_file.content | b64decode) | regex_findall(readme_tag_pattern) | first }}"
       ansible.builtin.assert:
         that:
           - skill_version == package_version
           - skill_version == module_version
           - skill_version == readme_image
-          - readme_prose[0] == package_version
-          - readme_prose[1] == package_version
+          - skill_version == readme_shown
+          - skill_version == readme_tag
         fail_msg: >-
           Expected one version string.
           skill={{ skill_version | default('') }}
           package={{ package_version | default('') }}
           module={{ module_version | default('') }}
           image={{ readme_image | default('') }}
-          prose={{ readme_prose | default([]) }}
+          shown={{ readme_shown | default('') }}
+          tag={{ readme_tag | default('') }}
