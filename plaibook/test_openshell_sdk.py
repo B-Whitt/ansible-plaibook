@@ -631,6 +631,67 @@ def test_sdk_satisfies_package_not_found_is_false(monkeypatch):
     assert sdk_satisfies() is False
 
 
+def _protobuf_version_error(message: str) -> BaseException:
+    try:
+        from google.protobuf.runtime_version import VersionError
+    except ImportError:
+        class VersionError(Exception):
+            pass
+
+        VersionError.__module__ = "google.protobuf.runtime_version"
+    return VersionError(message)
+
+
+def test_sdk_satisfies_protobuf_version_error_is_a_message(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+    mismatch = (
+        "Detected incompatible Protobuf Gencode/Runtime versions when loading "
+        "datamodel.proto: gencode 6.31.1 runtime 5.29.6. Runtime version cannot be older "
+        "than the linked gencode version."
+    )
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "openshell" or name.startswith("openshell."):
+            raise _protobuf_version_error(mismatch)
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", fake_import)
+    with pytest.raises(OpenshellSdkError) as caught:
+        sdk_satisfies()
+    message = str(caught.value)
+    assert "protobuf" in message
+    assert "6.31.1" in message
+    assert "5.29.6" in message
+    assert "Upgrade protobuf" in message
+    assert "Traceback" not in message
+
+
+def test_ensure_openshell_sdk_does_not_reinstall_on_protobuf_version_error(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+    mismatch = (
+        "Detected incompatible Protobuf Gencode/Runtime versions when loading "
+        "datamodel.proto: gencode 6.31.1 runtime 5.29.6."
+    )
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "openshell" or name.startswith("openshell."):
+            raise _protobuf_version_error(mismatch)
+        return real_import(name, globals, locals, fromlist, level)
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("pip should not run")
+
+    monkeypatch.setattr("plaibook.openshell_sdk.interpreter_supports_sdk", lambda _exe: True)
+    monkeypatch.setattr("builtins.__import__", fake_import)
+    monkeypatch.setattr("plaibook.openshell_sdk._run", fail_run)
+    with pytest.raises(OpenshellSdkError, match="Upgrade protobuf"):
+        ensure_openshell_sdk()
+
+
 def test_sdk_satisfies_unexpected_error_propagates(monkeypatch):
     import sys
     from types import ModuleType
