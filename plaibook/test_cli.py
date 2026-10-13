@@ -1721,17 +1721,17 @@ def test_cmd_review_protobuf_mismatch_exits_without_traceback(tmp_path, monkeypa
     (checkout / "ansible.cfg").write_text("[defaults]\n")
     called = []
     try:
-        from google.protobuf.runtime_version import VersionError as ProtobufVersionError
+        from google.protobuf.runtime_version import VersionError
     except ImportError:
-        class ProtobufVersionError(Exception):
+        class VersionError(Exception):
             pass
 
-        ProtobufVersionError.__module__ = "google.protobuf.runtime_version"
+        VersionError.__module__ = "google.protobuf.runtime_version"
     real_import = builtins.__import__
 
     def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
         if name == "openshell" or name.startswith("openshell."):
-            raise ProtobufVersionError(
+            raise VersionError(
                 "Detected incompatible Protobuf Gencode/Runtime versions when loading "
                 "datamodel.proto: gencode 6.31.1 runtime 5.29.6. Runtime version cannot be older "
                 "than the linked gencode version."
@@ -1740,6 +1740,15 @@ def test_cmd_review_protobuf_mismatch_exits_without_traceback(tmp_path, monkeypa
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
+    # Python 3.10 cannot import OpenShell. The real reexec would build
+    # another runtime and os.execv over pytest. Stay in this process and
+    # hit the import check that 3.11+ runs.
+    monkeypatch.setattr("plaibook.openshell_sdk.interpreter_supports_sdk", lambda _exe: True)
+
+    def fail_prepare(**_kwargs):
+        raise AssertionError("must not switch interpreters")
+
+    monkeypatch.setattr("plaibook.openshell_sdk.prepare_sandbox_runtime", fail_prepare)
     monkeypatch.setattr("builtins.__import__", fake_import)
     monkeypatch.setattr(
         "plaibook.cli.run_ansible_playbook",
