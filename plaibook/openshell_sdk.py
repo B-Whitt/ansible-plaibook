@@ -67,12 +67,50 @@ def version_satisfies(version: str) -> bool:
     return parsed is not None and _MIN <= parsed < _MAX
 
 
+_PROTOBUF_GENCODE_RUNTIME = re.compile(
+    r"gencode (?P<gencode>\d+\.\d+\.\d+) runtime (?P<runtime>\d+\.\d+\.\d+)"
+)
+
+
+def _is_protobuf_version_error(exc: BaseException) -> bool:
+    """True for google.protobuf.runtime_version.VersionError.
+
+    That error is raised while importing generated modules. It is not an
+    ImportError, and it does not mean the OpenShell package is missing.
+    """
+    return (
+        type(exc).__module__ == "google.protobuf.runtime_version"
+        and type(exc).__name__ == "VersionError"
+    )
+
+
+def protobuf_runtime_message(exc: BaseException) -> str:
+    """Name protobuf, the gencode, and the runtime, and say to upgrade."""
+    match = _PROTOBUF_GENCODE_RUNTIME.search(str(exc))
+    if match is None:
+        return "protobuf is too old for OpenShell's generated code. Upgrade protobuf."
+    gencode = match.group("gencode")
+    runtime = match.group("runtime")
+    return (
+        f"protobuf runtime {runtime} is older than OpenShell's generated code {gencode}. "
+        f"Upgrade protobuf to at least {gencode}."
+    )
+
+
 def sdk_satisfies() -> bool:
-    """True when this process can import SandboxClient from an in-range SDK."""
+    """True when this process can import SandboxClient from an in-range SDK.
+
+    A protobuf gencode/runtime mismatch raises OpenshellSdkError. It is
+    not reported as a missing install.
+    """
     try:
         from openshell import SandboxClient
     except ImportError:
         return False
+    except Exception as exc:
+        if _is_protobuf_version_error(exc):
+            raise OpenshellSdkError(protobuf_runtime_message(exc)) from exc
+        raise
     if SandboxClient is None:
         return False
     from importlib.metadata import PackageNotFoundError, version
@@ -487,8 +525,22 @@ def reexec_sandbox_runtime(
 def _interpreter_satisfies(python: str) -> bool:
     if _same_executable(python):
         return sdk_satisfies()
-    probe = "import sys\nfrom plaibook.openshell_sdk import sdk_satisfies\nsys.exit(0 if sdk_satisfies() else 1)\n"
+    probe = (
+        "import sys\n"
+        "from plaibook.openshell_sdk import OpenshellSdkError, sdk_satisfies\n"
+        "try:\n"
+        "    ok = sdk_satisfies()\n"
+        "except OpenshellSdkError as exc:\n"
+        "    sys.stderr.write(str(exc))\n"
+        "    sys.exit(2)\n"
+        "sys.exit(0 if ok else 1)\n"
+    )
     completed = _run([python, "-c", probe], timeout=60)
+    if completed.returncode == 2:
+        detail = (completed.stderr or "").strip() or (
+            "protobuf is too old for OpenShell's generated code. Upgrade protobuf."
+        )
+        raise OpenshellSdkError(detail)
     return completed.returncode == 0
 
 

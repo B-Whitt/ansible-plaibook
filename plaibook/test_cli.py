@@ -1711,6 +1711,63 @@ def test_cmd_review_sandbox_runtime_error_stops_before_playbook(tmp_path, monkey
     assert "needs Python 3.11" in err
 
 
+def test_cmd_review_protobuf_mismatch_exits_without_traceback(tmp_path, monkeypatch, capsys):
+    """plai review prints the upgrade message when OpenShell's import hits VersionError."""
+    import builtins
+
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    called = []
+    try:
+        from google.protobuf.runtime_version import VersionError
+    except ImportError:
+        class VersionError(Exception):
+            pass
+
+        VersionError.__module__ = "google.protobuf.runtime_version"
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "openshell" or name.startswith("openshell."):
+            raise VersionError(
+                "Detected incompatible Protobuf Gencode/Runtime versions when loading "
+                "datamodel.proto: gencode 6.31.1 runtime 5.29.6. Runtime version cannot be older "
+                "than the linked gencode version."
+            )
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("plaibook.cli.running_inside_openshell", lambda: False)
+    # Python 3.10 cannot import OpenShell. The real reexec would build
+    # another runtime and os.execv over pytest. Stay in this process and
+    # hit the import check that 3.11+ runs.
+    monkeypatch.setattr("plaibook.openshell_sdk.interpreter_supports_sdk", lambda _exe: True)
+
+    def fail_prepare(**_kwargs):
+        raise AssertionError("must not switch interpreters")
+
+    monkeypatch.setattr("plaibook.openshell_sdk.prepare_sandbox_runtime", fail_prepare)
+    monkeypatch.setattr("builtins.__import__", fake_import)
+    monkeypatch.setattr(
+        "plaibook.cli.run_ansible_playbook",
+        lambda *args, **kwargs: called.append(True),
+    )
+    collections = []
+    monkeypatch.setattr("plaibook.cli.ensure_collections", lambda *a, **k: collections.append(True))
+
+    code = cmd_review(_args(target="org/repo/1", playbook_root=str(checkout)))
+    err = capsys.readouterr().err
+    assert code == 2
+    assert called == []
+    assert collections == []
+    assert "protobuf runtime 5.29.6" in err
+    assert "6.31.1" in err
+    assert "Upgrade protobuf" in err
+    assert "Traceback" not in err
+
+
 def test_cmd_review_reexecs_before_collections_when_sandboxed(tmp_path, monkeypatch):
     checkout = tmp_path / "checkout"
     checkout.mkdir()
