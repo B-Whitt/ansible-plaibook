@@ -249,11 +249,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "plaibook"
 version = "%s"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.15"
 
 [project.scripts]
-plaibook = "plaibook.cli:main"
-plai = "plaibook.cli:main"
+plaibook = "plaibook.entry:main"
+plai = "plaibook.entry:main"
 
 [tool.setuptools.packages.find]
 include = ["plaibook*"]

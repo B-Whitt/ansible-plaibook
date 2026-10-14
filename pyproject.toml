@@ -40,8 +40,8 @@ dependencies = [
 ]
 
 [project.scripts]
-plaibook = "plaibook.cli:main"
-plai = "plaibook.cli:main"
+plaibook = "plaibook.entry:main"
+plai = "plaibook.entry:main"
 
 [project.urls]
 Homepage = "https://github.com/aknochow/ansible-plaibook"

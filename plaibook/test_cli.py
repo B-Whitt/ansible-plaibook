@@ -106,11 +106,12 @@ def test_plaibook_and_plai_share_the_same_main():
     from importlib.metadata import entry_points
 
     import plaibook.cli as cli
+    import plaibook.entry as entry
 
     scripts = {ep.name: ep for ep in entry_points(group="console_scripts")}
-    assert scripts["plai"].value == "plaibook.cli:main"
-    assert scripts["plaibook"].value == "plaibook.cli:main"
-    assert scripts["plai"].load() is scripts["plaibook"].load() is cli.main
+    assert scripts["plai"].value == "plaibook.entry:main"
+    assert scripts["plaibook"].value == "plaibook.entry:main"
+    assert scripts["plai"].load() is scripts["plaibook"].load() is entry.main
     parser_a = cli.build_parser(prog="plai")
     parser_b = cli.build_parser(prog="plaibook")
     assert parser_a.parse_args(["review", "--commit"]).commit is True
