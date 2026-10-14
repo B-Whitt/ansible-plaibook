@@ -38,7 +38,7 @@ status: stable
 | `review_agent_model` | `claude-opus-4-6` | Model used for the Security and Functionality/Quality lens dispatch. |
 | `review_openai_model` | `gpt-5.6` when `agent_family=openai` | OpenAI model for both lenses; the unsuffixed GPT-5.6 alias resolves to Sol. Set `OPENAI_API_KEY` for hosted OpenAI use. |
 | `review_openai_max_completion_tokens` | `16384` | Hosted OpenAI completion budget for lens, exploration, and verification calls. |
-| `review_openai_lens_reasoning_effort` | API default | Optional explicit `reasoning_effort` for hosted OpenAI lens calls, such as `low`, `medium`, `high`, `xhigh`, or `max`. Explore/verify tool calls remain on the hosted tool-compatible `none` setting. |
+| `review_openai_lens_reasoning_effort` | API default | Optional explicit `reasoning_effort` for hosted OpenAI lens calls, such as `low`, `medium`, `high`, `xhigh`, or `max`. When this is empty and the model is `gpt-5.6`, lens calls use `none`. Explore/verify tool calls use `none` for `gpt-5.6` and `gpt-6-luna`. |
 | `review_openai_continuity_max_completion_tokens` | `review_openai_max_completion_tokens` | Completion budget for the no-tool continuity audit; prevents reasoning models from exhausting a small structured-output budget before returning JSON. |
 | `review_explore_tool_timeout_seconds` | `120` | Per-search wall-clock ceiling, enforced with `subprocess.run(timeout=)` so ansible-core 2.16 (Python 3.10) still caps grep. A failed or timed-out search is an error tool result, never an empty result. |
 | `review_explore_max_tool_calls` | `12` | Total read-only exploration tool calls per target. |

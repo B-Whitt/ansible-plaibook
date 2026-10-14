@@ -35,6 +35,7 @@ from plaibook.playbook import (
 )
 from plaibook.progress import create_progress_file
 from plaibook.provider_sdk import ProviderSdkError, ensure_provider_sdk
+from plaibook.runtime import UnsupportedPythonError, require_supported_python
 from plaibook.summary import (
     SummaryError,
     dump_json,
@@ -508,6 +509,11 @@ def _progress_line(args: argparse.Namespace) -> str:
 
 
 def cmd_review(args: argparse.Namespace) -> int:
+    try:
+        require_supported_python()
+    except UnsupportedPythonError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     error = _validate_review_args(args)
     if error:
         print(error, file=sys.stderr)

@@ -40,8 +40,8 @@ refuse `pip install` into the system Python (PEP 668); `pipx` (or
 `uv tool install plaibook`) is the install that puts `plai` on `PATH`.
 Inside a virtualenv you already manage, `pip install plaibook` works.
 
-Needs Python 3.10 or newer (3.10 stays on ansible-core 2.16; 3.11+
-gets 2.18/2.19). OpenShell sandboxes need Python 3.11+. A 3.10 `plai review`
+Needs Python 3.10 through 3.14 (3.10 stays on ansible-core 2.16; 3.11+
+gets 2.18/2.19). Python 3.15 is not supported. OpenShell sandboxes need Python 3.11+. A 3.10 `plai review`
 creates `~/.cache/ansible-plaibook/sandbox-runtime` from the first
 `python3.11` (or newer) it finds, installs this plaibook build, the
 OpenShell SDK, and the configured provider SDK (openai / anthropic /

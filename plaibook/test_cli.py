@@ -30,6 +30,7 @@ from plaibook.playbook import (
     last_run_canonical_path,
     last_run_path,
 )
+from plaibook.runtime import UnsupportedPythonError
 from plaibook.summary import enrich_last_run, format_pretty
 from plaibook.task_failures import create_task_failures_log, write_task_failures
 
@@ -2386,3 +2387,15 @@ def test_cmd_review_corrupt_last_run(tmp_path, monkeypatch, capsys):
     assert code == 2
     assert "cannot parse" in err
     assert "Traceback" not in err
+
+
+def test_review_refuses_python_315_before_ansible(monkeypatch, capsys):
+    def refuse():
+        raise UnsupportedPythonError("Python 3.15 is not supported. plaibook supports Python 3.10 through 3.14.")
+
+    monkeypatch.setattr("plaibook.cli.require_supported_python", refuse)
+    code = main(["review"])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "Python 3.15 is not supported" in err
+    assert "3.10 through 3.14" in err

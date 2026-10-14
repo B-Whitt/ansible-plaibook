@@ -29,6 +29,11 @@ from plaibook.openshell_sdk import (
 from plaibook.pip_hashed import hashed_requirements
 
 
+@pytest.fixture(autouse=True)
+def _openshell_interpreter_has_pip(monkeypatch):
+    monkeypatch.setattr("plaibook.pip_hashed.python_has_pip", lambda _python: True)
+
+
 def _capable(monkeypatch):
     monkeypatch.setattr("plaibook.openshell_sdk.interpreter_supports_sdk", lambda _exe: True)
 

@@ -178,9 +178,11 @@ review_openai_model: >-
 review_explore_openai_model: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_EXPLORE_OPENAI_MODEL') | default(review_openai_model, true) }}"
 review_verify_openai_model: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_VERIFY_OPENAI_MODEL') | default(review_openai_model, true) }}"
 review_openai_max_completion_tokens: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_OPENAI_MAX_COMPLETION_TOKENS') | default(16384, true) | int }}"
-# Optional explicit reasoning effort for the structured lens calls. Explore
-# and verify use hosted function tools, for which Chat Completions requires
-# reasoning_effort=none; keep this setting scoped to the no-tool lens calls.
+# Optional explicit reasoning effort for the structured lens calls. Leave
+# this empty for the API default. gpt-5.6 is the exception: Chat Completions
+# rejects its function tools unless the effort is none, and the lens task
+# sets that when this value is empty. Explore and verify do the same for
+# gpt-5.6 and gpt-6-luna.
 review_openai_lens_reasoning_effort: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_OPENAI_LENS_REASONING_EFFORT') | default('', true) }}"
 # The continuity audit is a no-tool structured-output call. It needs its own
 # explicit budget because reasoning models can spend most of a small budget on

@@ -10,6 +10,10 @@ loop.
 from __future__ import annotations
 
 import json
+import re
+
+_GPT56 = re.compile(r"^gpt-5\.6(?:$|-)")
+_GPT6_LUNA = re.compile(r"^gpt-6-luna(?:$|-)")
 
 
 def to_openai_messages(messages: list) -> list:
@@ -103,6 +107,32 @@ def openai_tool_calls_with_input(tool_calls: list) -> list:
     return [dict(call, input=call.get("args") or {}) for call in (tool_calls or [])]
 
 
+def openai_lens_reasoning_effort(model: str, configured: str = "") -> str:
+    """Reasoning effort for a structured lens call.
+
+    An operator value wins. gpt-5.6 Chat Completions rejects function tools
+    unless the effort is ``none``. Every other model keeps the API default,
+    which is an empty string the task omits.
+    """
+    chosen = (configured or "").strip()
+    if chosen:
+        return chosen
+    if _GPT56.match((model or "").strip().lower()):
+        return "none"
+    return ""
+
+
+def openai_tool_reasoning_effort(model: str) -> str:
+    """Reasoning effort for a Chat Completions call that sends function tools.
+
+    gpt-5.6 and gpt-6-luna require ``none``. Other models stay on the API default.
+    """
+    name = (model or "").strip().lower()
+    if _GPT56.match(name) or _GPT6_LUNA.match(name):
+        return "none"
+    return ""
+
+
 def openai_reasoning_tokens(response: dict) -> int:
     """Return provider-reported hidden reasoning tokens from a raw response."""
     if not isinstance(response, dict):
@@ -124,5 +154,7 @@ class FilterModule:
             "to_openai_tools": to_openai_tools,
             "openai_response_to_message_content": openai_response_to_message_content,
             "openai_tool_calls_with_input": openai_tool_calls_with_input,
+            "openai_lens_reasoning_effort": openai_lens_reasoning_effort,
+            "openai_tool_reasoning_effort": openai_tool_reasoning_effort,
             "openai_reasoning_tokens": openai_reasoning_tokens,
         }
