@@ -16,8 +16,11 @@ post_results: false
 # (verdict: SKIPPED) instead of dispatching lenses and incurring model spend
 # on known-broken code. If no CI checks exist (ci_status: none), or if checks
 # are running or passing, review proceeds normally.
-# Override via -e review_require_ci_passing=false to review anyway.
+# Override via -e review_require_ci_passing=false (`plai review --ignore-ci`)
+# to review anyway. --triage-ci explains the failures and still does not
+# dispatch lenses. The two together are an error.
 review_require_ci_passing: true
+review_triage_ci_failures: false
 
 review_delegate_host: ""
 

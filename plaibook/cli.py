@@ -101,7 +101,9 @@ the findings.md report. A score line plus finding counts is not a review.
 Same-commit cache hits print that they reused the prior review (why cost
 is $0.00). -f / --force disables that fast path and re-runs the lenses.
 A SKIPPED verdict (CI failing on the PR head) prints why and the failing
-check names; pass `-e review_require_ci_passing=false` to review anyway.
+check names. `--ignore-ci` (`-e review_require_ci_passing=false`) reviews
+anyway. `--triage-ci` (`-e review_triage_ci_failures=true`) explains the
+failures and does not dispatch lenses. Passing both is an error.
 
 First review with no operator config prompts for a provider and writes
 ~/.config/ansible-plaibook/vars.yml. Cursor defaults to gpt-5.6-luna / high.
@@ -236,6 +238,21 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         help="Trusted operator notes for this run. A colon in the text is kept.",
     )
     review.add_argument(
+        "--ignore-ci",
+        dest="ignore_ci",
+        action="store_true",
+        help="Review even when CI is failing (sets review_require_ci_passing=false).",
+    )
+    review.add_argument(
+        "--triage-ci",
+        dest="triage_ci",
+        action="store_true",
+        help=(
+            "Explain failing CI checks and do not dispatch lenses "
+            "(sets review_triage_ci_failures=true)."
+        ),
+    )
+    review.add_argument(
         "--post",
         action="store_true",
         help="Set post_results=true (write back to the PR/MR).",
@@ -357,6 +374,10 @@ def extra_vars_from_args(args: argparse.Namespace, run_id: str) -> dict:
         extras["use_sandbox"] = bool(args.use_sandbox)
     if getattr(args, "force", False):
         extras["review_same_commit_fast_path_enabled"] = False
+    if getattr(args, "ignore_ci", False):
+        extras["review_require_ci_passing"] = False
+    if getattr(args, "triage_ci", False):
+        extras["review_triage_ci_failures"] = True
     for item in getattr(args, "cli_extra_vars", None) or []:
         key, value = _parse_extra_var(item)
         if key == "last_run_id":
@@ -397,6 +418,18 @@ def _validate_review_args(args: argparse.Namespace) -> str | None:
     if args.target:
         return None
     args.commit = True
+    return None
+
+
+def ci_modes_conflict(args: argparse.Namespace, extras: dict) -> str | None:
+    """Both ignore-CI and triage-CI stop the run before a review or a diagnosis."""
+    ignore = bool(getattr(args, "ignore_ci", False)) or extras.get("review_require_ci_passing") is False
+    triage = bool(getattr(args, "triage_ci", False)) or extras.get("review_triage_ci_failures") is True
+    if ignore and triage:
+        return (
+            "Pass only one of --ignore-ci and --triage-ci "
+            "(-e review_require_ci_passing=false or -e review_triage_ci_failures=true)."
+        )
     return None
 
 
@@ -536,6 +569,10 @@ def cmd_review(args: argparse.Namespace) -> int:
         extras = extra_vars_from_args(args, run_id)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
+        return 2
+    conflict = ci_modes_conflict(args, extras)
+    if conflict:
+        print(conflict, file=sys.stderr)
         return 2
     from plaibook.runtime import controller_python
 

@@ -69,6 +69,8 @@
               - pipeline_findings_reports[0].target == "my-org/my-repo#42"
               - "'CI checks are failing' in pipeline_findings_reports[0].skip_reason"
               - "'review_require_ci_passing=false' in pipeline_findings_reports[0].skip_hint"
+              - "'--ignore-ci' in pipeline_findings_reports[0].skip_hint"
+              - "'--triage-ci' in pipeline_findings_reports[0].skip_hint"
               - pipeline_findings_reports[0].failing_checks | length == 2
               - pipeline_findings_reports[0].failing_checks[0].name == "ci/unit-tests"
               - pipeline_findings_reports[0].failing_checks[1].name == "ci/lint"
@@ -304,6 +306,121 @@
             fail_msg: >-
               Scenario G failed: null head_sha when CI is failing must not raise TypeError,
               must produce review_verdict=SKIPPED and review_short_sha=''.
+
+    # -------------------------------------------------------------------------
+    # Scenario H: --triage-ci explains failures and does not continue the review
+    # -------------------------------------------------------------------------
+    - name: Reset facts for Scenario H
+      ansible.builtin.set_fact:
+        review_verdict: "UNSET"
+        score_overall: 100.0
+        review_ci_preflight_failed: false
+        pipeline_findings_reports: []
+
+    - name: "Scenario H: triage explains a failing check and does not dispatch"
+      vars:
+        review_platform: "github"
+        review_org_repo: "my-org/my-repo"
+        review_number: "42"
+        review_require_ci_passing: true
+        review_triage_ci_failures: true
+        _pr_context:
+          identifier: "PR #42"
+          title: "Broken CI"
+          url: "https://github.com/my-org/my-repo/pull/42"
+          head_sha: "1234567890abcdef1234567890abcdef12345678"
+          ci_status: "failing"
+          failing_checks:
+            - name: "ci/unit-tests"
+              url: "https://github.com/my-org/my-repo/actions/runs/100"
+      block:
+        - name: Run check_pr_ci_preflight.yml in triage mode
+          ansible.builtin.include_tasks: "{{ check_pr_ci_preflight_path }}"
+
+        - name: Assert triage recorded a diagnosis and stopped the review
+          ansible.builtin.assert:
+            that:
+              - review_ci_preflight_failed | bool == true
+              - review_verdict == "CI_TRIAGE"
+              - pipeline_findings_reports | length == 1
+              - pipeline_findings_reports[0].verdict == "CI_TRIAGE"
+              - pipeline_findings_reports[0].ci_triage | bool == true
+              - pipeline_findings_reports[0].ci_preflight_failed | bool == false
+              - pipeline_findings_reports[0].ci_diagnoses[0].job == "ci/unit-tests"
+              - "'not available' in pipeline_findings_reports[0].ci_diagnoses[0].error"
+              - "'diagnosis' in pipeline_findings_reports[0].skip_reason"
+            fail_msg: >-
+              Scenario H failed: triage must explain the failing check and
+              must not look like a skipped review that still offers a bypass only.
+
+    # -------------------------------------------------------------------------
+    # Scenario I: green CI with triage exits without a review
+    # -------------------------------------------------------------------------
+    - name: Reset facts for Scenario I
+      ansible.builtin.set_fact:
+        review_verdict: "UNSET"
+        review_ci_preflight_failed: false
+        pipeline_findings_reports: []
+
+    - name: "Scenario I: passing CI with triage does not start a review"
+      vars:
+        review_platform: "github"
+        review_org_repo: "my-org/my-repo"
+        review_number: "42"
+        review_require_ci_passing: true
+        review_triage_ci_failures: true
+        _pr_context:
+          title: "Green"
+          ci_status: "passing"
+          failing_checks: []
+      block:
+        - name: Run check_pr_ci_preflight.yml when there is nothing to triage
+          ansible.builtin.include_tasks: "{{ check_pr_ci_preflight_path }}"
+
+        - name: Assert nothing-to-triage stopped before a review
+          ansible.builtin.assert:
+            that:
+              - review_verdict == "NOTHING_TO_TRIAGE"
+              - review_ci_preflight_failed | bool == true
+              - pipeline_findings_reports | length == 1
+              - pipeline_findings_reports[0].verdict == "NOTHING_TO_TRIAGE"
+              - "'nothing to triage' in pipeline_findings_reports[0].skip_reason"
+            fail_msg: "Scenario I failed: green CI with triage must not start a review."
+
+    # -------------------------------------------------------------------------
+    # Scenario J: ignore and triage together fail before either path
+    # -------------------------------------------------------------------------
+    - name: Reset facts for Scenario J
+      ansible.builtin.set_fact:
+        review_verdict: "UNSET"
+        review_ci_preflight_failed: false
+        pipeline_findings_reports: []
+
+    - name: "Scenario J: both CI modes fail before triage or review"
+      vars:
+        review_platform: "github"
+        review_org_repo: "my-org/my-repo"
+        review_number: "42"
+        review_require_ci_passing: false
+        review_triage_ci_failures: true
+        _pr_context:
+          ci_status: "failing"
+          failing_checks:
+            - name: "ci/unit-tests"
+              url: "https://github.com/my-org/my-repo/actions/runs/100"
+      block:
+        - name: Both modes are an error
+          block:
+            - name: Run check_pr_ci_preflight.yml with both modes
+              ansible.builtin.include_tasks: "{{ check_pr_ci_preflight_path }}"
+          rescue:
+            - name: Assert the conflict failed closed
+              ansible.builtin.assert:
+                that:
+                  - "'Pass only one' in ansible_failed_result.msg"
+                  - review_verdict == "UNSET"
+                  - pipeline_findings_reports | length == 0
+                fail_msg: "Scenario J failed: both CI modes must fail before triage or review."
 
     - name: Show success message
       ansible.builtin.debug:

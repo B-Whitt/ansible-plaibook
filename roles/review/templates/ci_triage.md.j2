@@ -1,0 +1,14 @@
+## CI triage: {{ review_org_repo }}#{{ review_number }}
+
+Diagnosis only. Lenses were not dispatched. This is not a review verdict.
+
+{% for item in review_ci_diagnoses | default([]) %}
+### {{ item.job }}
+{% if item.step %}
+Step: {{ item.step }}
+{% endif %}
+{% if item.error %}
+{{ item.error }}
+{% endif %}
+
+{% endfor %}
