@@ -14,6 +14,7 @@ import json
 import os
 import re
 import sys
+import time
 import zipfile
 from typing import Callable
 from urllib.parse import quote, urlparse
@@ -122,7 +123,24 @@ def _gitlab_headers() -> dict[str, str]:
 
 _PAGE_LIMIT = 5
 _PAGE_SIZE = 100
+_MAX_CHECKS = 50
+_TRIAGE_BUDGET_SECONDS = 120.0
+_REQUEST_TIMEOUT = 60.0
 _log_step = ""
+_budget: "_Budget | None" = None
+
+
+class _Budget:
+    """Wall-clock limit for one triage run. Per-request timeouts stay underneath it."""
+
+    def __init__(self, seconds: float = _TRIAGE_BUDGET_SECONDS) -> None:
+        self.deadline = time.monotonic() + seconds
+
+    def expired(self) -> bool:
+        return time.monotonic() >= self.deadline
+
+    def timeout(self) -> float:
+        return min(_REQUEST_TIMEOUT, max(0.0, self.deadline - time.monotonic()))
 
 
 def _api_repo(owner: str, repo: str, suffix: str) -> str:
@@ -251,10 +269,13 @@ def diagnose_workflow_run(
     if not failed:
         return [_unavailable(check)]
     found: list[dict[str, str]] = []
+    failed = [
+        job for job in failed if isinstance(job, dict) and str(job.get("id") or "").isdigit()
+    ][:_MAX_CHECKS]
     for job in failed:
+        if _budget is not None and _budget.expired():
+            break
         job_id = str(job.get("id") or "")
-        if not job_id.isdigit():
-            continue
         job_url = f"https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}"
         job_name = str(job.get("name") or name)
         found.append(diagnose_github({"name": job_name, "url": job_url}, fetch, project))
@@ -267,20 +288,29 @@ def diagnose_checks(
     fetch: _FETCH,
     allowed_host: str | None = None,
     project: str | None = None,
+    budget: _Budget | None = None,
 ) -> list[dict[str, str]]:
-    """One diagnosis per failing check. Unknown URLs stay a name without a log."""
+    """One diagnosis per failing check, capped so a huge matrix cannot stall the runner."""
+    global _budget
+    _budget = budget or _Budget()
     out: list[dict[str, str]] = []
-    for check in checks or []:
-        if not isinstance(check, dict):
-            continue
-        if platform == "github" and _GITHUB_RUN.match(str(check.get("url") or "")):
-            out.extend(diagnose_workflow_run(check, fetch, project))
-        elif platform == "github":
-            out.append(diagnose_github(check, fetch, project))
-        elif platform == "gitlab":
-            out.append(diagnose_gitlab(check, fetch, allowed_host, project))
-        else:
-            out.append(_unavailable(check))
+    try:
+        for check in list(checks or [])[:_MAX_CHECKS]:
+            if _budget.expired() or len(out) >= _MAX_CHECKS:
+                break
+            if not isinstance(check, dict):
+                continue
+            if platform == "github" and _GITHUB_RUN.match(str(check.get("url") or "")):
+                out.extend(diagnose_workflow_run(check, fetch, project))
+                del out[_MAX_CHECKS:]
+            elif platform == "github":
+                out.append(diagnose_github(check, fetch, project))
+            elif platform == "gitlab":
+                out.append(diagnose_gitlab(check, fetch, allowed_host, project))
+            else:
+                out.append(_unavailable(check))
+    finally:
+        _budget = None
     return out
 
 
@@ -403,9 +433,12 @@ def _request(url: str, headers: dict[str, str]) -> tuple[int, bytes, str]:
             return None
 
     opener = urllib.request.build_opener(_NoRedirect)
+    timeout = _budget.timeout() if _budget else _REQUEST_TIMEOUT
+    if timeout <= 0:
+        return 0, b"", ""
     request = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with opener.open(request, timeout=60) as response:
+        with opener.open(request, timeout=timeout) as response:
             length = response.headers.get("Content-Length")
             if length and length.isdigit() and int(length) > _MAX_DOWNLOAD:
                 return 0, b"", ""

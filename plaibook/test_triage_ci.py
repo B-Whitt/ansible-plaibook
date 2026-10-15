@@ -191,6 +191,37 @@ def test_zip_entries_sort_by_numeric_step_prefix():
     assert "CLEANUP" not in text
 
 
+def test_triage_caps_the_number_of_checks_and_honors_a_spent_budget():
+    mod = _triage()
+    calls = []
+
+    def fetch(url: str) -> tuple[int, str]:
+        calls.append(url)
+        if url.split("?", 1)[0].endswith("/annotations"):
+            return 200, "[]"
+        raise AssertionError(url)
+
+    checks = [
+        {"name": str(index), "url": f"https://github.com/org/repo/runs/{index}"}
+        for index in range(80)
+    ]
+    found = mod.diagnose_checks("github", checks, fetch, project="org/repo")
+    assert len(found) == 50
+    assert len(calls) <= 50 * mod._PAGE_LIMIT
+
+    def refuse(url: str) -> tuple[int, str]:
+        raise AssertionError(url)
+
+    spent = mod.diagnose_checks(
+        "github",
+        checks[:1],
+        refuse,
+        project="org/repo",
+        budget=mod._Budget(seconds=0),
+    )
+    assert spent == []
+
+
 def test_github_api_host_is_the_hostname_only():
     mod = _triage()
     assert mod._is_github_api("https://api.github.com/repos/org/repo/actions/jobs/1/logs")
