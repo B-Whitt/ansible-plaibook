@@ -85,6 +85,48 @@ def test_parser_plai_help_identifies_plaibook():
     assert "review_require_ci_passing=false" in help_text
 
 
+def test_ignore_ci_and_triage_ci_set_extra_vars():
+    ignored = extra_vars_from_args(_args(target="org/repo/1", ignore_ci=True), "runId0123456789")
+    assert ignored["review_require_ci_passing"] is False
+    assert "review_triage_ci_failures" not in ignored
+    triaged = extra_vars_from_args(_args(target="org/repo/1", triage_ci=True), "runId0123456789")
+    assert triaged["review_triage_ci_failures"] is True
+    assert "review_require_ci_passing" not in triaged
+    still = extra_vars_from_args(
+        _args(target="org/repo/1", cli_extra_vars=["review_require_ci_passing=false"]),
+        "runId0123456789",
+    )
+    assert still["review_require_ci_passing"] is False
+
+
+def test_ignore_ci_and_triage_ci_together_are_an_error(tmp_path, capsys):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "review.yml").write_text("---\n")
+    (checkout / "ansible.cfg").write_text("[defaults]\n")
+    code = cmd_review(
+        _args(
+            target="org/repo/1",
+            ignore_ci=True,
+            triage_ci=True,
+            playbook_root=str(checkout),
+        )
+    )
+    assert code == 2
+    assert "--ignore-ci" in capsys.readouterr().err
+    code = cmd_review(
+        _args(
+            target="org/repo/1",
+            playbook_root=str(checkout),
+            cli_extra_vars=[
+                "review_require_ci_passing=false",
+                "review_triage_ci_failures=true",
+            ],
+        )
+    )
+    assert code == 2
+
+
 def test_parser_debug_and_vv_set_ansible_verbosity():
     parser = build_parser(prog="plai")
     quiet = parser.parse_args(["review", "org/repo/1"])
@@ -974,7 +1016,11 @@ def test_pretty_explains_ci_preflight_skip_without_full_report():
                         "(b511616974f692cb64113056e5fc22681ad55dd4). "
                         "Lens agents were not dispatched."
                     ),
-                    "skip_hint": "Pass `-e review_require_ci_passing=false` to bypass.",
+                    "skip_hint": (
+                        "Pass `--ignore-ci` (`-e review_require_ci_passing=false`) to review anyway, "
+                        "or `--triage-ci` (`-e review_triage_ci_failures=true`) to explain the failures "
+                        "without dispatching lenses."
+                    ),
                     "failing_checks": [
                         {
                             "name": "Test Python 3.10 (windows-latest)",
@@ -999,6 +1045,8 @@ def test_pretty_explains_ci_preflight_skip_without_full_report():
     assert "Test Python 3.10 (windows-latest)" in pretty
     assert "Test Python 3.14 (ubuntu-latest)" in pretty
     assert "review_require_ci_passing=false" in pretty
+    assert "--ignore-ci" in pretty
+    assert "--triage-ci" in pretty
     assert "https://github.com/org/repo/actions/runs/1" not in pretty
     assert "full rendered skip report should stay behind --full" not in pretty
     full = format_pretty(
@@ -1136,6 +1184,60 @@ def test_pretty_skip_falls_back_to_report_when_structured_fields_missing():
     assert "https://ci.example/1" not in pretty
     assert "review_require_ci_passing=false" in pretty
     assert "## Code Review" not in pretty
+
+
+def test_pretty_ci_triage_names_job_step_and_error():
+    pretty = format_pretty(
+        {
+            "cost_usd": 0,
+            "targets": [
+                {
+                    "target": "org/repo#7",
+                    "verdict": "CI_TRIAGE",
+                    "ci_triage": True,
+                    "skip_reason": "CI checks are failing. Lenses were not dispatched.",
+                    "ci_diagnoses": [
+                        {
+                            "job": "ci/unit-tests",
+                            "step": "Run pytest",
+                            "error": "assert False",
+                        }
+                    ],
+                    "scores": {"functionality": 100},
+                    "findings_count": {"critical": 1, "major": 0, "minor": 0, "nit": 0},
+                    "findings": [
+                        {"severity": "critical", "title": "should not print", "file": "a.py", "line": 1}
+                    ],
+                }
+            ],
+        }
+    )
+    assert pretty.startswith("CI_TRIAGE  org/repo#7\n")
+    assert "0.0%" not in pretty
+    assert "ci/unit-tests" in pretty
+    assert "step: Run pytest" in pretty
+    assert "assert False" in pretty
+    assert "NEEDS_CHANGES" not in pretty
+    assert "findings:" not in pretty
+    assert "should not print" not in pretty
+
+
+def test_pretty_nothing_to_triage_is_not_a_review():
+    pretty = format_pretty(
+        {
+            "cost_usd": 0,
+            "targets": [
+                {
+                    "target": "org/repo#7",
+                    "verdict": "NOTHING_TO_TRIAGE",
+                    "skip_reason": "CI is not failing. There is nothing to triage.",
+                }
+            ],
+        }
+    )
+    assert pretty.startswith("NOTHING_TO_TRIAGE  org/repo#7\n")
+    assert "nothing to triage" in pretty
+    assert "%" not in pretty
 
 
 def test_enrich_prefers_run_scoped_summary_over_canonical(tmp_path):

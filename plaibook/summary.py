@@ -134,7 +134,7 @@ def format_pretty(document: dict[str, Any], *, full: bool = False) -> str:
         score = target.get("score_overall", target.get("score"))
         skipped = _is_skipped(target, verdict)
         empty_range = _is_empty_range(target, verdict)
-        score_text = "" if skipped or empty_range else _percent(score)
+        score_text = "" if skipped or empty_range or _hides_score(verdict) else _percent(score)
         name = sanitize_display_line(target.get("target") or "")
         header = f"{verdict}"
         if score_text:
@@ -153,43 +153,46 @@ def format_pretty(document: dict[str, Any], *, full: bool = False) -> str:
         if cache_line:
             lines.append(cache_line)
 
-        if skipped:
+        if skipped or verdict.upper() == "NOTHING_TO_TRIAGE":
             lines.extend(_skipped_lines(target))
         elif empty_range:
             reason = str(target.get("skip_reason") or target.get("report") or "").strip()
             if reason:
                 lines.append(f"  {sanitize_display_line(reason)}")
 
-        scores = target.get("scores") or {}
-        if scores:
-            lens_bits = []
-            for lens in ("functionality", "security", "quality"):
-                if lens in scores:
-                    lens_bits.append(f"{lens} {_percent(scores[lens])}")
-            extra = [
-                f"{sanitize_display_line(str(k))} {_percent(v)}"
-                for k, v in scores.items()
-                if k not in ("functionality", "security", "quality")
-            ]
-            if lens_bits or extra:
-                lines.append("  " + "  ".join(lens_bits + extra))
+        if verdict.upper() == "CI_TRIAGE":
+            lines.extend(_ci_diagnosis_lines(target))
+        elif not _hides_score(verdict):
+            scores = target.get("scores") or {}
+            if scores:
+                lens_bits = []
+                for lens in ("functionality", "security", "quality"):
+                    if lens in scores:
+                        lens_bits.append(f"{lens} {_percent(scores[lens])}")
+                extra = [
+                    f"{sanitize_display_line(str(k))} {_percent(v)}"
+                    for k, v in scores.items()
+                    if k not in ("functionality", "security", "quality")
+                ]
+                if lens_bits or extra:
+                    lines.append("  " + "  ".join(lens_bits + extra))
 
-        findings = list(target.get("findings") or [])
-        counts = target.get("findings_count")
-        if not counts and findings:
-            counts = _count_findings(findings)
-        if counts:
-            bits = [
-                f"{sanitize_display_line(counts.get(sev, 0))} {sev}" for sev in SEVERITY_ORDER
-            ]
-            lines.append("  findings: " + ", ".join(bits))
+            findings = list(target.get("findings") or [])
+            counts = target.get("findings_count")
+            if not counts and findings:
+                counts = _count_findings(findings)
+            if counts:
+                bits = [
+                    f"{sanitize_display_line(counts.get(sev, 0))} {sev}" for sev in SEVERITY_ORDER
+                ]
+                lines.append("  findings: " + ", ".join(bits))
 
-        for finding in findings:
-            if str(finding.get("evidence_status") or "").lower() == "refuted":
-                continue
-            lines.extend(_format_point_finding(finding))
+            for finding in findings:
+                if str(finding.get("evidence_status") or "").lower() == "refuted":
+                    continue
+                lines.extend(_format_point_finding(finding))
 
-        if full:
+        if full and not _hides_score(verdict):
             report = sanitize_display_text((target.get("report") or "").strip())
             if report:
                 lines.append("")
@@ -197,6 +200,17 @@ def format_pretty(document: dict[str, Any], *, full: bool = False) -> str:
 
     lines.extend(_footer(document, targets))
     return "\n".join(lines) + "\n"
+
+
+_CI_SKIP_HINT = (
+    "Pass `--ignore-ci` (`-e review_require_ci_passing=false`) to review anyway, "
+    "or `--triage-ci` (`-e review_triage_ci_failures=true`) to explain the failures "
+    "without dispatching lenses."
+)
+
+
+def _hides_score(verdict: str) -> bool:
+    return verdict.upper() in {"CI_TRIAGE", "NOTHING_TO_TRIAGE"}
 
 
 def _is_skipped(target: dict[str, Any], verdict: str) -> bool:
@@ -228,7 +242,7 @@ def _skipped_lines(target: dict[str, Any]) -> list[str]:
         target.get("ci_preflight_failed")
         or "review_require_ci_passing" in str(target.get("report") or "")
     ):
-        hint = "Pass `-e review_require_ci_passing=false` to bypass."
+        hint = _CI_SKIP_HINT
     if hint and hint not in reason and "review_require_ci_passing" not in reason:
         lines.append(f"  {sanitize_display_line(hint)}")
     return lines
@@ -247,6 +261,23 @@ def _failing_check_names(target: dict[str, Any]) -> list[str]:
     if names:
         return names
     return _failing_check_names_from_report(str(target.get("report") or ""))
+
+
+def _ci_diagnosis_lines(target: dict[str, Any]) -> list[str]:
+    """Job, step, and redacted error. A diagnosis, not a findings list."""
+    lines = ["  CI failure diagnosis. Lenses were not dispatched."]
+    for item in target.get("ci_diagnoses") or []:
+        if not isinstance(item, dict):
+            continue
+        job = sanitize_display_line(item.get("job") or "unknown")
+        step = sanitize_display_line(item.get("step") or "")
+        error = sanitize_display_line(item.get("error") or "")
+        lines.append(f"  {job}")
+        if step:
+            lines.append(f"    step: {step}")
+        if error:
+            lines.append(f"    error: {error}")
+    return lines
 
 
 def _skip_reason_from_report(report: str) -> str:

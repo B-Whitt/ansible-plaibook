@@ -135,7 +135,9 @@ Critical/Major findings with `file:line` + title + short why, minor/nit
 as counts, then a footer (cost, run-scoped `last_run.<run_id>.json`,
 path to `findings.md`). A `SKIPPED` verdict (CI failing on the PR head)
 prints the reason and failing check names here, not only under `-v`.
-Pass `-e review_require_ci_passing=false` to review anyway. A score line
+`--ignore-ci` (`-e review_require_ci_passing=false`) reviews anyway.
+`--triage-ci` (`-e review_triage_ci_failures=true`) explains the failures
+and does not dispatch lenses. A score line
 plus finding counts is not a review.
 
 `-v` passes `-v` to `ansible-playbook` (task names) and includes the
