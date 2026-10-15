@@ -85,3 +85,11 @@ def test_unknown_check_url_does_not_fetch():
     )
     assert found[0]["job"] == "ci/lint"
     assert found[0]["error"] == "CI log was not available."
+
+
+def test_github_api_host_is_the_hostname_only():
+    mod = _triage()
+    assert mod._is_github_api("https://api.github.com/repos/org/repo/actions/jobs/1/logs")
+    assert not mod._is_github_api("https://evil.example/api.github.com")
+    assert not mod._is_github_api("https://api.github.com.evil.example/repos/org/repo")
+    assert not mod._is_github_api("https://github.com/org/repo/actions/runs/1/job/2")

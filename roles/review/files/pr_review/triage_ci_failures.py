@@ -15,6 +15,7 @@ import re
 import sys
 import zipfile
 from typing import Callable
+from urllib.parse import urlparse
 
 _FETCH = Callable[[str], tuple[int, str]]
 
@@ -218,10 +219,15 @@ def _logs_text(payload: bytes) -> str:
     return "\n".join(parts)
 
 
+def _is_github_api(url: str) -> bool:
+    """True only when the URL host is api.github.com, not a substring of it."""
+    return (urlparse(url).hostname or "").lower() == "api.github.com"
+
+
 def _real_fetch(url: str) -> tuple[int, str]:
     import urllib.request
 
-    github = "api.github.com" in url
+    github = _is_github_api(url)
     headers = _github_headers() if github else _gitlab_headers()
     request = urllib.request.Request(url, headers=headers, method="GET")
     try:
