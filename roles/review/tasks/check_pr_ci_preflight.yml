@@ -69,6 +69,7 @@
           {{
             {
               'platform': review_platform | default(''),
+              'hostname': review_hostname | default(''),
               'failing_checks': review_ci_failing_checks
             } | to_json
           }}

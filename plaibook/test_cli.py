@@ -1203,6 +1203,11 @@ def test_pretty_ci_triage_names_job_step_and_error():
                             "error": "assert False",
                         }
                     ],
+                    "scores": {"functionality": 100},
+                    "findings_count": {"critical": 1, "major": 0, "minor": 0, "nit": 0},
+                    "findings": [
+                        {"severity": "critical", "title": "should not print", "file": "a.py", "line": 1}
+                    ],
                 }
             ],
         }
@@ -1213,6 +1218,8 @@ def test_pretty_ci_triage_names_job_step_and_error():
     assert "step: Run pytest" in pretty
     assert "assert False" in pretty
     assert "NEEDS_CHANGES" not in pretty
+    assert "findings:" not in pretty
+    assert "should not print" not in pretty
 
 
 def test_pretty_nothing_to_triage_is_not_a_review():

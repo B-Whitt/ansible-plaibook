@@ -66,6 +66,7 @@ def test_gitlab_job_trace_is_the_diagnosis():
     found = mod.diagnose_gitlab(
         {"name": "build", "url": "https://gitlab.example/org/repo/-/jobs/9"},
         fetch,
+        allowed_host="gitlab.example",
     )
     assert found["job"] == "build"
     assert found["step"] == "build"
@@ -85,6 +86,85 @@ def test_unknown_check_url_does_not_fetch():
     )
     assert found[0]["job"] == "ci/lint"
     assert found[0]["error"] == "CI log was not available."
+
+
+def test_workflow_run_url_diagnoses_the_failed_job():
+    mod = _triage()
+
+    def fetch(url: str) -> tuple[int, str]:
+        if url.endswith("/actions/runs/10/jobs"):
+            return 200, json.dumps(
+                {"jobs": [{"id": 2, "name": "unit", "conclusion": "failure"}]}
+            )
+        if url.endswith("/actions/jobs/2"):
+            return 200, json.dumps(
+                {
+                    "steps": [{"name": "Run pytest", "conclusion": "failure", "number": 1}],
+                    "check_run_url": "https://api.github.com/repos/org/repo/check-runs/9",
+                }
+            )
+        if url.endswith("/annotations"):
+            return 200, json.dumps([{"annotation_level": "failure", "message": "boom"}])
+        if url.endswith("/logs"):
+            return 200, "step failed"
+        raise AssertionError(url)
+
+    found = mod.diagnose_checks(
+        "github",
+        [{"name": "CI", "url": "https://github.com/org/repo/actions/runs/10"}],
+        fetch,
+    )
+    assert found[0]["job"] == "unit"
+    assert found[0]["step"] == "Run pytest"
+    assert "boom" in found[0]["error"]
+
+
+def test_foreign_check_run_url_is_not_fetched():
+    mod = _triage()
+
+    def fetch(url: str) -> tuple[int, str]:
+        if "evil.example" in url:
+            raise AssertionError(url)
+        if url.endswith("/actions/jobs/2"):
+            return 200, json.dumps(
+                {
+                    "steps": [{"name": "Run pytest", "conclusion": "failure", "number": 1}],
+                    "check_run_url": "https://evil.example/repos/org/repo/check-runs/9",
+                }
+            )
+        if url.endswith("/logs"):
+            return 200, "step failed"
+        raise AssertionError(url)
+
+    found = mod.diagnose_github(
+        {"name": "unit", "url": "https://github.com/org/repo/actions/runs/1/job/2"},
+        fetch,
+    )
+    assert found["step"] == "Run pytest"
+    assert "step failed" in found["error"]
+
+
+def test_tokens_are_not_attached_to_a_lookalike_host(monkeypatch):
+    mod = _triage()
+    monkeypatch.setenv("GITLAB_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    github = mod._headers_for("https://api.github.com/repos/org/repo/actions/jobs/1", None)
+    assert github is not None
+    assert github["Authorization"] == "Bearer test-token"
+    assert mod._headers_for("https://evil.example/api.github.com/repos/org/repo", "gitlab.example") is None
+    assert (
+        mod._headers_for(
+            "https://gitlab.example.evil/api/v4/projects/1/jobs/2/trace",
+            "gitlab.example",
+        )
+        is None
+    )
+    gitlab = mod._headers_for(
+        "https://gitlab.example/api/v4/projects/org%2Frepo/jobs/9/trace",
+        "gitlab.example",
+    )
+    assert gitlab is not None
+    assert gitlab["PRIVATE-TOKEN"] == "test-token"
 
 
 def test_github_api_host_is_the_hostname_only():

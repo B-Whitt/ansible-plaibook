@@ -160,39 +160,39 @@ def format_pretty(document: dict[str, Any], *, full: bool = False) -> str:
             if reason:
                 lines.append(f"  {sanitize_display_line(reason)}")
 
-        scores = target.get("scores") or {}
-        if scores:
-            lens_bits = []
-            for lens in ("functionality", "security", "quality"):
-                if lens in scores:
-                    lens_bits.append(f"{lens} {_percent(scores[lens])}")
-            extra = [
-                f"{sanitize_display_line(str(k))} {_percent(v)}"
-                for k, v in scores.items()
-                if k not in ("functionality", "security", "quality")
-            ]
-            if lens_bits or extra:
-                lines.append("  " + "  ".join(lens_bits + extra))
-
-        findings = list(target.get("findings") or [])
-        counts = target.get("findings_count")
-        if not counts and findings:
-            counts = _count_findings(findings)
-        if counts:
-            bits = [
-                f"{sanitize_display_line(counts.get(sev, 0))} {sev}" for sev in SEVERITY_ORDER
-            ]
-            lines.append("  findings: " + ", ".join(bits))
-
         if verdict.upper() == "CI_TRIAGE":
             lines.extend(_ci_diagnosis_lines(target))
+        elif not _hides_score(verdict):
+            scores = target.get("scores") or {}
+            if scores:
+                lens_bits = []
+                for lens in ("functionality", "security", "quality"):
+                    if lens in scores:
+                        lens_bits.append(f"{lens} {_percent(scores[lens])}")
+                extra = [
+                    f"{sanitize_display_line(str(k))} {_percent(v)}"
+                    for k, v in scores.items()
+                    if k not in ("functionality", "security", "quality")
+                ]
+                if lens_bits or extra:
+                    lines.append("  " + "  ".join(lens_bits + extra))
 
-        for finding in findings:
-            if str(finding.get("evidence_status") or "").lower() == "refuted":
-                continue
-            lines.extend(_format_point_finding(finding))
+            findings = list(target.get("findings") or [])
+            counts = target.get("findings_count")
+            if not counts and findings:
+                counts = _count_findings(findings)
+            if counts:
+                bits = [
+                    f"{sanitize_display_line(counts.get(sev, 0))} {sev}" for sev in SEVERITY_ORDER
+                ]
+                lines.append("  findings: " + ", ".join(bits))
 
-        if full:
+            for finding in findings:
+                if str(finding.get("evidence_status") or "").lower() == "refuted":
+                    continue
+                lines.extend(_format_point_finding(finding))
+
+        if full and not _hides_score(verdict):
             report = sanitize_display_text((target.get("report") or "").strip())
             if report:
                 lines.append("")

@@ -332,7 +332,7 @@
           ci_status: "failing"
           failing_checks:
             - name: "ci/unit-tests"
-              url: "https://github.com/my-org/my-repo/actions/runs/100"
+              url: "https://example.test/not-a-job"
       block:
         - name: Run check_pr_ci_preflight.yml in triage mode
           ansible.builtin.include_tasks: "{{ check_pr_ci_preflight_path }}"

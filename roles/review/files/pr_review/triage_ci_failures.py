@@ -9,6 +9,7 @@ redacted with the same rules as a review failure message.
 from __future__ import annotations
 
 import io
+import ipaddress
 import json
 import os
 import re
@@ -20,7 +21,10 @@ from urllib.parse import urlparse
 _FETCH = Callable[[str], tuple[int, str]]
 
 _GITHUB_JOB = re.compile(
-    r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/actions/runs/\d+/job/(?P<job>\d+)/?$"
+    r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/actions/runs/(?P<run>\d+)/job/(?P<job>\d+)/?$"
+)
+_GITHUB_RUN = re.compile(
+    r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/actions/runs/(?P<run>\d+)/?$"
 )
 _GITHUB_CHECK = re.compile(
     r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/runs/(?P<check>\d+)/?$"
@@ -29,6 +33,9 @@ _GITLAB_JOB = re.compile(r"^https://(?P<host>[^/]+)/(?P<project>.+)/-/jobs/(?P<j
 
 _LOG_TAIL_CHARS = 4000
 _ERROR_LIMIT = 800
+_MAX_DOWNLOAD = 1_000_000
+_MAX_ZIP_ENTRIES = 40
+_MAX_UNCOMPRESSED = 1_000_000
 
 
 def _redact(text: str) -> str:
@@ -113,6 +120,15 @@ def _gitlab_headers() -> dict[str, str]:
     return headers
 
 
+def _github_annotation_url(url: str, owner: str, repo: str) -> bool:
+    """True when a check-run URL is this repo's API, not an arbitrary host."""
+    parsed = urlparse(url)
+    if (parsed.hostname or "").lower() != "api.github.com":
+        return False
+    prefix = f"/repos/{owner}/{repo}/check-runs/"
+    return parsed.path.startswith(prefix)
+
+
 def diagnose_github(check: dict, fetch: _FETCH) -> dict[str, str]:
     """Annotations and the failed step log for one GitHub check URL."""
     url = str(check.get("url") or "")
@@ -134,7 +150,7 @@ def diagnose_github(check: dict, fetch: _FETCH) -> dict[str, str]:
         steps = job.get("steps") if isinstance(job.get("steps"), list) else []
         step_name, _ = _failed_step(steps)
         check_run = str(job.get("check_run_url") or "")
-        if check_run:
+        if _github_annotation_url(check_run, owner, repo):
             ann_status, ann_body = fetch(check_run.rstrip("/") + "/annotations")
             if ann_status == 200:
                 annotation = _annotation_text(_json_list(ann_body))
@@ -156,16 +172,18 @@ def diagnose_github(check: dict, fetch: _FETCH) -> dict[str, str]:
     return _diagnosis(name, step_name, error, url)
 
 
-def diagnose_gitlab(check: dict, fetch: _FETCH) -> dict[str, str]:
-    """Failed job trace for one GitLab job URL."""
+def diagnose_gitlab(check: dict, fetch: _FETCH, allowed_host: str | None = None) -> dict[str, str]:
+    """Failed job trace for one GitLab job URL on the merge request's host."""
     url = str(check.get("url") or "")
     name = str(check.get("name") or "unknown")
     match = _GITLAB_JOB.match(url)
     if match is None:
         return _unavailable(check)
+    host = match.group("host")
+    if not allowed_host or host.lower() != allowed_host.lower():
+        return _unavailable(check)
     project = match.group("project")
     job_id = match.group("job")
-    host = match.group("host")
     encoded = re.sub(r"/", "%2F", project)
     status, body = fetch(f"https://{host}/api/v4/projects/{encoded}/jobs/{job_id}/trace")
     if status != 200 or not body:
@@ -173,16 +191,51 @@ def diagnose_gitlab(check: dict, fetch: _FETCH) -> dict[str, str]:
     return _diagnosis(name, name, _error_text("", body), url)
 
 
-def diagnose_checks(platform: str, checks: list, fetch: _FETCH) -> list[dict[str, str]]:
+def diagnose_workflow_run(check: dict, fetch: _FETCH) -> list[dict[str, str]]:
+    """Failed jobs for a workflow-run page that has no job id in the URL."""
+    url = str(check.get("url") or "")
+    name = str(check.get("name") or "unknown")
+    match = _GITHUB_RUN.match(url)
+    if match is None:
+        return [_unavailable(check)]
+    owner = match.group("owner")
+    repo = match.group("repo")
+    run_id = match.group("run")
+    status, body = fetch(f"https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/jobs")
+    jobs = _json_object(body).get("jobs") if status == 200 else None
+    if not isinstance(jobs, list):
+        return [_unavailable(check)]
+    failed = [job for job in jobs if isinstance(job, dict) and job.get("conclusion") == "failure"]
+    if not failed:
+        return [_unavailable(check)]
+    found: list[dict[str, str]] = []
+    for job in failed:
+        job_id = str(job.get("id") or "")
+        if not job_id.isdigit():
+            continue
+        job_url = f"https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}"
+        job_name = str(job.get("name") or name)
+        found.append(diagnose_github({"name": job_name, "url": job_url}, fetch))
+    return found or [_unavailable(check)]
+
+
+def diagnose_checks(
+    platform: str,
+    checks: list,
+    fetch: _FETCH,
+    allowed_host: str | None = None,
+) -> list[dict[str, str]]:
     """One diagnosis per failing check. Unknown URLs stay a name without a log."""
     out: list[dict[str, str]] = []
     for check in checks or []:
         if not isinstance(check, dict):
             continue
-        if platform == "github":
+        if platform == "github" and _GITHUB_RUN.match(str(check.get("url") or "")):
+            out.extend(diagnose_workflow_run(check, fetch))
+        elif platform == "github":
             out.append(diagnose_github(check, fetch))
         elif platform == "gitlab":
-            out.append(diagnose_gitlab(check, fetch))
+            out.append(diagnose_gitlab(check, fetch, allowed_host))
         else:
             out.append(_unavailable(check))
     return out
@@ -205,18 +258,50 @@ def _json_list(body: str) -> list:
 
 
 def _logs_text(payload: bytes) -> str:
-    """Plain text, or every file in a GitHub job-log zip, later steps last."""
+    """Plain text, or a bounded read of a GitHub job-log zip, later steps last."""
     if payload[:2] != b"PK":
         return payload.decode("utf-8", errors="replace")
     try:
         archive = zipfile.ZipFile(io.BytesIO(payload))
     except zipfile.BadZipFile:
         return ""
-    parts = [
-        archive.read(name).decode("utf-8", errors="replace")
-        for name in sorted(archive.namelist())
-    ]
+    infos = archive.infolist()
+    if len(infos) > _MAX_ZIP_ENTRIES:
+        return ""
+    parts: list[str] = []
+    total = 0
+    for info in sorted(infos, key=lambda item: item.filename):
+        if info.file_size > _MAX_UNCOMPRESSED:
+            return ""
+        remaining = _MAX_UNCOMPRESSED - total
+        if remaining <= 0:
+            break
+        with archive.open(info) as handle:
+            chunk = handle.read(remaining)
+        total += len(chunk)
+        parts.append(chunk.decode("utf-8", errors="replace"))
     return "\n".join(parts)
+
+
+def _public_https(url: str) -> bool:
+    """True for a public https host. Redirect targets must pass this before a download."""
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return False
+    host = (parsed.hostname or "").lower()
+    if not host or host == "localhost" or host.endswith(".local"):
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+    )
 
 
 def _is_github_api(url: str) -> bool:
@@ -224,19 +309,68 @@ def _is_github_api(url: str) -> bool:
     return (urlparse(url).hostname or "").lower() == "api.github.com"
 
 
-def _real_fetch(url: str) -> tuple[int, str]:
+def _headers_for(url: str, gitlab_host: str | None) -> dict[str, str] | None:
+    """Tokens stay on the API host that owns them. Anything else gets no request."""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host == "api.github.com":
+        return _github_headers()
+    if gitlab_host and host == gitlab_host.lower() and parsed.path.startswith("/api/v4/"):
+        return _gitlab_headers()
+    return None
+
+
+def _read_capped(response, limit: int = _MAX_DOWNLOAD) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while total < limit:
+        chunk = response.read(min(65536, limit - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    return b"".join(chunks)
+
+
+def _request(url: str, headers: dict[str, str]) -> tuple[int, bytes, str]:
+    """One GET. Redirects are not followed, so a token cannot ride to another host."""
+    import urllib.error
     import urllib.request
 
-    github = _is_github_api(url)
-    headers = _github_headers() if github else _gitlab_headers()
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
+    opener = urllib.request.build_opener(_NoRedirect)
     request = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            payload = response.read()
-            status = response.status
-    except Exception:
+        with opener.open(request, timeout=60) as response:
+            length = response.headers.get("Content-Length")
+            if length and length.isdigit() and int(length) > _MAX_DOWNLOAD:
+                return 0, b"", ""
+            return response.status, _read_capped(response), ""
+    except urllib.error.HTTPError as exc:
+        location = ""
+        if exc.headers is not None:
+            location = exc.headers.get("Location") or ""
+        if exc.code in {301, 302, 303, 307, 308}:
+            return exc.code, b"", location
+        return exc.code, b"", ""
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return 0, b"", ""
+
+
+def _real_fetch(url: str, gitlab_host: str | None = None) -> tuple[int, str]:
+    headers = _headers_for(url, gitlab_host)
+    if headers is None:
         return 0, ""
-    if github and url.endswith("/logs"):
+    status, payload, location = _request(url, headers)
+    logs = _is_github_api(url) and urlparse(url).path.rstrip("/").endswith("/logs")
+    if logs and status in {301, 302, 303, 307, 308} and location and _public_https(location):
+        status, payload, _ = _request(location, {"User-Agent": "ansible-plaibook"})
+    if status != 200:
+        return status, ""
+    if logs:
         return status, _logs_text(payload)
     return status, payload.decode("utf-8", errors="replace")
 
@@ -255,7 +389,11 @@ def main() -> int:
     checks = document.get("failing_checks")
     if not isinstance(checks, list):
         checks = []
-    json.dump(diagnose_checks(platform, checks, _real_fetch), sys.stdout)
+    hostname = str(document.get("hostname") or "") or None
+    json.dump(
+        diagnose_checks(platform, checks, lambda url: _real_fetch(url, hostname), hostname),
+        sys.stdout,
+    )
     sys.stdout.write("\n")
     return 0
 
