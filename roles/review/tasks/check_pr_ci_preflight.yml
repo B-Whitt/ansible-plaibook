@@ -70,6 +70,7 @@
             {
               'platform': review_platform | default(''),
               'hostname': review_hostname | default(''),
+              'project': review_org_repo | default(''),
               'failing_checks': review_ci_failing_checks
             } | to_json
           }}

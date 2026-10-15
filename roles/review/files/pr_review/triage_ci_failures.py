@@ -16,7 +16,7 @@ import re
 import sys
 import zipfile
 from typing import Callable
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 _FETCH = Callable[[str], tuple[int, str]]
 
@@ -120,6 +120,38 @@ def _gitlab_headers() -> dict[str, str]:
     return headers
 
 
+_PAGE_LIMIT = 5
+_PAGE_SIZE = 100
+_log_step = ""
+
+
+def _api_repo(owner: str, repo: str, suffix: str) -> str:
+    return (
+        "https://api.github.com/repos/"
+        f"{quote(owner, safe='')}/{quote(repo, safe='')}/{suffix.lstrip('/')}"
+    )
+
+
+def _matches_project(owner: str, repo: str, project: str | None) -> bool:
+    return bool(project) and f"{owner}/{repo}" == project
+
+
+def _paged(fetch: _FETCH, url: str, list_key: str | None) -> list:
+    """Follow page query params. Stops after a short page or a fixed page cap."""
+    items: list = []
+    for page in range(1, _PAGE_LIMIT + 1):
+        status, body = fetch(f"{url}?per_page={_PAGE_SIZE}&page={page}")
+        if status != 200:
+            break
+        batch = _json_object(body).get(list_key) if list_key else _json_list(body)
+        if not isinstance(batch, list) or not batch:
+            break
+        items.extend(batch)
+        if len(batch) < _PAGE_SIZE:
+            break
+    return items
+
+
 def _github_annotation_url(url: str, owner: str, repo: str) -> bool:
     """True when a check-run URL is this repo's API, not an arbitrary host."""
     parsed = urlparse(url)
@@ -129,69 +161,80 @@ def _github_annotation_url(url: str, owner: str, repo: str) -> bool:
     return parsed.path.startswith(prefix)
 
 
-def diagnose_github(check: dict, fetch: _FETCH) -> dict[str, str]:
-    """Annotations and the failed step log for one GitHub check URL."""
+def diagnose_github(check: dict, fetch: _FETCH, project: str | None = None) -> dict[str, str]:
+    """Annotations and the failed step log for one GitHub check URL in this repo."""
+    global _log_step
     url = str(check.get("url") or "")
     name = str(check.get("name") or "unknown")
     job_match = _GITHUB_JOB.match(url)
     check_match = _GITHUB_CHECK.match(url)
     if job_match is None and check_match is None:
         return _unavailable(check)
+    owner = (job_match or check_match).group("owner")
+    repo = (job_match or check_match).group("repo")
+    if not _matches_project(owner, repo, project):
+        return _unavailable(check)
 
     step_name = ""
     annotation = ""
     log_text = ""
     if job_match:
-        owner = job_match.group("owner")
-        repo = job_match.group("repo")
         job_id = job_match.group("job")
-        status, body = fetch(f"https://api.github.com/repos/{owner}/{repo}/actions/jobs/{job_id}")
+        status, body = fetch(_api_repo(owner, repo, f"actions/jobs/{job_id}"))
         job = _json_object(body) if status == 200 else {}
         steps = job.get("steps") if isinstance(job.get("steps"), list) else []
-        step_name, _ = _failed_step(steps)
+        step_name, step_number = _failed_step(steps)
         check_run = str(job.get("check_run_url") or "")
         if _github_annotation_url(check_run, owner, repo):
-            ann_status, ann_body = fetch(check_run.rstrip("/") + "/annotations")
-            if ann_status == 200:
-                annotation = _annotation_text(_json_list(ann_body))
-        log_status, log_body = fetch(f"https://api.github.com/repos/{owner}/{repo}/actions/jobs/{job_id}/logs")
+            annotation = _annotation_text(
+                _paged(fetch, check_run.rstrip("/") + "/annotations", None)
+            )
+        _log_step = step_number
+        log_status, log_body = fetch(_api_repo(owner, repo, f"actions/jobs/{job_id}/logs"))
         if log_status == 200 and log_body:
             log_text = log_body
     else:
         assert check_match is not None
-        owner = check_match.group("owner")
-        repo = check_match.group("repo")
         check_id = check_match.group("check")
-        ann_status, ann_body = fetch(
-            f"https://api.github.com/repos/{owner}/{repo}/check-runs/{check_id}/annotations"
+        annotation = _annotation_text(
+            _paged(fetch, _api_repo(owner, repo, f"check-runs/{check_id}/annotations"), None)
         )
-        if ann_status == 200:
-            annotation = _annotation_text(_json_list(ann_body))
 
     error = _error_text(annotation, log_text)
     return _diagnosis(name, step_name, error, url)
 
 
-def diagnose_gitlab(check: dict, fetch: _FETCH, allowed_host: str | None = None) -> dict[str, str]:
-    """Failed job trace for one GitLab job URL on the merge request's host."""
+def diagnose_gitlab(
+    check: dict,
+    fetch: _FETCH,
+    allowed_host: str | None = None,
+    project: str | None = None,
+) -> dict[str, str]:
+    """Failed job trace for one GitLab job on this merge request's host and project."""
     url = str(check.get("url") or "")
     name = str(check.get("name") or "unknown")
     match = _GITLAB_JOB.match(url)
     if match is None:
         return _unavailable(check)
     host = match.group("host")
+    project_path = match.group("project")
     if not allowed_host or host.lower() != allowed_host.lower():
         return _unavailable(check)
-    project = match.group("project")
+    if not project or project_path != project:
+        return _unavailable(check)
     job_id = match.group("job")
-    encoded = re.sub(r"/", "%2F", project)
+    encoded = quote(project_path, safe="")
     status, body = fetch(f"https://{host}/api/v4/projects/{encoded}/jobs/{job_id}/trace")
     if status != 200 or not body:
         return _unavailable(check)
     return _diagnosis(name, name, _error_text("", body), url)
 
 
-def diagnose_workflow_run(check: dict, fetch: _FETCH) -> list[dict[str, str]]:
+def diagnose_workflow_run(
+    check: dict,
+    fetch: _FETCH,
+    project: str | None = None,
+) -> list[dict[str, str]]:
     """Failed jobs for a workflow-run page that has no job id in the URL."""
     url = str(check.get("url") or "")
     name = str(check.get("name") or "unknown")
@@ -200,11 +243,10 @@ def diagnose_workflow_run(check: dict, fetch: _FETCH) -> list[dict[str, str]]:
         return [_unavailable(check)]
     owner = match.group("owner")
     repo = match.group("repo")
-    run_id = match.group("run")
-    status, body = fetch(f"https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/jobs")
-    jobs = _json_object(body).get("jobs") if status == 200 else None
-    if not isinstance(jobs, list):
+    if not _matches_project(owner, repo, project):
         return [_unavailable(check)]
+    run_id = match.group("run")
+    jobs = _paged(fetch, _api_repo(owner, repo, f"actions/runs/{run_id}/jobs"), "jobs")
     failed = [job for job in jobs if isinstance(job, dict) and job.get("conclusion") == "failure"]
     if not failed:
         return [_unavailable(check)]
@@ -215,7 +257,7 @@ def diagnose_workflow_run(check: dict, fetch: _FETCH) -> list[dict[str, str]]:
             continue
         job_url = f"https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}"
         job_name = str(job.get("name") or name)
-        found.append(diagnose_github({"name": job_name, "url": job_url}, fetch))
+        found.append(diagnose_github({"name": job_name, "url": job_url}, fetch, project))
     return found or [_unavailable(check)]
 
 
@@ -224,6 +266,7 @@ def diagnose_checks(
     checks: list,
     fetch: _FETCH,
     allowed_host: str | None = None,
+    project: str | None = None,
 ) -> list[dict[str, str]]:
     """One diagnosis per failing check. Unknown URLs stay a name without a log."""
     out: list[dict[str, str]] = []
@@ -231,11 +274,11 @@ def diagnose_checks(
         if not isinstance(check, dict):
             continue
         if platform == "github" and _GITHUB_RUN.match(str(check.get("url") or "")):
-            out.extend(diagnose_workflow_run(check, fetch))
+            out.extend(diagnose_workflow_run(check, fetch, project))
         elif platform == "github":
-            out.append(diagnose_github(check, fetch))
+            out.append(diagnose_github(check, fetch, project))
         elif platform == "gitlab":
-            out.append(diagnose_gitlab(check, fetch, allowed_host))
+            out.append(diagnose_gitlab(check, fetch, allowed_host, project))
         else:
             out.append(_unavailable(check))
     return out
@@ -266,7 +309,7 @@ def _zip_entry_key(filename: str) -> tuple[int, str]:
     return (10**9, base)
 
 
-def _logs_text(payload: bytes) -> str:
+def _logs_text(payload: bytes, step_number: str = "") -> str:
     """Plain text, or a bounded read of a GitHub job-log zip, later steps last."""
     if payload[:2] != b"PK":
         return payload.decode("utf-8", errors="replace")
@@ -277,6 +320,15 @@ def _logs_text(payload: bytes) -> str:
     infos = archive.infolist()
     if len(infos) > _MAX_ZIP_ENTRIES:
         return ""
+    if step_number:
+        matched = [
+            info
+            for info in infos
+            if _zip_entry_key(info.filename)[0] == int(step_number)
+        ]
+        if not matched:
+            return ""
+        infos = matched
     parts: list[str] = []
     total = 0
     for info in sorted(infos, key=lambda item: _zip_entry_key(item.filename)):
@@ -380,7 +432,7 @@ def _real_fetch(url: str, gitlab_host: str | None = None) -> tuple[int, str]:
     if status != 200:
         return status, ""
     if logs:
-        return status, _logs_text(payload)
+        return status, _logs_text(payload, _log_step)
     return status, payload.decode("utf-8", errors="replace")
 
 
@@ -399,8 +451,15 @@ def main() -> int:
     if not isinstance(checks, list):
         checks = []
     hostname = str(document.get("hostname") or "") or None
+    project = str(document.get("project") or "") or None
     json.dump(
-        diagnose_checks(platform, checks, lambda url: _real_fetch(url, hostname), hostname),
+        diagnose_checks(
+            platform,
+            checks,
+            lambda url: _real_fetch(url, hostname),
+            hostname,
+            project,
+        ),
         sys.stdout,
     )
     sys.stdout.write("\n")

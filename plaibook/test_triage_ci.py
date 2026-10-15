@@ -36,11 +36,11 @@ def test_github_annotations_and_log_tail_name_the_failed_step():
     annotations = [{"annotation_level": "failure", "message": "AssertionError: expected true"}]
 
     def fetch(url: str) -> tuple[int, str]:
-        if url.endswith("/actions/jobs/2"):
+        if url.split("?", 1)[0].endswith("/actions/jobs/2"):
             return 200, json.dumps(job)
-        if url.endswith("/annotations"):
+        if "/annotations" in url.split("?", 1)[0]:
             return 200, json.dumps(annotations)
-        if url.endswith("/logs"):
+        if url.split("?", 1)[0].endswith("/logs"):
             return 200, log
         raise AssertionError(url)
 
@@ -50,6 +50,7 @@ def test_github_annotations_and_log_tail_name_the_failed_step():
             "url": "https://github.com/org/repo/actions/runs/1/job/2",
         },
         fetch,
+        project="org/repo",
     )
     assert found["job"] == "ci/unit-tests"
     assert found["step"] == "Run pytest"
@@ -69,6 +70,7 @@ def test_gitlab_job_trace_is_the_diagnosis():
         {"name": "build", "url": "https://gitlab.example/org/repo/-/jobs/9"},
         fetch,
         allowed_host="gitlab.example",
+        project="org/repo",
     )
     assert found["job"] == "build"
     assert found["step"] == "build"
@@ -94,20 +96,25 @@ def test_workflow_run_url_diagnoses_the_failed_job():
     mod = _triage()
 
     def fetch(url: str) -> tuple[int, str]:
-        if url.endswith("/actions/runs/10/jobs"):
+        if "/actions/runs/10/jobs" in url.split("?", 1)[0]:
+            page = url.split("&page=", 1)[-1]
+            if page == "1":
+                return 200, json.dumps(
+                    {"jobs": [{"id": index, "name": "ok", "conclusion": "success"} for index in range(100)]}
+                )
             return 200, json.dumps(
                 {"jobs": [{"id": 2, "name": "unit", "conclusion": "failure"}]}
             )
-        if url.endswith("/actions/jobs/2"):
+        if url.split("?", 1)[0].endswith("/actions/jobs/2"):
             return 200, json.dumps(
                 {
                     "steps": [{"name": "Run pytest", "conclusion": "failure", "number": 1}],
                     "check_run_url": "https://api.github.com/repos/org/repo/check-runs/9",
                 }
             )
-        if url.endswith("/annotations"):
+        if "/annotations" in url.split("?", 1)[0]:
             return 200, json.dumps([{"annotation_level": "failure", "message": "boom"}])
-        if url.endswith("/logs"):
+        if url.split("?", 1)[0].endswith("/logs"):
             return 200, "step failed"
         raise AssertionError(url)
 
@@ -115,6 +122,7 @@ def test_workflow_run_url_diagnoses_the_failed_job():
         "github",
         [{"name": "CI", "url": "https://github.com/org/repo/actions/runs/10"}],
         fetch,
+        project="org/repo",
     )
     assert found[0]["job"] == "unit"
     assert found[0]["step"] == "Run pytest"
@@ -127,20 +135,21 @@ def test_foreign_check_run_url_is_not_fetched():
     def fetch(url: str) -> tuple[int, str]:
         if "evil.example" in url:
             raise AssertionError(url)
-        if url.endswith("/actions/jobs/2"):
+        if url.split("?", 1)[0].endswith("/actions/jobs/2"):
             return 200, json.dumps(
                 {
                     "steps": [{"name": "Run pytest", "conclusion": "failure", "number": 1}],
                     "check_run_url": "https://evil.example/repos/org/repo/check-runs/9",
                 }
             )
-        if url.endswith("/logs"):
+        if url.split("?", 1)[0].endswith("/logs"):
             return 200, "step failed"
         raise AssertionError(url)
 
     found = mod.diagnose_github(
         {"name": "unit", "url": "https://github.com/org/repo/actions/runs/1/job/2"},
         fetch,
+        project="org/repo",
     )
     assert found["step"] == "Run pytest"
     assert "step failed" in found["error"]
@@ -173,10 +182,13 @@ def test_zip_entries_sort_by_numeric_step_prefix():
     mod = _triage()
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("11_cleanup.txt", "CLEANUP")
         archive.writestr("10_late.txt", "LATE-STEP")
         archive.writestr("2_early.txt", "EARLY-STEP")
-    text = mod._logs_text(buffer.getvalue())
-    assert text.index("EARLY-STEP") < text.index("LATE-STEP")
+    text = mod._logs_text(buffer.getvalue(), "2")
+    assert "EARLY-STEP" in text
+    assert "LATE-STEP" not in text
+    assert "CLEANUP" not in text
 
 
 def test_github_api_host_is_the_hostname_only():
