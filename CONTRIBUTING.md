@@ -103,15 +103,11 @@ Name the branch correctly before opening its pull request: renaming a branch clo
 
 ## Commit Standards
 
-- `git commit -s` is the DCO trailer (`Signed-off-by`).
-- `git commit -S` with `CURSOR_SIGNING_KEY` is what makes GitHub show
-  the commit as Verified. The key is the GitHub SSH signing key titled
-  `cursor-signing`, and the committer email is `aknochow@redhat.com`.
-- Include AI assistance attribution via trailer when applicable:
-  `Assisted-by: Provider (model)`, using the actual provider/tool and exact
-  model that performed the work (for example,
-  `Assisted-by: Codex (gpt-5.6-luna-xhigh)`). Never copy an attribution from
-  another session or use `Co-Authored-By:`.
+Sign every commit with `git commit -s`. That adds the DCO `Signed-off-by` trailer with your name and email.
+
+Sign the commit with your own SSH or GPG key if you want GitHub to show it as Verified. The key and the committer email need to belong to your GitHub account.
+
+If a tool wrote the change, add one trailer, `Assisted-by: Tool (model)`, naming the tool and model that did the work. Do not add `Co-authored-by`.
 
 ## Before submitting a PR: avoiding sensitive/internal info leaks
 
