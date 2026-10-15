@@ -4,9 +4,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "filter_plugins"))
 
 from openai_conversation import (
+    openai_lens_reasoning_effort,
     openai_reasoning_tokens,
     openai_response_to_message_content,
     openai_tool_calls_with_input,
+    openai_tool_reasoning_effort,
     to_openai_messages,
     to_openai_tools,
 )
@@ -88,3 +90,37 @@ def test_extracts_reasoning_tokens_from_raw_openai_usage():
     ) == 37
     assert openai_reasoning_tokens({"usage": {"completion_tokens": 12}}) == 0
     assert openai_reasoning_tokens({}) == 0
+
+
+def test_gpt56_lens_uses_none_only_when_unset():
+    assert openai_lens_reasoning_effort("gpt-5.6", "") == "none"
+    assert openai_lens_reasoning_effort("GPT-5.6-sol", "") == "none"
+    assert openai_lens_reasoning_effort("gpt-4o", "") == ""
+    assert openai_lens_reasoning_effort("gpt-5.6", "high") == "high"
+    assert openai_lens_reasoning_effort("gpt-4o", "low") == "low"
+
+
+def test_gpt56_tool_calls_use_none_and_other_models_stay_default():
+    assert openai_tool_reasoning_effort("gpt-5.6") == "none"
+    assert openai_tool_reasoning_effort("gpt-5.6-terra") == "none"
+    assert openai_tool_reasoning_effort("gpt-6-luna") == "none"
+    assert openai_tool_reasoning_effort("gpt-4o") == ""
+
+
+def test_openai_tasks_call_the_gpt56_filters():
+    root = Path(__file__).parents[1]
+    lens = (root / "roles/review/tasks/dispatch_lens_openai.yml").read_text(encoding="utf-8")
+    explore = (root / "roles/review/tasks/dispatch_explore_turn_attempt_openai.yml").read_text(encoding="utf-8")
+    verify = (root / "roles/review/tasks/dispatch_verify_turn_attempt_openai.yml").read_text(encoding="utf-8")
+    continuity = (root / "roles/review/tasks/verify_continuity_audit.yml").read_text(encoding="utf-8")
+    defaults = (root / "roles/review/defaults/main.yml").read_text(encoding="utf-8")
+    assert "openai_lens_reasoning_effort(review_openai_lens_reasoning_effort)" in lens
+    assert (
+        "openai_lens_reasoning_effort(review_openai_continuity_reasoning_effort | default('', true))"
+    ) in continuity
+    assert "openai_tool_reasoning_effort" in explore
+    assert "openai_tool_reasoning_effort" in verify
+    assert (
+        "review_openai_lens_reasoning_effort: "
+        "\"{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_OPENAI_LENS_REASONING_EFFORT') | default('', true) }}\""
+    ) in defaults

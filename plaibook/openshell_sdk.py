@@ -26,7 +26,12 @@ from typing import Iterator, TextIO
 from urllib.parse import unquote, urlparse
 
 from plaibook.collections import redact_git_userinfo
-from plaibook.pip_hashed import lock_digest, pip_install_hashed_argv
+from plaibook.pip_hashed import (
+    HashedInstallError,
+    hashed_install_argv,
+    hashed_uninstall_argv,
+    lock_digest,
+)
 from plaibook.playbook import last_run_dir
 from plaibook.runtime import interpreter_is_externally_managed
 
@@ -145,7 +150,7 @@ def interpreter_version(python: str) -> tuple[int, int, int]:
 def interpreter_supports_sdk(python: str) -> bool:
     """True when ``python`` is new enough for ``SDK_SPEC``."""
     major, minor, _patch = interpreter_version(python)
-    return (major, minor) >= SDK_MIN_PYTHON
+    return SDK_MIN_PYTHON <= (major, minor) < (3, 15)
 
 
 def find_sdk_python() -> str | None:
@@ -244,11 +249,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "plaibook"
 version = "%s"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.15"
 
 [project.scripts]
-plaibook = "plaibook.cli:main"
-plai = "plaibook.cli:main"
+plaibook = "plaibook.entry:main"
+plai = "plaibook.entry:main"
 
 [tool.setuptools.packages.find]
 include = ["plaibook*"]
@@ -364,8 +369,11 @@ def ensure_openshell_sdk(
         )
     out = stderr if stderr is not None else sys.stderr
     try:
-        dry_argv = pip_install_hashed_argv(exe, HASHED_REQUIREMENTS, dry_run=True)
-        install_argv = pip_install_hashed_argv(exe, HASHED_REQUIREMENTS)
+        dry_argv = hashed_install_argv(exe, HASHED_REQUIREMENTS, dry_run=True)
+        install_argv = hashed_install_argv(exe, HASHED_REQUIREMENTS)
+        uninstall_argv = hashed_uninstall_argv(exe, "openshell")
+    except HashedInstallError as exc:
+        raise OpenshellSdkError(str(exc)) from exc
     except OSError as exc:
         raise OpenshellSdkError(f"cannot read hashed OpenShell requirements: {exc}") from exc
     if _package_present(exe):
@@ -376,7 +384,7 @@ def ensure_openshell_sdk(
                 f"pip install --dry-run --require-hashes -r {HASHED_REQUIREMENTS} failed for {exe}: {detail}. "
                 "The existing openshell was left in place."
             )
-        uninstall = _run([exe, "-m", "pip", "uninstall", "-y", "--disable-pip-version-check", "openshell"], timeout=120)
+        uninstall = _run(uninstall_argv, timeout=120)
         if uninstall.returncode != 0:
             detail = _detail(uninstall) or uninstall.returncode
             raise OpenshellSdkError(f"pip uninstall openshell failed: {detail}")
@@ -754,7 +762,9 @@ def _install_plaibook_hashed(venv_python: str, spec: str) -> None:
 
 def _pip_install_hashed(python: str, filename: str, *, timeout: int) -> None:
     try:
-        argv = pip_install_hashed_argv(python, filename)
+        argv = hashed_install_argv(python, filename)
+    except HashedInstallError as exc:
+        raise OpenshellSdkError(str(exc)) from exc
     except OSError as exc:
         raise OpenshellSdkError(f"cannot read hashed requirements {filename}: {exc}") from exc
     completed = _run(argv, timeout=timeout)

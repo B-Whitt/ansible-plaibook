@@ -10,7 +10,7 @@
     msg: "{{ [
       'base_url: configured OpenAI-compatible endpoint',
       'model: ' + review_openai_model,
-      'reasoning_effort: ' + (review_openai_lens_reasoning_effort | default('api-default', true)),
+      'reasoning_effort: ' + (review_openai_model | openai_lens_reasoning_effort(review_openai_lens_reasoning_effort) | default('api-default', true)),
       'max_completion_tokens: ' + (review_openai_max_completion_tokens | string),
       'response_format: json_schema (security_findings_schema)',
       '',
@@ -22,7 +22,7 @@
     base_url: "{{ openai_base_url }}"
     api_key: "{{ openai_api_key | default(omit, true) }}"
     model: "{{ review_openai_model }}"
-    reasoning_effort: "{{ review_openai_lens_reasoning_effort | default(omit, true) }}"
+    reasoning_effort: "{{ review_openai_model | openai_lens_reasoning_effort(review_openai_lens_reasoning_effort) | default(omit, true) }}"
     max_completion_tokens: "{{ review_openai_max_completion_tokens }}"
     timeout: "{{ openai_timeout }}"
     llama_server_mode: false
@@ -46,7 +46,7 @@
     msg: "{{ [
       'base_url: configured OpenAI-compatible endpoint',
       'model: ' + review_openai_model,
-      'reasoning_effort: ' + (review_openai_lens_reasoning_effort | default('api-default', true)),
+      'reasoning_effort: ' + (review_openai_model | openai_lens_reasoning_effort(review_openai_lens_reasoning_effort) | default('api-default', true)),
       'max_completion_tokens: ' + (review_openai_max_completion_tokens | string),
       'response_format: json_schema (review_findings_schema)',
       '',
@@ -58,7 +58,7 @@
     base_url: "{{ openai_base_url }}"
     api_key: "{{ openai_api_key | default(omit, true) }}"
     model: "{{ review_openai_model }}"
-    reasoning_effort: "{{ review_openai_lens_reasoning_effort | default(omit, true) }}"
+    reasoning_effort: "{{ review_openai_model | openai_lens_reasoning_effort(review_openai_lens_reasoning_effort) | default(omit, true) }}"
     max_completion_tokens: "{{ review_openai_max_completion_tokens }}"
     timeout: "{{ openai_timeout }}"
     llama_server_mode: false

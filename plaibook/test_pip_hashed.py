@@ -3,7 +3,15 @@
 
 from __future__ import annotations
 
-from plaibook.pip_hashed import hashed_requirements, pinned_versions, pip_install_hashed_argv
+import pytest
+
+from plaibook.pip_hashed import (
+    HashedInstallError,
+    hashed_install_argv,
+    hashed_requirements,
+    pinned_versions,
+    pip_install_hashed_argv,
+)
 
 
 def test_hashed_requirements_exist():
@@ -30,6 +38,34 @@ def test_pip_install_hashed_argv_require_hashes():
     dry = pip_install_hashed_argv("/usr/bin/python3", "openshell-requirements.txt", dry_run=True)
     assert "--dry-run" in dry
     assert "--require-hashes" in dry
+
+
+def test_missing_pip_uses_uv_pip(monkeypatch):
+    monkeypatch.setattr("plaibook.pip_hashed.shutil.which", lambda name: "/usr/bin/uv" if name == "uv" else None)
+    argv = hashed_install_argv("/opt/plaibook/bin/python", "openai-requirements.txt", has_pip=False)
+    assert argv[:5] == ["/usr/bin/uv", "pip", "install", "--python", "/opt/plaibook/bin/python"]
+    assert "--require-hashes" in argv
+    assert "--dry-run" not in argv
+    dry = hashed_install_argv(
+        "/opt/plaibook/bin/python",
+        "openai-requirements.txt",
+        dry_run=True,
+        has_pip=False,
+    )
+    assert "--dry-run" in dry
+    assert "--require-hashes" in dry
+
+
+def test_present_pip_stays_on_python_module():
+    argv = hashed_install_argv("/usr/bin/python3", "openai-requirements.txt", has_pip=True)
+    assert argv[:4] == ["/usr/bin/python3", "-m", "pip", "install"]
+
+
+def test_missing_pip_without_uv_does_not_ask_for_pip(monkeypatch):
+    monkeypatch.setattr("plaibook.pip_hashed.shutil.which", lambda _name: None)
+    with pytest.raises(HashedInstallError, match="uv is not on PATH") as exc:
+        hashed_install_argv("/opt/plaibook/bin/python", "openai-requirements.txt", has_pip=False)
+    assert "install pip" not in str(exc.value).lower()
 
 
 def test_pinned_versions_reads_top_level_dists():

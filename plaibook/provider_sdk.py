@@ -25,7 +25,7 @@ from typing import Iterator, TextIO
 
 from packaging.requirements import Requirement
 
-from plaibook.pip_hashed import HASHED_DIR, pinned_versions, pip_install_hashed_argv
+from plaibook.pip_hashed import HASHED_DIR, HashedInstallError, hashed_install_argv, pinned_versions
 from plaibook.playbook import last_run_dir
 from plaibook.runtime import interpreter_is_externally_managed
 
@@ -144,7 +144,9 @@ def _ensure_provider_sdk_locked(
     out.write(f"Installing {key} provider SDK ({label}) for {exe}…\n")
     out.flush()
     try:
-        argv = pip_install_hashed_argv(exe, hashed_file)
+        argv = hashed_install_argv(exe, hashed_file)
+    except HashedInstallError as exc:
+        raise ProviderSdkError(str(exc)) from exc
     except OSError as exc:
         raise ProviderSdkError(f"cannot read hashed provider requirements: {exc}") from exc
     install = _run(argv, timeout=300)

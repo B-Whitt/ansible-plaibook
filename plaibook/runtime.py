@@ -20,6 +20,23 @@ from pathlib import Path
 # macOS XProtect blocks scripts that appear in /tmp and then run.
 _REJECTED_TMP_ROOTS = {Path("/tmp"), Path("/private/tmp")}
 
+# ansible-core 2.19 does not start on Python 3.15 (dataclasses._is_type).
+_MAX_PYTHON = (3, 15)
+
+
+class UnsupportedPythonError(RuntimeError):
+    """This interpreter is outside the versions plaibook supports."""
+
+
+def require_supported_python(version: tuple[int, int] | None = None) -> None:
+    """Refuse Python 3.15 and newer before Ansible is imported."""
+    major, minor = version if version is not None else sys.version_info[:2]
+    if (major, minor) < _MAX_PYTHON:
+        return
+    raise UnsupportedPythonError(
+        f"Python {major}.{minor} is not supported. plaibook supports Python 3.10 through 3.14."
+    )
+
 
 def interpreter_is_externally_managed(python: str | None = None) -> bool:
     """True when pip will refuse installs into this base interpreter.

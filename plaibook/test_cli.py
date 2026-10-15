@@ -30,6 +30,7 @@ from plaibook.playbook import (
     last_run_canonical_path,
     last_run_path,
 )
+from plaibook.runtime import UnsupportedPythonError
 from plaibook.summary import enrich_last_run, format_pretty
 from plaibook.task_failures import create_task_failures_log, write_task_failures
 
@@ -105,11 +106,12 @@ def test_plaibook_and_plai_share_the_same_main():
     from importlib.metadata import entry_points
 
     import plaibook.cli as cli
+    import plaibook.entry as entry
 
     scripts = {ep.name: ep for ep in entry_points(group="console_scripts")}
-    assert scripts["plai"].value == "plaibook.cli:main"
-    assert scripts["plaibook"].value == "plaibook.cli:main"
-    assert scripts["plai"].load() is scripts["plaibook"].load() is cli.main
+    assert scripts["plai"].value == "plaibook.entry:main"
+    assert scripts["plaibook"].value == "plaibook.entry:main"
+    assert scripts["plai"].load() is scripts["plaibook"].load() is entry.main
     parser_a = cli.build_parser(prog="plai")
     parser_b = cli.build_parser(prog="plaibook")
     assert parser_a.parse_args(["review", "--commit"]).commit is True
@@ -2386,3 +2388,15 @@ def test_cmd_review_corrupt_last_run(tmp_path, monkeypatch, capsys):
     assert code == 2
     assert "cannot parse" in err
     assert "Traceback" not in err
+
+
+def test_review_refuses_python_315_before_ansible(monkeypatch, capsys):
+    def refuse():
+        raise UnsupportedPythonError("Python 3.15 is not supported. plaibook supports Python 3.10 through 3.14.")
+
+    monkeypatch.setattr("plaibook.cli.require_supported_python", refuse)
+    code = main(["review"])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "Python 3.15 is not supported" in err
+    assert "3.10 through 3.14" in err

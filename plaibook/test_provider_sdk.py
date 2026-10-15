@@ -16,6 +16,11 @@ from plaibook.provider_sdk import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _provider_interpreter_has_pip(monkeypatch):
+    monkeypatch.setattr("plaibook.pip_hashed.python_has_pip", lambda _python: True)
+
+
 def test_unknown_family_is_noop(monkeypatch):
     calls = []
     monkeypatch.setattr("plaibook.provider_sdk.subprocess.run", lambda *a, **k: calls.append(a))
@@ -134,6 +139,43 @@ def test_externally_managed_interpreter_does_not_pip_install(monkeypatch):
     )
     with pytest.raises(ProviderSdkError, match="pipx"):
         ensure_provider_sdk("cursor", stderr=None)
+
+
+def test_missing_pip_installs_with_uv(monkeypatch):
+    recorded = []
+    present = {"n": 0}
+
+    def fake_satisfied(*_a):
+        present["n"] += 1
+        return present["n"] > 1
+
+    def fake_run(cmd, **kwargs):
+        recorded.append(list(cmd))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    import plaibook.pip_hashed as hashed
+
+    monkeypatch.setattr(hashed, "python_has_pip", lambda _python: False)
+    monkeypatch.setattr(hashed.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None)
+    monkeypatch.setattr("plaibook.provider_sdk.interpreter_is_externally_managed", lambda *_a: False)
+    monkeypatch.setattr("plaibook.provider_sdk._requirement_satisfied", fake_satisfied)
+    monkeypatch.setattr("plaibook.provider_sdk.subprocess.run", fake_run)
+    ensure_provider_sdk("openai", "/opt/plaibook/bin/python", stderr=None)
+    assert recorded[0][:5] == ["/usr/bin/uv", "pip", "install", "--python", "/opt/plaibook/bin/python"]
+    assert "--require-hashes" in recorded[0]
+    assert recorded[0][-2:] == ["-r", str(hashed_requirements("openai-requirements.txt"))]
+
+
+def test_missing_pip_without_uv_does_not_ask_for_pip(monkeypatch):
+    import plaibook.pip_hashed as hashed
+
+    monkeypatch.setattr(hashed, "python_has_pip", lambda _python: False)
+    monkeypatch.setattr(hashed.shutil, "which", lambda _name: None)
+    monkeypatch.setattr("plaibook.provider_sdk._requirement_satisfied", lambda *_a: False)
+    monkeypatch.setattr("plaibook.provider_sdk.interpreter_is_externally_managed", lambda *_a: False)
+    with pytest.raises(ProviderSdkError, match="uv is not on PATH") as exc:
+        ensure_provider_sdk("openai", "/opt/plaibook/bin/python")
+    assert "install pip" not in str(exc.value).lower()
 
 
 def test_pip_failure_surfaces(monkeypatch):

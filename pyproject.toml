@@ -10,7 +10,7 @@ name = "plaibook"
 version = "0.1.27"
 description = "Ansible-native AI code-review pipeline"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.15"
 license = {file = "LICENSE"}
 authors = [{ name = "Adam Knochowski", email = "aknochow@redhat.com" }]
 keywords = ["ansible", "code-review", "cli"]
@@ -40,8 +40,8 @@ dependencies = [
 ]
 
 [project.scripts]
-plaibook = "plaibook.cli:main"
-plai = "plaibook.cli:main"
+plaibook = "plaibook.entry:main"
+plai = "plaibook.entry:main"
 
 [project.urls]
 Homepage = "https://github.com/aknochow/ansible-plaibook"
