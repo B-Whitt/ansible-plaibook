@@ -3,12 +3,8 @@
 Diagnosis only. Lenses were not dispatched. This is not a review verdict.
 
 {% for item in review_ci_diagnoses | default([]) %}
-### {{ item.job }}
-{% if item.step %}
-Step: {{ item.step }}
-{% endif %}
-{% if item.error %}
-{{ item.error }}
-{% endif %}
+<pre>Job: {{ item.job | e }}
+{% if item.step %}Step: {{ item.step | e }}
+{% endif %}{% if item.error %}{{ item.error | e }}{% endif %}</pre>
 
 {% endfor %}

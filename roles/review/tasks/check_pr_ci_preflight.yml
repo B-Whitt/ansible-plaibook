@@ -63,7 +63,7 @@
     - name: Collect annotations and log tails for the failing checks
       ansible.builtin.command:
         argv:
-          - python3
+          - "{{ ansible_playbook_python | default('python3') }}"
           - "{{ role_path }}/files/pr_review/triage_ci_failures.py"
         stdin: >-
           {{

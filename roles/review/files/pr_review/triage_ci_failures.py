@@ -257,6 +257,15 @@ def _json_list(body: str) -> list:
     return parsed if isinstance(parsed, list) else []
 
 
+def _zip_entry_key(filename: str) -> tuple[int, str]:
+    """Numeric step prefix, so 10_ comes after 2_ rather than before it."""
+    base = filename.rsplit("/", 1)[-1]
+    head = base.split("_", 1)[0]
+    if head.isdigit():
+        return (int(head), base)
+    return (10**9, base)
+
+
 def _logs_text(payload: bytes) -> str:
     """Plain text, or a bounded read of a GitHub job-log zip, later steps last."""
     if payload[:2] != b"PK":
@@ -270,7 +279,7 @@ def _logs_text(payload: bytes) -> str:
         return ""
     parts: list[str] = []
     total = 0
-    for info in sorted(infos, key=lambda item: item.filename):
+    for info in sorted(infos, key=lambda item: _zip_entry_key(item.filename)):
         if info.file_size > _MAX_UNCOMPRESSED:
             return ""
         remaining = _MAX_UNCOMPRESSED - total

@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
+import zipfile
 from pathlib import Path
 
 
@@ -165,6 +167,16 @@ def test_tokens_are_not_attached_to_a_lookalike_host(monkeypatch):
     )
     assert gitlab is not None
     assert gitlab["PRIVATE-TOKEN"] == "test-token"
+
+
+def test_zip_entries_sort_by_numeric_step_prefix():
+    mod = _triage()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("10_late.txt", "LATE-STEP")
+        archive.writestr("2_early.txt", "EARLY-STEP")
+    text = mod._logs_text(buffer.getvalue())
+    assert text.index("EARLY-STEP") < text.index("LATE-STEP")
 
 
 def test_github_api_host_is_the_hostname_only():
