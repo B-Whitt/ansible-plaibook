@@ -228,3 +228,13 @@ def test_github_api_host_is_the_hostname_only():
     assert not mod._is_github_api("https://evil.example/api.github.com")
     assert not mod._is_github_api("https://api.github.com.evil.example/repos/org/repo")
     assert not mod._is_github_api("https://github.com/org/repo/actions/runs/1/job/2")
+    assert not mod._is_github_api("http://api.github.com/repos/org/repo/check-runs/1")
+    assert mod._headers_for("http://api.github.com/repos/org/repo/actions/jobs/1", None) is None
+    assert (
+        mod._github_annotation_url(
+            "http://api.github.com/repos/org/repo/check-runs/1",
+            "org",
+            "repo",
+        )
+        is False
+    )

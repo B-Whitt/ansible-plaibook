@@ -171,9 +171,9 @@ def _paged(fetch: _FETCH, url: str, list_key: str | None) -> list:
 
 
 def _github_annotation_url(url: str, owner: str, repo: str) -> bool:
-    """True when a check-run URL is this repo's API, not an arbitrary host."""
+    """True when a check-run URL is this repo's HTTPS API, not an arbitrary host."""
     parsed = urlparse(url)
-    if (parsed.hostname or "").lower() != "api.github.com":
+    if parsed.scheme != "https" or (parsed.hostname or "").lower() != "api.github.com":
         return False
     prefix = f"/repos/{owner}/{repo}/check-runs/"
     return parsed.path.startswith(prefix)
@@ -396,13 +396,16 @@ def _public_https(url: str) -> bool:
 
 
 def _is_github_api(url: str) -> bool:
-    """True only when the URL host is api.github.com, not a substring of it."""
-    return (urlparse(url).hostname or "").lower() == "api.github.com"
+    """True only for https://api.github.com, not a substring and not plaintext HTTP."""
+    parsed = urlparse(url)
+    return parsed.scheme == "https" and (parsed.hostname or "").lower() == "api.github.com"
 
 
 def _headers_for(url: str, gitlab_host: str | None) -> dict[str, str] | None:
-    """Tokens stay on the API host that owns them. Anything else gets no request."""
+    """Tokens stay on the HTTPS API host that owns them. Anything else gets no request."""
     parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return None
     host = (parsed.hostname or "").lower()
     if host == "api.github.com":
         return _github_headers()
