@@ -112,8 +112,12 @@ def test_openai_tasks_call_the_gpt56_filters():
     lens = (root / "roles/review/tasks/dispatch_lens_openai.yml").read_text(encoding="utf-8")
     explore = (root / "roles/review/tasks/dispatch_explore_turn_attempt_openai.yml").read_text(encoding="utf-8")
     verify = (root / "roles/review/tasks/dispatch_verify_turn_attempt_openai.yml").read_text(encoding="utf-8")
+    continuity = (root / "roles/review/tasks/verify_continuity_audit.yml").read_text(encoding="utf-8")
     defaults = (root / "roles/review/defaults/main.yml").read_text(encoding="utf-8")
     assert "openai_lens_reasoning_effort(review_openai_lens_reasoning_effort)" in lens
+    assert (
+        "openai_lens_reasoning_effort(review_openai_continuity_reasoning_effort | default('', true))"
+    ) in continuity
     assert "openai_tool_reasoning_effort" in explore
     assert "openai_tool_reasoning_effort" in verify
     assert (

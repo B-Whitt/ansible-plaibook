@@ -117,7 +117,7 @@
     api_key: "{{ openai_api_key | default(omit, true) }}"
     model: "{{ review_verify_openai_model }}"
     max_completion_tokens: "{{ review_openai_continuity_max_completion_tokens }}"
-    reasoning_effort: "{{ review_verify_openai_model | openai_lens_reasoning_effort(review_openai_continuity_reasoning_effort) | default(omit, true) }}"
+    reasoning_effort: "{{ review_verify_openai_model | openai_lens_reasoning_effort(review_openai_continuity_reasoning_effort | default('', true)) | default(omit, true) }}"
     timeout: "{{ openai_timeout }}"
     llama_server_mode: false
     messages:
