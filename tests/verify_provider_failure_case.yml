@@ -1,0 +1,52 @@
+---
+# One provider: two msg-only failures, then the original finding is posted.
+- name: Reset verify state for {{ provider_case_family }}
+  ansible.builtin.include_tasks: verify_provider_failure_reset.yml
+
+- name: Write a msg-only provider failure for {{ provider_case_family }}
+  ansible.builtin.copy:
+    dest: "{{ verify_provider_stub_file }}"
+    mode: "0600"
+    content: "{{ _provider_error | to_json }}"
+  vars:
+    _provider_error:
+      failed: true
+      msg: "{{ provider_case_message }}"
+      calls: 0
+
+- name: Run one verify turn over the {{ provider_case_family }} failure
+  ansible.builtin.include_role:
+    name: review
+    tasks_from: verify_turn.yml
+
+- name: Read the stub after the {{ provider_case_family }} turn
+  ansible.builtin.slurp:
+    src: "{{ verify_provider_stub_file }}"
+  register: _provider_stub_raw
+
+- name: Post findings that survived the {{ provider_case_family }} verify failure
+  ansible.builtin.set_fact:
+    posted_findings: "{{ deduped_findings }}"
+
+- name: Confirm {{ provider_case_family }} retried and the findings were posted
+  vars:
+    _stub_state: "{{ _provider_stub_raw.content | b64decode | from_json }}"
+  ansible.builtin.assert:
+    that:
+      - _stub_state.calls | int == 2
+      - verify_dispatch_provider_error | bool
+      - not (verify_dispatch_valid | bool)
+      - review_verify_done | bool
+      - verify_result_status == "inconclusive"
+      - verify_turn_result.stop_reason == "error"
+      - posted_findings | length == 1
+      - posted_findings[0].finding_id == "F115"
+      - posted_findings[0].description == "Provider verify failure must not drop findings"
+      - "'SECRET_DRAFT_MUST_NOT_APPEAR' not in (posted_findings | to_json)"
+    fail_msg: >-
+      {{ provider_case_family }} verify failure aborted or dropped findings.
+      calls={{ _stub_state.calls | default('missing') }}
+      done={{ review_verify_done | default('') }}
+      status={{ verify_result_status | default('') }}
+      error={{ verify_dispatch_provider_error | default('') }}
+    success_msg: "{{ provider_case_family }} provider failure stayed in the review and findings were posted."
