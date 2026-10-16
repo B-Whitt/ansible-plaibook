@@ -46,6 +46,16 @@ def http_post(url: str, payload: dict, headers: dict[str, str] | None = None, ti
     if headers:
         req_headers.update(headers)
 
+    # Tests set this to a file path. The payload is written and no request
+    # is sent, so a playbook test can run this posting path without a token
+    # or a live forge call. Unset for a real review.
+    capture = os.environ.get("PLAIBOOK_POST_CAPTURE")
+    if capture:
+        with open(capture, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        os.chmod(capture, 0o600)
+        return 201, "{}"
+
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
     try:

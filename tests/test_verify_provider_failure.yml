@@ -33,9 +33,13 @@
       - file: roles/review/tasks/dispatch_verify_turn_attempt_claude.yml
         line: 16
         severity: Major
+        lens: Quality
         description: Provider verify failure must not drop findings
         evidence: planted
+        confidence: HIGH
+        fix: Rescue the provider module call.
         finding_id: F115
+        _verify_index: 0
     _parent_draft:
       evidence_status: refuted
       rationale: SECRET_DRAFT_MUST_NOT_APPEAR
