@@ -146,7 +146,7 @@ difference as a bump to decide, not as the same pin.
 
 | Id | What | SHA | Where |
 |---|---|---|---|
-| `review.caller` | `plai-review.yml` calls the reusable workflow | `4490fc66b59af3c81b9d689cdd7c639a3f739d71` | `.github/workflows/plai-review.yml` `uses:` |
+| `review.caller` | `plai-review.yml` calls the reusable workflow | `72f6486e262601ae5cc7b3cd08c08e44b42b904d` | `.github/workflows/plai-review.yml` `uses:` |
 | `review.checkout` | Both checkouts inside the reusable workflow | `492524a367c6ec805faf395cbe70abe450d7ebc9` | `.github/workflows/plai-review-run.yml` `ref:` |
 
 Move `review.checkout` first. Merge that change. Then set
