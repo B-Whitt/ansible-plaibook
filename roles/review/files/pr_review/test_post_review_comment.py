@@ -5,7 +5,6 @@ Run with: uv run --with pytest --with pyyaml --with ansible-core pytest roles/re
 """
 from __future__ import annotations
 
-import json
 import tempfile
 from unittest.mock import patch
 
@@ -37,20 +36,6 @@ def test_safe_host_rejects_leading_hyphen():
 
 def test_safe_host_rejects_unsafe_chars():
     assert not _SAFE_HOST_RE.match("gitlab.example.com/../../etc")
-
-
-def test_post_capture_writes_the_payload_without_http(monkeypatch, tmp_path):
-    findings = tmp_path / "findings.md"
-    findings.write_text("finding F115\n", encoding="utf-8")
-    capture = tmp_path / "post-capture.json"
-    monkeypatch.setenv("PLAIBOOK_POST_CAPTURE", str(capture))
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("GH_TOKEN", raising=False)
-
-    with patch("urllib.request.urlopen", side_effect=AssertionError("network")):
-        post_github("org/repo", "115", str(findings))
-
-    assert json.loads(capture.read_text(encoding="utf-8")) == {"body": "finding F115\n"}
 
 
 def test_post_github_mock():

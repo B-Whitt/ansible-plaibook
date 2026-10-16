@@ -122,18 +122,17 @@
     guardian_blocking_findings: []
     guardian_forced_needs_changes: false
 
-- name: Remember where the post payload should be captured
-  ansible.builtin.set_fact:
-    plaibook_post_capture: "{{ _provider_output.path }}/post-capture.json"
-
-- name: Post results back to the PR/MR
-  ansible.builtin.include_role:
-    name: review
-    tasks_from: post_review_results.yml
-  vars:
-    post_results: true
-    review_platform: github
-    review_hostname: ""
+- name: Post the persisted findings with http_post mocked
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ playbook_dir }}/capture_post_payload.py"
+      - github
+      - "{{ review_org_repo }}"
+      - "{{ review_number }}"
+      - "{{ review_findings_path }}"
+      - "{{ _provider_output.path }}/post-capture.json"
+  changed_when: true
 
 - name: Read the persisted summary and the captured post payload
   ansible.builtin.slurp:

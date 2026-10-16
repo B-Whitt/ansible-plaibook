@@ -1,10 +1,8 @@
 ---
 # Post the rendered findings.md back to the PR/MR. resolve_target_pr.yml
-# includes this after the review engine. PLAIBOOK_POST_CAPTURE, when set,
-# makes post_review_comment.py write the JSON payload and skip the network.
+# includes this after the review engine.
 - name: Post results back to the PR/MR
   when: post_results | bool
-  environment: "{{ {'PLAIBOOK_POST_CAPTURE': plaibook_post_capture} if (plaibook_post_capture | default('') | length > 0) else {} }}"
   ansible.builtin.command:
     argv: >-
       {{

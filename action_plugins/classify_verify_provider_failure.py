@@ -56,7 +56,11 @@ class ActionModule(ActionBase):
 
     _requires_connection = False
 
-    def run(self, tmp=None, task_vars=None):
+    def run(
+        self,
+        tmp: str | None = None,
+        task_vars: dict[str, object] | None = None,
+    ) -> dict[str, object]:
         result = super().run(tmp, task_vars)
         del tmp
         msg = self._task.args.get("msg")
