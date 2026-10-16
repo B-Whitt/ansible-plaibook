@@ -8,10 +8,15 @@
 # attempt is that shape the finding stays inconclusive so the review
 # can still post.
 #
+# A message-only return is one failed attempt only when the text is a
+# known transient outage (overload, timeout, 429/500/502/503/529).
+# Authentication, authorization, invalid-request, missing-key, and any
+# unrecognized message are re-raised. These modules do not emit a
+# separate error class, so the allowlist is the message text.
+#
 # Anything else still fails the play. That includes a parent-only
-# report_verdict, a nested report_verdict on the failed return, and
-# an auth or transport failure that is not this msg-only shape
-# (for example a result that carries status).
+# report_verdict, a nested report_verdict on the failed return, and a
+# result that carries status.
 #
 # Vars: verify_provider_failed_result, verify_provider_model.
 
@@ -53,11 +58,30 @@
   ansible.builtin.fail:
     msg: "{{ verify_provider_failed_result.msg | default('Verify provider module failed') }}"
 
+- name: Decide whether this provider message is a retryable outage
+  when:
+    - _verify_failed_parent | length == 0
+    - _verify_failed_nested | length == 0
+    - _verify_provider_shape | bool
+  classify_verify_provider_failure:
+    msg: "{{ verify_provider_failed_result.msg | default('') }}"
+  register: _verify_provider_retry
+
+- name: Re-raise authentication, invalid-request, and unknown provider failures
+  when:
+    - _verify_failed_parent | length == 0
+    - _verify_failed_nested | length == 0
+    - _verify_provider_shape | bool
+    - not (_verify_provider_retry.retryable | default(false) | bool)
+  ansible.builtin.fail:
+    msg: "{{ verify_provider_failed_result.msg | default('Verify provider module failed') }}"
+
 - name: Record one failed verify attempt
   when:
     - _verify_failed_parent | length == 0
     - _verify_failed_nested | length == 0
     - _verify_provider_shape | bool
+    - _verify_provider_retry.retryable | default(false) | bool
   ansible.builtin.set_fact:
     verify_dispatch_provider_error: true
     verify_dispatch_valid: false

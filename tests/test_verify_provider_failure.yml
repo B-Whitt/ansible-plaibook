@@ -111,6 +111,78 @@
             fail_msg: "Auth failure did not abort: {{ ansible_failed_result.msg | default('') }}"
             success_msg: "A status-bearing auth failure still aborts the play."
 
+    - name: A message-only authentication failure still aborts
+      block:
+        - name: Reset verify state before the message-only auth failure
+          ansible.builtin.include_tasks: verify_provider_failure_reset.yml
+          vars:
+            provider_case_family: claude
+
+        - name: Write a 401 that has only a message
+          ansible.builtin.copy:
+            dest: "{{ verify_provider_stub_file }}"
+            mode: "0600"
+            content: "{{ _auth_message | to_json }}"
+          vars:
+            _auth_message:
+              failed: true
+              msg: "Error code: 401 - authentication_error"
+              calls: 0
+
+        - name: Run a verify turn over the message-only auth failure
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: verify_turn.yml
+
+        - name: Fail the test if the message-only auth failure was accepted
+          ansible.builtin.fail:
+            msg: "TEST BUG: a message-only authentication failure was accepted"
+      rescue:
+        - name: Confirm the message-only auth failure aborted the play
+          ansible.builtin.assert:
+            that:
+              - "'authentication_error' in (ansible_failed_result.msg | default(''))"
+              - "'TEST BUG' not in (ansible_failed_result.msg | default(''))"
+              - not (review_verify_done | default(false) | bool)
+            fail_msg: "Message-only auth failure did not abort: {{ ansible_failed_result.msg | default('') }}"
+            success_msg: "A message-only authentication failure still aborts the play."
+
+    - name: An unrecognized provider message still aborts
+      block:
+        - name: Reset verify state before the unknown message
+          ansible.builtin.include_tasks: verify_provider_failure_reset.yml
+          vars:
+            provider_case_family: openai
+
+        - name: Write an unrecognized provider message
+          ansible.builtin.copy:
+            dest: "{{ verify_provider_stub_file }}"
+            mode: "0600"
+            content: "{{ _unknown_message | to_json }}"
+          vars:
+            _unknown_message:
+              failed: true
+              msg: "widget exploded"
+              calls: 0
+
+        - name: Run a verify turn over the unknown message
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: verify_turn.yml
+
+        - name: Fail the test if the unknown message was accepted
+          ansible.builtin.fail:
+            msg: "TEST BUG: an unrecognized provider message was accepted"
+      rescue:
+        - name: Confirm the unknown message aborted the play
+          ansible.builtin.assert:
+            that:
+              - "'widget exploded' in (ansible_failed_result.msg | default(''))"
+              - "'TEST BUG' not in (ansible_failed_result.msg | default(''))"
+              - not (review_verify_done | default(false) | bool)
+            fail_msg: "Unknown provider message did not abort: {{ ansible_failed_result.msg | default('') }}"
+            success_msg: "An unrecognized provider message still aborts the play."
+
     - name: A parent fabrication still aborts
       block:
         - name: Reset verify state before the parent fabrication
