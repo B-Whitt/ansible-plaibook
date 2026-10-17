@@ -53,6 +53,23 @@ def test_version_text_uses_github_workspace_when_direct_url_is_missing(monkeypat
     assert version_text() == f"plaibook {__version__} (dev, main@{head[:12]})"
 
 
+def test_host_only_in_query_or_path_is_not_an_index_install(monkeypatch, tmp_path):
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    _init_git_repo(repo)
+    head = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+    expected = f"plaibook {__version__} (dev, main@{head[:12]})"
+    monkeypatch.delenv("PLAIBOOK_ROOT", raising=False)
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(repo))
+    urls = (
+        "https://example.com/files.pythonhosted.org/plaibook.whl",
+        "https://example.com/packages/plaibook.whl?mirror=files.pythonhosted.org",
+    )
+    for url in urls:
+        monkeypatch.setattr("plaibook._direct_url", lambda url=url: {"url": url})
+        assert version_text() == expected
+
+
 def test_index_install_stays_on_the_package_version(monkeypatch, tmp_path):
     repo = tmp_path / "other"
     repo.mkdir()

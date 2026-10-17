@@ -9,6 +9,7 @@ import re
 import subprocess
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
+from urllib.parse import urlsplit
 
 __all__ = ["__version__", "version_text"]
 
@@ -92,14 +93,17 @@ def _git_output(root: Path, *args: str) -> str | None:
     return text or None
 
 
+_INDEX_HOSTS = frozenset({"files.pythonhosted.org", "pypi.org"})
+
+
 def _index_install(data: dict) -> bool:
-    """A wheel or sdist from an index. Those stay on the package version."""
-    url = str(data.get("url") or "").lower()
-    return (
-        "files.pythonhosted.org" in url
-        or url.startswith("https://pypi.org/")
-        or url.startswith("http://pypi.org/")
-    )
+    """A wheel or sdist from an index. Those stay on the package version.
+
+    The host is the URL hostname. ``files.pythonhosted.org`` or ``pypi.org``
+    anywhere else in the URL is not an index install.
+    """
+    host = urlsplit(str(data.get("url") or "")).hostname
+    return bool(host) and host.lower() in _INDEX_HOSTS
 
 
 def _vcs_info_from_checkout() -> dict[str, str] | None:
