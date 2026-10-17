@@ -34,14 +34,18 @@ def _direct_url() -> dict | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _package_checkout_root() -> Path | None:
-    root = Path(__file__).resolve().parent.parent
+def _is_plaibook_checkout(root: Path) -> bool:
     pyproject = root / "pyproject.toml"
     try:
         text = pyproject.read_text(encoding="utf-8")
     except OSError:
-        return None
-    if 'name = "plaibook"' in text:
+        return False
+    return 'name = "plaibook"' in text
+
+
+def _package_checkout_root() -> Path | None:
+    root = Path(__file__).resolve().parent.parent
+    if _is_plaibook_checkout(root):
         return root
     return None
 
@@ -88,8 +92,20 @@ def _git_output(root: Path, *args: str) -> str | None:
     return text or None
 
 
+def _index_install(data: dict) -> bool:
+    """A wheel or sdist from an index. Those stay on the package version."""
+    url = str(data.get("url") or "").lower()
+    return (
+        "files.pythonhosted.org" in url
+        or url.startswith("https://pypi.org/")
+        or url.startswith("http://pypi.org/")
+    )
+
+
 def _vcs_info_from_checkout() -> dict[str, str] | None:
     for root in _checkout_roots():
+        if not _is_plaibook_checkout(root):
+            continue
         commit = _git_output(root, "rev-parse", "HEAD")
         if not commit or not _COMMIT.fullmatch(commit):
             continue
@@ -151,6 +167,8 @@ def version_text(direct_url: dict | None | object = ...) -> str:
         formatted = _format_from_direct_url(base, data)
         if formatted is not None:
             return formatted
+        if _index_install(data):
+            return base
     if allow_checkout_fallback:
         checkout = _vcs_info_from_checkout()
         if checkout is not None:
