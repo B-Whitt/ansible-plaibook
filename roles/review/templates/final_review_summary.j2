@@ -1,4 +1,5 @@
 === Review Summary ===
+Plaibook: {{ '' | plaibook_version_line }}
 {% set records = pipeline_findings_reports | default([]) %}
 {% set skipped_count = records | selectattr('verdict', 'equalto', 'SKIPPED') | list | length %}
 {% if review_pipeline_failed | default(false) | bool or review_regression_gate_failed | default(false) | bool %}

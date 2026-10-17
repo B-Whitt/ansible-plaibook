@@ -18,7 +18,8 @@ def _git(revision: str | None, commit: str = SHA) -> dict:
     return {"url": "https://github.com/aknochow/ansible-plaibook.git", "vcs_info": vcs}
 
 
-def test_pypi_install_is_the_plain_version():
+def test_pypi_install_is_the_plain_version(monkeypatch):
+    monkeypatch.setattr("plaibook._vcs_info_from_checkout", lambda: None)
     assert version_text(None) == f"plaibook {__version__}"
     assert version_text({"url": "https://files.pythonhosted.org/plaibook.whl"}) == f"plaibook {__version__}"
 
