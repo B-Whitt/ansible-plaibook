@@ -2091,9 +2091,10 @@ def test_run_ansible_playbook_keyboard_interrupt_kills_process_group(tmp_path, m
 
     real_popen = subprocess.Popen
 
-    def wrapping_popen(**kwargs):
-        assert kwargs.get("start_new_session") is True
-        proc = real_popen(**kwargs)
+    def wrapping_popen(*args, **kwargs):
+        if kwargs.get("start_new_session") is not True:
+            return real_popen(*args, **kwargs)
+        proc = real_popen(*args, **kwargs)
         holder["pid"] = proc.pid
 
         def communicate(timeout=None):
@@ -2211,9 +2212,10 @@ def test_review_ctrl_c_exits_130_without_traceback(tmp_path, monkeypatch, extra_
         killpg_calls.append((pid, sig))
         real_killpg(pid, sig)
 
-    def wrapping_popen(**kwargs):
-        assert kwargs.get("start_new_session") is True
-        proc = real_popen(**kwargs)
+    def wrapping_popen(*args, **kwargs):
+        if kwargs.get("start_new_session") is not True:
+            return real_popen(*args, **kwargs)
+        proc = real_popen(*args, **kwargs)
         holder["pid"] = proc.pid
 
         def communicate(timeout=None):

@@ -11,6 +11,8 @@ from typing import Any, TextIO
 
 import yaml
 
+from plaibook import version_text
+
 SEVERITY_ORDER = ("critical", "major", "minor", "nit")
 _ANSI_RE = re.compile(
     r"(?:\x1b[@-Z\\-_]"
@@ -393,7 +395,7 @@ def _short_why(text: str, limit: int = 200) -> str:
 
 
 def _footer(document: dict[str, Any], targets: list[dict[str, Any]] | None = None) -> list[str]:
-    lines: list[str] = []
+    lines: list[str] = [version_text()]
     cost = document.get("cost_usd")
     if cost is not None and cost != "":
         try:

@@ -740,6 +740,7 @@ def test_summary_includes_models_cost_and_tokens():
     body = summary_body(result, [])
     assert "cursor · composer-2.5 · 8 agents · $0.0345 · 10 in / 2 out" in body
     assert "Score: 93.3" in body
+    assert body.splitlines()[2].startswith("plaibook ")
 
 
 def test_nonzero_review_rc_rejects_a_ready_result(tmp_path):

@@ -28,6 +28,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from plaibook import version_text  # noqa: E402
 from plaibook.finding_suggestions import (  # noqa: E402
     _has_replacement,
     comment_anchor,
@@ -359,6 +360,7 @@ def summary_body(result: dict[str, Any], actions: list[dict[str, Any]]) -> str:
     lines = [
         f"plaibook review: **{target.get('verdict') or result.get('status')}**",
         "",
+        version_text(),
         f"Score: {score}",
     ]
     detail = _run_detail(result)
