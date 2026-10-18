@@ -102,7 +102,10 @@ def _index_install(data: dict) -> bool:
     The host is the URL hostname. ``files.pythonhosted.org`` or ``pypi.org``
     anywhere else in the URL is not an index install.
     """
-    host = urlsplit(str(data.get("url") or "")).hostname
+    try:
+        host = urlsplit(str(data.get("url") or "")).hostname
+    except ValueError:
+        return False
     return bool(host) and host.lower() in _INDEX_HOSTS
 
 
@@ -116,6 +119,11 @@ def _vcs_info_from_checkout() -> dict[str, str] | None:
         revision = _git_output(root, "symbolic-ref", "-q", "--short", "HEAD")
         if revision and _REVISION.fullmatch(revision):
             return {"commit_id": commit, "requested_revision": revision}
+        # Detached HEAD has no branch. An exact v<version> tag is a release
+        # checkout; anything else stays on the short commit.
+        tag = _git_output(root, "describe", "--tags", "--exact-match", "HEAD")
+        if tag == f"v{__version__}" and _REVISION.fullmatch(tag or ""):
+            return {"commit_id": commit, "requested_revision": tag}
         return {"commit_id": commit, "requested_revision": commit}
     return None
 

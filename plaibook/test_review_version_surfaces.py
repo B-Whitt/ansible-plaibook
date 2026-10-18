@@ -25,15 +25,38 @@ def _filter_module():
     return module
 
 
-def _init_git_repo(path: Path) -> None:
-    (path / "pyproject.toml").write_text('name = "plaibook"\n', encoding="utf-8")
-    subprocess.run(["git", "init", "-b", "main"], cwd=path, check=True, capture_output=True)
-    subprocess.run(["git", "add", "pyproject.toml"], cwd=path, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "init"],
+def _run_git(path: Path, *args: str, **kwargs) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", *args],
         cwd=path,
         check=True,
         capture_output=True,
+        timeout=5,
+        **kwargs,
+    )
+
+
+def _git_stdout(path: Path, *args: str) -> str:
+    return subprocess.check_output(
+        ["git", "-C", str(path), *args],
+        text=True,
+        timeout=5,
+    ).strip()
+
+
+def _init_git_repo(path: Path) -> None:
+    (path / "pyproject.toml").write_text('name = "plaibook"\n', encoding="utf-8")
+    _run_git(path, "init", "-b", "main")
+    _run_git(path, "add", "pyproject.toml")
+    _run_git(
+        path,
+        "-c",
+        "user.email=t@example.com",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-m",
+        "init",
         env={
             **os.environ,
             "GIT_AUTHOR_DATE": "2000-01-01T00:00:00",
@@ -46,7 +69,7 @@ def test_version_text_uses_github_workspace_when_direct_url_is_missing(monkeypat
     repo = tmp_path / "checkout"
     repo.mkdir()
     _init_git_repo(repo)
-    head = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+    head = _git_stdout(repo, "rev-parse", "HEAD")
     monkeypatch.delenv("PLAIBOOK_ROOT", raising=False)
     monkeypatch.setenv("GITHUB_WORKSPACE", str(repo))
     monkeypatch.setattr("plaibook._direct_url", lambda: None)
@@ -57,7 +80,7 @@ def test_host_only_in_query_or_path_is_not_an_index_install(monkeypatch, tmp_pat
     repo = tmp_path / "checkout"
     repo.mkdir()
     _init_git_repo(repo)
-    head = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+    head = _git_stdout(repo, "rev-parse", "HEAD")
     expected = f"plaibook {__version__} (dev, main@{head[:12]})"
     monkeypatch.delenv("PLAIBOOK_ROOT", raising=False)
     monkeypatch.setenv("GITHUB_WORKSPACE", str(repo))
@@ -68,6 +91,25 @@ def test_host_only_in_query_or_path_is_not_an_index_install(monkeypatch, tmp_pat
     for url in urls:
         monkeypatch.setattr("plaibook._direct_url", lambda url=url: {"url": url})
         assert version_text() == expected
+
+
+def test_detached_release_tag_uses_release_formatting(monkeypatch, tmp_path):
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    _init_git_repo(repo)
+    _run_git(repo, "tag", f"v{__version__}")
+    _run_git(repo, "checkout", "--detach")
+    head = _git_stdout(repo, "rev-parse", "HEAD")
+    monkeypatch.delenv("PLAIBOOK_ROOT", raising=False)
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(repo))
+    monkeypatch.setattr("plaibook._direct_url", lambda: None)
+    assert version_text() == f"plaibook {__version__} (v{__version__}@{head[:12]})"
+
+
+def test_malformed_index_url_is_not_an_index_install():
+    from plaibook import _index_install
+
+    assert _index_install({"url": "http://["}) is False
 
 
 def test_index_install_stays_on_the_package_version(monkeypatch, tmp_path):
