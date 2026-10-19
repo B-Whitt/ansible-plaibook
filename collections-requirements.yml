@@ -12,15 +12,15 @@ collections:
     # exec() on openshell 0.1 requires workspace. This SHA is
     # cursor/openshell-exec-workspace-41b9; plaibook fetches the commit
     # directly, so it does not have to be on main yet.
-    version: 742002497fc5320ad149bf10837a5a6c4948a5a3
+    version: 09cd2f193a77b3d59b263c62224e23fe364fa6e8
   - name: https://github.com/aknochow/ansible-claude.git
     type: git
     # SHA is ansible-claude #30 on main (anthropic 1.11.0, claude-agent-sdk 0.2.163).
-    version: 92c3faef91f9f10e9c7d57aafde6e4e03cba9e1e
+    version: dfc061b6bf0bf0c1462435ef1c1f106d830a52b0
   - name: https://github.com/aknochow/ansible-gemini.git
     type: git
     # SHA is ansible-gemini #22 on main (google-genai 2.27.0).
-    version: e5a6a70acf26baa6b877dfb1afad267bdf14c603
+    version: 016d7e2e5eceb2052304c740ee6a4abf44ca48ce
   - name: https://github.com/aknochow/ansible-openai.git
     type: git
     # Pin the interface this role calls; moving main can silently change
@@ -29,7 +29,7 @@ collections:
     # the default branch, then checks out this SHA. 60a9cc1 had the same
     # tree but is not on current main (history rewrite).
     # SHA is ansible-openai #25 on main (openai 3.23.0).
-    version: 79c1ab3ce5b3a047ca88e30f23422f9fadbdb401
+    version: 3657a671018dfda9f18328d2b0c179038f100797
   - name: https://github.com/aknochow/ansible-cursor.git
     type: git
     # Pin the interface this role calls (effort mapping, structured_tool
@@ -37,7 +37,7 @@ collections:
     # parent vs nested caller, WaitLiveRun-after-drain flake fix). Moving
     # main can silently change module arguments. SHA is ansible-cursor
     # #26 on main (cursor-sdk 1.0.35 contract; includes #22).
-    version: de54465e89d2cd214a333bf5b98eb942181b1b98
+    version: f06929b212e25e3c114c8dca81564a37c4f15f47
   # GitHub clones, not Galaxy FQCNs. version is the commit SHA of a
   # release tag (tags move). First-run install uses git + ansible-galaxy
   # install --no-deps and never calls galaxy.ansible.com (Python OpenSSL
