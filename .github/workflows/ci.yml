@@ -125,7 +125,9 @@ jobs:
       - name: pip install . with setuptools 68 and no build isolation
         run: |
           uv venv --python 3.10 .venv-legacy
-          uv pip install --python .venv-legacy/bin/python --require-hashes \
+          # --no-config: tool.uv constraint-dependencies are ranges. This
+          # job only installs the hashed setuptools pin.
+          uv pip install --python .venv-legacy/bin/python --require-hashes --no-config \
             -r scripts/legacy-setuptools-requirements.txt
           # This job proves the setuptools 68 backend can build plaibook.
           # Do not resolve pyproject dependencies here (unhashed). Runtime
