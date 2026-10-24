@@ -93,3 +93,11 @@ select = ["E", "F", "I"]
 "library/*" = ["E402", "E501"]
 "tests/library/*" = ["E402", "E501"]
 "roles/*" = ["E402", "E501"]
+
+[tool.uv]
+# filelock 4.2.1 is the advisory fix and requires Python 3.11.
+# 3.10 stays on 3.20.3, the last release before that vulnerable range.
+constraint-dependencies = [
+    "filelock>=4.2.4; python_version >= '3.11'",
+    "filelock>=3.8.2,<3.20.4; python_version < '3.11'",
+]
