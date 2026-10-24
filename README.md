@@ -2,38 +2,51 @@
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/aknochow/ansible-plaibook/badge)](https://scorecard.dev/viewer/?uri=github.com/aknochow/ansible-plaibook)
 
-AI-powered code review, as an Ansible playbook. `plai review` runs independent lenses over a diff, scores the findings in plain code, and writes a report. The same command runs from a terminal, a git hook, or an AAP job template.
-
-## Install
+AI-powered code review, running as an unattended Ansible playbook rather than a chat. `plai review` puts independent lenses on a diff, then scores the findings that are still standing. The score comes from that list, not from the model's own grade. Same command from a terminal, a git hook, or an AAP job template.
 
 ```bash
 pipx install plaibook
 plai review
-plai update
 ```
 
-`plai` and `plaibook` are one program. The package name is `plaibook` (`plai` is taken on PyPI). Homebrew and Debian refuse `pip install` into the system Python ([PEP 668](https://peps.python.org/pep-0668/)). Inside a virtualenv you already manage, `pip install plaibook` is the same install.
+No arguments reviews `HEAD` in the current directory. `plai review org/repo/123` is a pull request or merge request. `plai update` upgrades the install that just ran.
 
-`plai review` with no arguments reviews `HEAD` in the current directory. `plai review org/repo/123` reviews a pull request or merge request. The first run installs collections into `~/.cache/ansible-plaibook/collections`.
+The PyPI name is `plaibook`. `plai` was already taken, so the two commands are one program. Homebrew and Debian will not let you `pip install` into the system Python ([PEP 668](https://peps.python.org/pep-0668/)). A virtualenv you already manage can `pip install plaibook`. The first run puts the provider collections in `~/.cache/ansible-plaibook/collections` and does not touch `~/.ansible`.
 
-Install details, commit review, and how to read the output are in [Getting started](docs/getting-started.md). AAP job templates call `ansible-playbook review.yml`. Contributors use [CONTRIBUTING](CONTRIBUTING.md).
+A quiet run prints the verdict, the score, and each Critical or Major finding with `file:line` and a short why. Minor and nit stay as counts. The footer is the cost and this run's `last_run.<run_id>.json`. `-v` is the Ansible task list. `--json` is what another program should parse. Commit review, and how to read a run, are in [Getting started](docs/getting-started.md). The CLI's own notes are in [`plaibook/README.md`](plaibook/README.md).
 
-## Documentation
+## Collections
 
-- [Getting started](docs/getting-started.md) covers install, the first review, and the CLI output.
-- [Architecture](docs/architecture.md) covers the review role, the five stages, and verification.
-- [Why Ansible](docs/why-ansible.md) covers job templates, scoring, and the Ansible tooling that comes with the playbook.
-- [Sandboxes and LLM calls](docs/sandbox-and-agent-safety.md) covers where model calls run and where the sandbox runs.
-- [GitHub review check](docs/github-review-check.md) covers the pull-request check that runs `plai review`.
-- [Variable reference](docs/reference.md) covers every variable that changes a run.
-- [Dependency map](docs/dependency-map.md) covers collection SHAs, SDK pins, and the OpenShell gateway.
-- [Execution environment](docs/execution-environment.md) covers `ghcr.io/aknochow/plaibook-ee` and how to run `review.yml` in it.
-- [Release](docs/release.md) covers the version bump, the GitHub Release, and the PyPI upload.
-- [Gotchas](docs/gotchas.md) covers Vertex structured output, sandbox network policy, and the gateway URL.
+The model calls and the sandbox are separate collections. Plaibook pins them and composes them. They do not import each other.
 
-## Dependencies
+| Collection | Repository | Role |
+|---|---|---|
+| `aknochow.claude` | [ansible-claude](https://github.com/aknochow/ansible-claude) | Claude, including the Agent SDK |
+| `aknochow.gemini` | [ansible-gemini](https://github.com/aknochow/ansible-gemini) | Gemini |
+| `aknochow.openai` | [ansible-openai](https://github.com/aknochow/ansible-openai) | OpenAI-compatible chat |
+| `aknochow.cursor` | [ansible-cursor](https://github.com/aknochow/ansible-cursor) | Cursor agent |
+| `aknochow.openshell` | [ansible-openshell](https://github.com/aknochow/ansible-openshell) | Sandbox lifecycle and the SSH proxy |
 
-Plaibook pins provider collections, Python SDKs, the OpenShell gateway, and the review workflow in different files. Those numbers are not interchangeable. The map, and the order a bump has to follow, is [docs/dependency-map.md](docs/dependency-map.md).
+OpenShell does not know which provider is in use. A provider collection does not know OpenShell exists. Sandbox lifecycle is `delegate_to`. The review role never imports it. How those calls are split is in [Sandboxes and LLM calls](docs/sandbox-and-agent-safety.md).
+
+The SHAs and SDK versions are not interchangeable. The map, and the order a bump has to follow, is [docs/dependency-map.md](docs/dependency-map.md).
+
+## Ansible
+
+`review.yml` already runs as an AAP job template against real merge requests. You get the RBAC, credentials, scheduling, and audit log you already use for everything else. The image and the tag to pin are under [Running it in AAP](#running-it-in-aap).
+
+Every step is a named task. `ansible.posix.profile_tasks` is on, and each review records cost and tokens per call. Scores are recomputed from the findings that remain. A lens can talk itself out of one in prose. The number moves when the finding is actually dropped. There is no resident agent process. You pay for the calls a run makes.
+
+The playbook uses the Ansible tools that already exist:
+
+- `ansible-lint` runs in the pre-commit hook and in CI. The profile in [`.ansible-lint`](.ansible-lint) is `min`.
+- `ansible-builder` builds the execution environment. See [Execution environment](docs/execution-environment.md).
+- `ansible-galaxy` installs the collections from `collections-requirements.yml`.
+- `ansible-navigator` runs the playbook in that image.
+- AWX and Ansible Automation Platform run the job. `ansible-runner` is what the platform uses under the job.
+- `ansible-doc` is how the collections document their modules.
+
+The rest of the docs are the [index](docs/index.md). People changing this repo start at [CONTRIBUTING](CONTRIBUTING.md). How the stages fit together is [Architecture](docs/architecture.md).
 
 ## Running it in AAP
 
