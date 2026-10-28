@@ -84,8 +84,8 @@ def test_execution_environment_builds_from_the_pin_file():
         assert pin in locked
     assert "--hash=sha256:" in locked
     assert "gh-cli.repo" not in text
-    assert "eba164e2b9be93d210690010436ff4fb7834221dd902b4fbac37a61d0124520e" in text
-    assert "51d3e63d4c323c336ddfb710dad6e1ed40a960baa950bcbe5e21b2e7475d7388" in text
+    assert "65d55875faa3281959676d91da15a9380583281586ac31bbd3d32b7924a9f4d2" in text
+    assert "0e831f940b30fffc5eabdab388140fd1e63eb519f3b77546ec026d1abfa4ff3e" in text
     assert "sha256sum -c -" in text
 
 
@@ -176,8 +176,8 @@ def test_pr_workflow_builds_both_arches_and_does_not_push():
     _assert_trivy_gate(job)
     ee = EE.read_text(encoding="utf-8")
     assert "sha256sum -c -" in ee
-    assert "8ab5addd123aa50ffb4ca5cbfe16c62bc4ab5dc4f146e3e7f9fd086f41778f8d" in ee
-    assert "951891c88b76bb8ff3e1fedea4b84015edc498eb44c5f8a636752bda9f48cfe8" in ee
+    assert "ea476312a97fc93d0ddefbfe7f6adaf1c184b1993cca8d8a33b424c08e9326fe" in ee
+    assert "6755dc3d2c387510ff0b234470e54bf93a26dc525f93eb63c5c71018acc37d50" in ee
 
 
 def test_publish_workflow_signs_only_on_push_and_release():
@@ -251,7 +251,11 @@ def test_trivyignore_covers_the_unfixed_vendor_highs():
         "CVE-2026-12151",
         "CVE-2026-1526",
         "CVE-2026-2229",
+        "CVE-2026-109383",
+        "CVE-2026-87018",
+        "CVE-2023-54404",
         "GHSA-6v7p-g79w-8964",
+        "CVE-2026-114613",
         "CVE-2025-47273",
         "CVE-2026-97687",
         "CVE-2026-97689",

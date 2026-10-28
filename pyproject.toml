@@ -95,8 +95,10 @@ select = ["E", "F", "I"]
 "roles/*" = ["E402", "E501"]
 
 [tool.uv]
-# filelock 4.2.1 is the advisory fix and requires Python 3.11.
-# 3.10 stays on 3.20.3, the last release before that vulnerable range.
+# GHSA-69hj-f68j-2879 and GHSA-8mx5-7m5m-r77g are fixed in filelock
+# 4.2.1, which requires Python 3.11. 3.11+ stays on 4.2.4. 3.10 has
+# no patched release and stays on 3.20.3. osv-scanner.toml ignores
+# those two IDs for that marker.
 constraint-dependencies = [
     "filelock>=4.2.4; python_version >= '3.11'",
     "filelock>=3.8.2,<3.20.4; python_version < '3.11'",
