@@ -101,6 +101,7 @@ jobs:
         with:
           scan-args: |-
             --lockfile=uv.lock
+            --config=osv-scanner.toml
 
   # Homebrew Python 3.10 pip often drives setuptools 68 in-process
   # (--no-build-isolation). SPDX license = "Apache-2.0" fails that

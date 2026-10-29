@@ -1,0 +1,14 @@
+# filelock 4.2.1 fixes these two advisories and requires Python >=3.11.
+# Python 3.10 has no patched release. uv.lock keeps 3.20.3 on that
+# marker and 4.2.4 on 3.11+. Drop the ignores if a 3.10 backport
+# exists or this repo stops locking 3.10.
+
+[[IgnoredVulns]]
+id = "GHSA-69hj-f68j-2879"
+ignoreUntil = 2027-01-28
+reason = "Python 3.10 lock is filelock 3.20.3. The fix, 4.2.1, requires Python 3.11. 3.11 and newer are locked to 4.2.4."
+
+[[IgnoredVulns]]
+id = "GHSA-8mx5-7m5m-r77g"
+ignoreUntil = 2027-01-28
+reason = "Windows filelock advisory. The fix requires Python 3.11. 3.10 stays on 3.20.3; 3.11 and newer are locked to 4.2.4."
