@@ -147,11 +147,13 @@ difference as a bump to decide, not as the same pin.
 | Id | What | SHA | Where |
 |---|---|---|---|
 | `review.caller` | `plai-review.yml` calls the reusable workflow | `72f6486e262601ae5cc7b3cd08c08e44b42b904d` | `.github/workflows/plai-review.yml` `uses:` |
-| `review.checkout` | Both checkouts inside the reusable workflow | `492524a367c6ec805faf395cbe70abe450d7ebc9` | `.github/workflows/plai-review-run.yml` `ref:` |
+| `review.checkout` | Both checkouts inside the reusable workflow | `73889d778f0bb27ae198b99c142a310dc5ae062e` | `.github/workflows/plai-review-run.yml` `ref:` |
 
 Move `review.checkout` first. Merge that change. Then set
 `review.caller` to that merge commit. The caller file on the default
 branch is the one `pull_request_target` runs.
+`73889d778f0bb27ae198b99c142a310dc5ae062e` is `main` at `f16d8e0`
+(#161, Grok 4.7 default) plus the ansible-cursor #39 pin.
 
 ## CI edges
 
