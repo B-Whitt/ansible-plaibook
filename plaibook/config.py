@@ -17,8 +17,11 @@ FAMILIES = ("cursor", "claude", "gemini", "openai", "claude_cli")
 
 class ConfigError(Exception):
     """Operator vars.yml could not be read or parsed."""
-CURSOR_DEFAULT_MODEL = "gpt-5.6-luna"
+CURSOR_DEFAULT_MODEL = "grok-4.7"
 CURSOR_DEFAULT_EFFORT = "high"
+# xAI's OpenAI-compatible API. grok-4.7 is a live model id; Luna is not.
+XAI_BASE_URL = "https://api.x.ai/v1"
+XAI_DEFAULT_MODEL = "grok-4.7"
 _CREDENTIAL_ENV = {
     "cursor": "CURSOR_API_KEY",
     "claude": "ANTHROPIC_API_KEY",
@@ -84,11 +87,37 @@ def save_vars(
     return target
 
 
+def _env_value(environ: Mapping[str, str], key: str) -> str:
+    return (environ.get(key) or "").strip()
+
+
+def xai_key_present(env: Mapping[str, str] | None = None) -> bool:
+    """True when an xAI key is available for the OpenAI-compatible client."""
+    environ = os.environ if env is None else env
+    return bool(_env_value(environ, "XAI_API_KEY") or _env_value(environ, "GROK_API_KEY"))
+
+
+def openai_key_present(env: Mapping[str, str] | None = None) -> bool:
+    environ = os.environ if env is None else env
+    return bool(_env_value(environ, "OPENAI_API_KEY") or _env_value(environ, "ANSIBLE_OPENAI_API_KEY"))
+
+
+def xai_is_openai_credential(env: Mapping[str, str] | None = None) -> bool:
+    """True when the OpenAI-compatible path should call xAI, not OpenAI.
+
+    An explicit OpenAI key keeps the hosted OpenAI default. XAI_API_KEY or
+    GROK_API_KEY alone selects grok-4.7 at https://api.x.ai/v1.
+    """
+    return xai_key_present(env) and not openai_key_present(env)
+
+
 def credential_present(family: str, env: Mapping[str, str] | None = None) -> bool:
     environ = os.environ if env is None else env
     key = _CREDENTIAL_ENV.get(family)
     if family == "gemini":
         return bool((environ.get("GEMINI_API_KEY") or environ.get("GOOGLE_API_KEY") or "").strip())
+    if family == "openai":
+        return openai_key_present(environ) or xai_key_present(environ)
     if not key:
         return False
     return bool((environ.get(key) or "").strip())
@@ -142,6 +171,7 @@ def prompt_family(
 
 
 def persist_family(family: str, *, env: Mapping[str, str] | None = None) -> Path:
+    environ = os.environ if env is None else env
     current = load_vars(env=env)
     payload = {"agent_family": family}
     if family == "cursor":
@@ -149,6 +179,11 @@ def persist_family(family: str, *, env: Mapping[str, str] | None = None) -> Path
             payload["review_cursor_model"] = CURSOR_DEFAULT_MODEL
         if not current.get("review_cursor_effort"):
             payload["review_cursor_effort"] = CURSOR_DEFAULT_EFFORT
+    if family == "openai" and xai_is_openai_credential(environ):
+        if not current.get("review_openai_model"):
+            payload["review_openai_model"] = XAI_DEFAULT_MODEL
+        if not current.get("openai_base_url"):
+            payload["openai_base_url"] = XAI_BASE_URL
     return save_vars(payload, env=env)
 
 
@@ -226,6 +261,14 @@ def resolve_family(
         persist_family(family, env=environ)
         stderr.write(
             f"No TTY; using cursor (CURSOR_API_KEY is set). Saved to {vars_path(env=environ)}\n"
+        )
+        return family
+    if xai_is_openai_credential(environ):
+        family = "openai"
+        persist_family(family, env=environ)
+        stderr.write(
+            "No TTY; using openai (XAI_API_KEY or GROK_API_KEY is set, "
+            f"model {XAI_DEFAULT_MODEL}). Saved to {vars_path(env=environ)}\n"
         )
         return family
     return None

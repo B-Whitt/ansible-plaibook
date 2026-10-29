@@ -106,7 +106,10 @@ anyway. `--triage-ci` (`-e review_triage_ci_failures=true`) explains the
 failures and does not dispatch lenses. Passing both is an error.
 
 First review with no operator config prompts for a provider and writes
-~/.config/ansible-plaibook/vars.yml. Cursor defaults to gpt-5.6-luna / high.
+~/.config/ansible-plaibook/vars.yml. Cursor defaults to grok-4.7 / high.
+OpenAI-compatible reviews use grok-4.7 at https://api.x.ai/v1 when
+XAI_API_KEY or GROK_API_KEY is set and OPENAI_API_KEY is not, or when
+-e review_openai_model=grok-4.7 and OPENAI_BASE_URL is unset.
 PR/branch reviews skip nested OpenShell when this process is already
 inside an OpenShell sandbox. They fail closed if the SDK is not
 importable from this interpreter (--no-sandbox to review on the host,
@@ -271,7 +274,9 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         choices=list(FAMILIES),
         help=(
             "Set agent_family and save it to ~/.config/ansible-plaibook/vars.yml. "
-            "cursor saves gpt-5.6-luna / high when those keys are unset."
+            "cursor saves grok-4.7 / high when those keys are unset. "
+            "openai uses grok-4.7 at https://api.x.ai/v1 when XAI_API_KEY or "
+            "GROK_API_KEY is set and OPENAI_API_KEY is not."
         ),
     )
     review.add_argument(
