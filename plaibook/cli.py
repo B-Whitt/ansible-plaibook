@@ -106,7 +106,7 @@ anyway. `--triage-ci` (`-e review_triage_ci_failures=true`) explains the
 failures and does not dispatch lenses. Passing both is an error.
 
 First review with no operator config prompts for a provider and writes
-~/.config/ansible-plaibook/vars.yml. Cursor defaults to gemini-3.8-flash / medium.
+~/.config/ansible-plaibook/vars.yml. Cursor defaults to grok-4.7 / high.
 PR/branch reviews skip nested OpenShell when this process is already
 inside an OpenShell sandbox. They fail closed if the SDK is not
 importable from this interpreter (--no-sandbox to review on the host,
@@ -271,7 +271,7 @@ def build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         choices=list(FAMILIES),
         help=(
             "Set agent_family and save it to ~/.config/ansible-plaibook/vars.yml. "
-            "cursor saves gemini-3.8-flash / medium when those keys are unset."
+            "cursor saves grok-4.7 / high when those keys are unset."
         ),
     )
     review.add_argument(

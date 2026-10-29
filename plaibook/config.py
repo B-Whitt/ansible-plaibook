@@ -17,8 +17,8 @@ FAMILIES = ("cursor", "claude", "gemini", "openai", "claude_cli")
 
 class ConfigError(Exception):
     """Operator vars.yml could not be read or parsed."""
-CURSOR_DEFAULT_MODEL = "gemini-3.8-flash"
-CURSOR_DEFAULT_EFFORT = "medium"
+CURSOR_DEFAULT_MODEL = "grok-4.7"
+CURSOR_DEFAULT_EFFORT = "high"
 _CREDENTIAL_ENV = {
     "cursor": "CURSOR_API_KEY",
     "claude": "ANTHROPIC_API_KEY",

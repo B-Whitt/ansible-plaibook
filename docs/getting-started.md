@@ -81,7 +81,7 @@ alone, so you can review another repo without `cd`.
 
 The first `plai review` with no operator config asks which provider to
 use and writes `~/.config/ansible-plaibook/vars.yml`. Cursor defaults
-to `gemini-3.8-flash` at effort `medium`. `--provider cursor` saves that
+to `grok-4.7` at effort `high`. `--provider cursor` saves that
 without a prompt. Re-reviewing the same SHA is a $0 cache hit unless
 you pass `-f` / `--force`.
 
