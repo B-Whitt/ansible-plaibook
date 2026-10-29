@@ -15,9 +15,15 @@
 #     closed (GetDynamicTools fabrication) but zero executes is "no
 #     report yet" for explore/verify mid-turns.
 #
+# Among nested executes of cursor_lens_tool, bind the last whose
+# args.prompt_nonce equals review_prompt_nonce. A later empty {} or a
+# probe nonce (search-helper, probe, PROBE) does not replace that call
+# (ansible-plaibook #159). Nested executes that exist and none carry
+# the canary fail closed. Zero nested executes stay "no report yet"
+# unless cursor_named_lens_required. Parent-only still fails closed.
+#
 # Sets:
-#   cursor_lens_structured: nested args, or omit when not required and
-#     nothing nested
+#   cursor_lens_structured: args of the last nested canary execute
 #   cursor_named_lens_present: bool
 
 - name: "Cursor: split {{ cursor_nonce_lens_label }} structured_tool_calls"
@@ -47,10 +53,39 @@
       named *_lens subagent did not submit findings. Do not use parent
       last-call. The model's draft is NOT printed here.
 
-- name: "Cursor: take the last nested execute args for {{ cursor_nonce_lens_label }}"
-  when: _cursor_nested_calls | length > 0
+- name: "Cursor: reset canary matches for {{ cursor_nonce_lens_label }}"
   ansible.builtin.set_fact:
-    cursor_lens_structured: "{{ _cursor_nested_calls[-1].args }}"
+    _cursor_canary_calls: []
+
+# selectattr('args.prompt_nonce') errors when a later execute is {}.
+# Walk the list and default a missing nonce to empty.
+- name: "Cursor: keep nested executes whose prompt_nonce matches for {{ cursor_nonce_lens_label }}"
+  ansible.builtin.set_fact:
+    _cursor_canary_calls: "{{ _cursor_canary_calls + [item] }}"
+  loop: "{{ _cursor_nested_calls }}"
+  loop_control:
+    label: nested
+  when:
+    - (review_prompt_nonce | default('')) | length > 0
+    - (item.name | default('')) == cursor_lens_tool
+    - ((item.args | default({})).prompt_nonce | default('')) == review_prompt_nonce
+
+- name: "Cursor: fail closed if {{ cursor_nonce_lens_label }} nested executes lack the canary"
+  when:
+    - _cursor_nested_calls | length > 0
+    - _cursor_canary_calls | length == 0
+  ansible.builtin.fail:
+    msg: >-
+      {{ cursor_nonce_lens_label }} (agent_family=cursor) had nested
+      {{ cursor_lens_tool | default('structured_tool') }} executes, but
+      none carried the per-run prompt_nonce. Empty payloads and probe
+      nonces are not a completed review. This is dispatch fabrication,
+      not a clean review. The model's draft is NOT printed here.
+
+- name: "Cursor: bind the last nested canary execute for {{ cursor_nonce_lens_label }}"
+  when: _cursor_canary_calls | length > 0
+  ansible.builtin.set_fact:
+    cursor_lens_structured: "{{ _cursor_canary_calls[-1].args }}"
     cursor_named_lens_present: true
 
 - name: "Cursor: record no nested execute for {{ cursor_nonce_lens_label }}"
