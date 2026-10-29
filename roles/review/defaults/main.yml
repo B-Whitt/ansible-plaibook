@@ -161,22 +161,60 @@ review_gemini_max_output_tokens: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVI
 # a timeout here discards every prior stage of the run.
 review_gemini_timeout: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_GEMINI_TIMEOUT') | default(300, true) | float }}"
 
-# aknochow.openai auth for agent_family=openai. Map both the SDK-standard
-# names and collection-specific names so a normal OPENAI_API_KEY works while
-# preserving the collection's local llama-server defaults for standalone use.
+# aknochow.openai auth for agent_family=openai. The same Chat Completions
+# client talks to hosted OpenAI or to xAI. A model id that starts with
+# grok uses https://api.x.ai/v1 unless OPENAI_BASE_URL or
+# ANSIBLE_OPENAI_BASE_URL is set. XAI_API_KEY / GROK_API_KEY authenticate
+# that host. OPENAI_API_KEY still wins for any other model. Luna
+# (gpt-5.6-luna) is not on the xAI API; grok-4.7 is.
 # The key is never shown in request-configuration debug output.
-openai_base_url: "{{ lookup('ansible.builtin.env', 'OPENAI_BASE_URL') | default(lookup('ansible.builtin.env', 'ANSIBLE_OPENAI_BASE_URL'), true) | default('https://api.openai.com/v1', true) }}"
-openai_api_key: "{{ lookup('ansible.builtin.env', 'OPENAI_API_KEY') | default(lookup('ansible.builtin.env', 'ANSIBLE_OPENAI_API_KEY'), true) | default(omit, true) }}"
+openai_base_url: "{{ lookup('ansible.builtin.env', 'OPENAI_BASE_URL') | default(lookup('ansible.builtin.env', 'ANSIBLE_OPENAI_BASE_URL'), true) | default('https://api.x.ai/v1' if (review_openai_model | default('') is match('(?i)^grok')) else 'https://api.openai.com/v1', true) }}"
+openai_api_key: >-
+  {{ (
+       lookup('ansible.builtin.env', 'XAI_API_KEY')
+       | default(lookup('ansible.builtin.env', 'GROK_API_KEY'), true)
+     ) if (
+       (review_openai_model | default('') is match('(?i)^grok'))
+       and (
+         (lookup('ansible.builtin.env', 'XAI_API_KEY') | length > 0)
+         or (lookup('ansible.builtin.env', 'GROK_API_KEY') | length > 0)
+       )
+     ) else (
+       lookup('ansible.builtin.env', 'OPENAI_API_KEY')
+       | default(lookup('ansible.builtin.env', 'ANSIBLE_OPENAI_API_KEY'), true)
+       | default(lookup('ansible.builtin.env', 'XAI_API_KEY'), true)
+       | default(lookup('ansible.builtin.env', 'GROK_API_KEY'), true)
+     ) | default(omit, true) }}
 openai_timeout: "{{ lookup('ansible.builtin.env', 'ANSIBLE_OPENAI_TIMEOUT') | default(300, true) | float }}"
 # GPT-5.6 is an intentional alias: OpenAI documents that it routes to the
 # flagship gpt-5.6-sol model. Operators can select gpt-5.6-terra or
-# gpt-5.6-luna with ANSIBLE_REVIEW_OPENAI_MODEL. If review_agent_model was
-# explicitly overridden, preserve that choice for the OpenAI family; replace
-# the normal Claude default so agent_family=openai works without extra vars.
+# gpt-5.6-luna with ANSIBLE_REVIEW_OPENAI_MODEL on api.openai.com.
+# An xAI key and no OpenAI key replaces that Claude-default fallback with
+# grok-4.7. If review_agent_model was explicitly overridden, preserve that
+# choice for the OpenAI family. ANSIBLE_REVIEW_OPENAI_MODEL and
+# -e review_openai_model= still win.
 review_openai_model: >-
   {{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_OPENAI_MODEL')
-     | default(('gpt-5.6' if (review_agent_model | default('')) == 'claude-opus-4-6'
-                else review_agent_model), true) }}
+     | default(
+         (
+           'grok-4.7'
+           if (
+             (review_agent_model | default('')) == 'claude-opus-4-6'
+             and (lookup('ansible.builtin.env', 'OPENAI_API_KEY') | length == 0)
+             and (lookup('ansible.builtin.env', 'ANSIBLE_OPENAI_API_KEY') | length == 0)
+             and (
+               (lookup('ansible.builtin.env', 'XAI_API_KEY') | length > 0)
+               or (lookup('ansible.builtin.env', 'GROK_API_KEY') | length > 0)
+             )
+           )
+           else (
+             'gpt-5.6'
+             if (review_agent_model | default('')) == 'claude-opus-4-6'
+             else review_agent_model
+           )
+         ),
+         true
+       ) }}
 review_explore_openai_model: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_EXPLORE_OPENAI_MODEL') | default(review_openai_model, true) }}"
 review_verify_openai_model: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_VERIFY_OPENAI_MODEL') | default(review_openai_model, true) }}"
 review_openai_max_completion_tokens: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_OPENAI_MAX_COMPLETION_TOKENS') | default(16384, true) | int }}"

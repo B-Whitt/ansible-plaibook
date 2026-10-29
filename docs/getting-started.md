@@ -82,8 +82,18 @@ alone, so you can review another repo without `cd`.
 The first `plai review` with no operator config asks which provider to
 use and writes `~/.config/ansible-plaibook/vars.yml`. Cursor defaults
 to `grok-4.7` at effort `high`. `--provider cursor` saves that
-without a prompt. Re-reviewing the same SHA is a $0 cache hit unless
-you pass `-f` / `--force`.
+without a prompt. A Grok review uses the OpenAI-compatible client, not
+Luna:
+
+```bash
+plai review org/repo/123 --provider openai -e review_openai_model=grok-4.7
+```
+
+That sends the lenses to `https://api.x.ai/v1` when `OPENAI_BASE_URL` is
+unset. Set `XAI_API_KEY` or `GROK_API_KEY`. A non-interactive run with
+only that key and no saved provider selects `openai` and `grok-4.7`.
+Re-reviewing the same SHA is a $0 cache hit unless you pass `-f` /
+`--force`.
 
 AAP / execution-environment runs still invoke the playbook:
 

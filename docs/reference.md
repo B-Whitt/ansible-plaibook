@@ -36,7 +36,7 @@ status: stable
 | `review_cursor_model` | `grok-4.7` | Primary Cursor model for lens / explore / verify when `agent_family=cursor`. |
 | `review_cursor_effort` | `high` | Cursor effort for those same Cursor calls. For `grok-4.7`, aknochow.cursor sends this as `effort`. |
 | `review_agent_model` | `claude-opus-4-6` | Model used for the Security and Functionality/Quality lens dispatch. |
-| `review_openai_model` | `gpt-5.6` when `agent_family=openai` | OpenAI model for both lenses; the unsuffixed GPT-5.6 alias resolves to Sol. Set `OPENAI_API_KEY` for hosted OpenAI use. |
+| `review_openai_model` | `grok-4.7` when `XAI_API_KEY` or `GROK_API_KEY` is set and `OPENAI_API_KEY` is not; otherwise `gpt-5.6` when `agent_family=openai` | OpenAI-compatible model for both lenses. `grok-4.7` calls `https://api.x.ai/v1` unless `OPENAI_BASE_URL` is set. The unsuffixed GPT-5.6 alias resolves to Sol on `api.openai.com`. Luna (`gpt-5.6-luna`) is not an xAI model. |
 | `review_openai_max_completion_tokens` | `16384` | Hosted OpenAI completion budget for lens, exploration, and verification calls. |
 | `review_openai_lens_reasoning_effort` | API default | Optional explicit `reasoning_effort` for hosted OpenAI lens calls, such as `low`, `medium`, `high`, `xhigh`, or `max`. When this is empty and the model is `gpt-5.6`, lens calls use `none`. Explore/verify tool calls use `none` for `gpt-5.6` and `gpt-6-luna`. |
 | `review_openai_continuity_max_completion_tokens` | `review_openai_max_completion_tokens` | Completion budget for the no-tool continuity audit; prevents reasoning models from exhausting a small structured-output budget before returning JSON. |

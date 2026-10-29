@@ -87,7 +87,10 @@ $0.00 cost is not mistaken for a live run.
 bundled copy. First run with no operator config prompts for a
 provider and writes `~/.config/ansible-plaibook/vars.yml`. `--provider
 cursor` does the same non-interactively and defaults Cursor to
-`grok-4.7` / `high`. PR/branch reviews skip nested OpenShell when
+`grok-4.7` / `high`. Grok on xAI stays on the OpenAI-compatible
+client: `plai review org/repo/123 --provider openai -e review_openai_model=grok-4.7`
+with `XAI_API_KEY` or `GROK_API_KEY` (base URL `https://api.x.ai/v1`
+when `OPENAI_BASE_URL` is unset). PR/branch reviews skip nested OpenShell when
 this process is already inside a sandbox (in-guest JWT). The SDK needs
 Python 3.11+; a 3.10 `plai` switches to
 `~/.cache/ansible-plaibook/sandbox-runtime` for that sandbox.

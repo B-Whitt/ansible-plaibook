@@ -606,6 +606,83 @@ def test_persist_cursor_defaults(tmp_path, monkeypatch):
     assert "Saved provider cursor" in err.getvalue()
 
 
+def test_persist_openai_xai_defaults(tmp_path, monkeypatch):
+    import os
+    from io import StringIO
+
+    from plaibook.config import load_vars, resolve_family
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("ANSIBLE_REVIEW_AGENT_FAMILY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANSIBLE_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.setenv("GROK_API_KEY", "xai-test-key")
+    err = StringIO()
+    resolve_family(
+        cli_family="openai",
+        stdin=StringIO(""),
+        stderr=err,
+        env=os.environ,
+    )
+    saved = load_vars(env=os.environ)
+    assert saved["agent_family"] == "openai"
+    assert saved["review_openai_model"] == "grok-4.7"
+    assert saved["openai_base_url"] == "https://api.x.ai/v1"
+    assert "Saved provider openai" in err.getvalue()
+
+
+def test_persist_openai_keeps_hosted_openai_when_openai_key_set(tmp_path, monkeypatch):
+    import os
+    from io import StringIO
+
+    from plaibook.config import load_vars, resolve_family
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("ANSIBLE_REVIEW_AGENT_FAMILY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("GROK_API_KEY", "xai-test-key")
+    err = StringIO()
+    resolve_family(
+        cli_family="openai",
+        stdin=StringIO(""),
+        stderr=err,
+        env=os.environ,
+    )
+    saved = load_vars(env=os.environ)
+    assert saved["agent_family"] == "openai"
+    assert "review_openai_model" not in saved
+    assert "openai_base_url" not in saved
+
+
+def test_nontty_grok_key_selects_openai(tmp_path, monkeypatch):
+    import os
+    from io import StringIO
+
+    from plaibook.config import load_vars, resolve_family
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("ANSIBLE_REVIEW_AGENT_FAMILY", raising=False)
+    monkeypatch.delenv("CURSOR_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANSIBLE_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.setenv("GROK_API_KEY", "xai-test-key")
+    err = StringIO()
+    family = resolve_family(
+        cli_family=None,
+        stdin=StringIO(""),
+        stderr=err,
+        env=os.environ,
+        interactive=False,
+    )
+    assert family == "openai"
+    saved = load_vars(env=os.environ)
+    assert saved["review_openai_model"] == "grok-4.7"
+    assert saved["openai_base_url"] == "https://api.x.ai/v1"
+    assert "grok-4.7" in err.getvalue()
+
+
 def test_prompt_saves_typed_family(tmp_path, monkeypatch):
     import os
     from io import StringIO

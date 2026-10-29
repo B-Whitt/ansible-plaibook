@@ -75,7 +75,12 @@ review` with no operator config prompts for a provider (TTY) or uses
 `$XDG_CONFIG_HOME/ansible-plaibook/vars.yml` (or
 `~/.config/ansible-plaibook/vars.yml`). `--provider cursor` is the
 non-interactive form and also writes Cursor's default model
-`grok-4.7` at effort `high` when those keys are unset. A gitignored
+`grok-4.7` at effort `high` when those keys are unset. Grok reviews
+on xAI use that same model through the OpenAI-compatible client:
+`plai review org/repo/123 --provider openai -e review_openai_model=grok-4.7`
+with `XAI_API_KEY` or `GROK_API_KEY`. The base URL is
+`https://api.x.ai/v1` when `OPENAI_BASE_URL` is unset. Luna is not an
+xAI model. A gitignored
 `host_vars/localhost.yml` in the checkout is the per-worktree
 alternative; `ANSIBLE_REVIEW_AGENT_FAMILY` still works. None of those
 bake a provider into the repo. Extra-vars still win.

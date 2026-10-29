@@ -155,6 +155,7 @@ OpenShell sandbox policy.
 | Provider | Typical HTTPS hosts |
 |---|---|
 | OpenAI | `api.openai.com` |
+| xAI (Grok, OpenAI-compatible) | `api.x.ai` |
 | Anthropic | `api.anthropic.com` |
 | Gemini | `generativelanguage.googleapis.com` |
 | Vertex | `aiplatform.googleapis.com`, `oauth2.googleapis.com` |
