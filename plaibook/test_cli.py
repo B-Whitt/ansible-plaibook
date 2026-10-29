@@ -601,8 +601,8 @@ def test_persist_cursor_defaults(tmp_path, monkeypatch):
     )
     saved = load_vars(env=os.environ)
     assert saved["agent_family"] == "cursor"
-    assert saved["review_cursor_model"] == "gpt-5.6-luna"
-    assert saved["review_cursor_effort"] == "high"
+    assert saved["review_cursor_model"] == "gemini-3.8-flash"
+    assert saved["review_cursor_effort"] == "medium"
     assert "Saved provider cursor" in err.getvalue()
 
 
@@ -625,7 +625,8 @@ def test_prompt_saves_typed_family(tmp_path, monkeypatch):
     )
     saved = load_vars(env=os.environ)
     assert saved["agent_family"] == "cursor"
-    assert saved["review_cursor_model"] == "gpt-5.6-luna"
+    assert saved["review_cursor_model"] == "gemini-3.8-flash"
+    assert saved["review_cursor_effort"] == "medium"
 
 
 def test_resolve_family_rejects_invalid_configured_and_env(tmp_path, monkeypatch):

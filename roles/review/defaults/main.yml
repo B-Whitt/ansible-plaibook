@@ -216,12 +216,15 @@ review_openai_continuity_reasoning_effort: "{{ lookup('ansible.builtin.env', 'AN
 # subscription can reach.
 review_claude_cli_model: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_CLAUDE_CLI_MODEL') | default(omit, true) }}"
 
-# Cursor Pro via aknochow.cursor.agent (cursor-sdk). Default model is
-# gpt-5.6-luna at effort high. Override with -e, ANSIBLE_REVIEW_CURSOR_MODEL,
-# or ~/.config/ansible-plaibook/vars.yml (what `plai review --provider cursor`
+# Cursor Pro via aknochow.cursor.agent (cursor-sdk). Primary model is
+# gemini-3.8-flash at effort medium. Medium is review_cursor_effort, not
+# part of the model id. aknochow.cursor maps that effort onto
+# reasoning_effort for this model. Override with -e,
+# ANSIBLE_REVIEW_CURSOR_MODEL / ANSIBLE_REVIEW_CURSOR_EFFORT, or
+# ~/.config/ansible-plaibook/vars.yml (what `plai review --provider cursor`
 # writes).
-review_cursor_model: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_CURSOR_MODEL') | default('gpt-5.6-luna', true) }}"
-review_cursor_effort: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_CURSOR_EFFORT') | default('high', true) }}"
+review_cursor_model: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_CURSOR_MODEL') | default('gemini-3.8-flash', true) }}"
+review_cursor_effort: "{{ lookup('ansible.builtin.env', 'ANSIBLE_REVIEW_CURSOR_EFFORT') | default('medium', true) }}"
 
 # Without a key, cursor-sdk falls back to LOCAL BRIDGE DISCOVERY and the
 # dispatch dies with "Cursor agent failed to start: Timed out waiting for

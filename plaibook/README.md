@@ -21,7 +21,7 @@ refuse `pip install` into the system Python (PEP 668). Inside a
 virtualenv you already manage, `pip install plaibook` is the same
 install. `plai review` with no arguments reviews `HEAD` in
 the current directory. Needs Python 3.10 or newer. First run prompts
-for a provider (Cursor defaults to `gpt-5.6-luna` / `high`) and installs
+for a provider (Cursor defaults to `gemini-3.8-flash` / `medium`) and installs
 collections from GitHub into `~/.cache/ansible-plaibook/collections`
 (never galaxy.ansible.com). It never writes `~/.ansible/collections`, so
 a leftover symlink from a sibling checkout cannot break install.
@@ -87,7 +87,7 @@ $0.00 cost is not mistaken for a live run.
 bundled copy. First run with no operator config prompts for a
 provider and writes `~/.config/ansible-plaibook/vars.yml`. `--provider
 cursor` does the same non-interactively and defaults Cursor to
-`gpt-5.6-luna` / `high`. PR/branch reviews skip nested OpenShell when
+`gemini-3.8-flash` / `medium`. PR/branch reviews skip nested OpenShell when
 this process is already inside a sandbox (in-guest JWT). The SDK needs
 Python 3.11+; a 3.10 `plai` switches to
 `~/.cache/ansible-plaibook/sandbox-runtime` for that sandbox.
