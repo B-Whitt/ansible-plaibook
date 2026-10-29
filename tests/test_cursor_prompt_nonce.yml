@@ -11,6 +11,7 @@
 #       matching nonce, not {} or a probe nonce
 #   (6) nested executes and no canary fail closed even when the lens
 #       is not required
+#   (7) JSON null args, and a JSON null canary, do not crash the when
 # Plus: prompt_nonce required on shared schemas; no prompt_attestation
 # field and no Cursor schema copies; nonce lands in trusted prompts;
 # fail_msg does not print .text, HMAC keys, or payloads.
@@ -432,3 +433,76 @@
               - not (cursor_named_lens_present | bool)
             fail_msg: "A mid-turn with zero nested executes must stay not present."
             success_msg: "Zero nested executes with required false stays not present."
+
+    - name: JSON null args does not crash and the canary still binds
+      block:
+        - name: Select a canary execute followed by null args
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: select_cursor_named_lens
+          vars:
+            cursor_raw:
+              structured: {}
+              structured_tool_calls:
+                - name: report_findings
+                  caller: nested
+                  args:
+                    findings: []
+                    prompt_nonce: "{{ review_prompt_nonce }}"
+                - name: report_findings
+                  caller: nested
+                  args: null
+            cursor_nonce_lens_label: Explore
+            cursor_lens_tool: report_findings
+            cursor_named_lens_required: true
+
+        - name: Confirm null args was ignored in favor of the canary
+          ansible.builtin.assert:
+            that:
+              - cursor_named_lens_present | bool
+              - cursor_lens_structured.prompt_nonce == review_prompt_nonce
+              - cursor_lens_structured.findings is defined
+              - cursor_lens_structured.findings | length == 0
+            fail_msg: "Expected the canary execute to bind when a later args value is JSON null."
+            success_msg: "JSON null args did not crash the when; the canary bound."
+
+    - name: JSON null canary must fail closed without crashing the when
+      block:
+        - name: Select nested executes while the canary is JSON null
+          ansible.builtin.include_role:
+            name: review
+            tasks_from: select_cursor_named_lens
+          vars:
+            review_prompt_nonce: null
+            cursor_raw:
+              structured: {}
+              structured_tool_calls:
+                - name: report_findings
+                  caller: nested
+                  args:
+                    findings: []
+                    prompt_nonce: null
+                - name: report_findings
+                  caller: nested
+                  args:
+                    findings: []
+                    prompt_nonce: "AbCdEfGh12345678"
+            cursor_nonce_lens_label: Explore
+            cursor_lens_tool: report_findings
+            cursor_named_lens_required: true
+
+        - name: Fail if a null canary was accepted
+          ansible.builtin.fail:
+            msg: "Expected a JSON null canary to fail closed."
+      rescue:
+        - name: Confirm a null canary fails closed without a template error
+          ansible.builtin.assert:
+            that:
+              - "'fabricat' in (ansible_failed_result.msg | default('') | lower)"
+              - "'attribute' not in (ansible_failed_result.msg | default('') | lower)"
+              - "'undefined' not in (ansible_failed_result.msg | default('') | lower)"
+              - "'nonetype' not in (ansible_failed_result.msg | default('') | lower)"
+            fail_msg: >-
+              Expected a fabrication fail_msg, not a null-attribute crash.
+              Got: {{ ansible_failed_result.msg | default('') }}
+            success_msg: "JSON null canary fails closed without crashing the when."

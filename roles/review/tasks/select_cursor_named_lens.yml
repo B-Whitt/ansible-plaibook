@@ -57,8 +57,10 @@
   ansible.builtin.set_fact:
     _cursor_canary_calls: []
 
-# selectattr('args.prompt_nonce') errors when a later execute is {}.
-# Walk the list and default a missing nonce to empty.
+# selectattr('args.prompt_nonce') errors when a later execute is {} or
+# JSON null. default(value) leaves null in place; default(value, true)
+# treats null as empty so .prompt_nonce and | length do not crash.
+# An undefined cursor_lens_tool does not match.
 - name: "Cursor: keep nested executes whose prompt_nonce matches for {{ cursor_nonce_lens_label }}"
   ansible.builtin.set_fact:
     _cursor_canary_calls: "{{ _cursor_canary_calls + [item] }}"
@@ -66,9 +68,9 @@
   loop_control:
     label: nested
   when:
-    - (review_prompt_nonce | default('')) | length > 0
-    - (item.name | default('')) == cursor_lens_tool
-    - ((item.args | default({})).prompt_nonce | default('')) == review_prompt_nonce
+    - (review_prompt_nonce | default('', true)) | length > 0
+    - cursor_lens_tool is defined and (item.name | default('')) == cursor_lens_tool
+    - ((item.args | default({}, true)).prompt_nonce | default('', true)) == (review_prompt_nonce | default('', true))
 
 - name: "Cursor: fail closed if {{ cursor_nonce_lens_label }} nested executes lack the canary"
   when:
